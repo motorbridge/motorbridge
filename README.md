@@ -556,6 +556,16 @@ pip install --no-binary motorbridge motorbridge
 |---|---|---|
 | APT repository (GitHub Pages) | `.github/workflows/apt-repo-publish.yml` | `https://<owner>.github.io/<repo>/apt` |
 
+### E) Arch Linux
+
+```bash
+yay -Syu libmotorbridge
+yay -Syu python-motorbridge
+yay -Syu motorbridge
+```
+
+[![Packaging status](https://repology.org/badge/vertical-allrepos/motorbridge.svg)](https://repology.org/project/motorbridge/versions)
+
 Notes:
 - `.deb` is currently Linux x86_64 oriented; other Linux targets should use ABI `.tar.gz`.
 - macOS x86_64 wheels are intentionally not produced in current matrix.

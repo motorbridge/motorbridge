@@ -559,6 +559,16 @@ pip install --no-binary motorbridge motorbridge
 |---|---|---|
 | APT 仓库（GitHub Pages） | `.github/workflows/apt-repo-publish.yml` | `https://<owner>.github.io/<repo>/apt` |
 
+### E) Arch Linux 仓库
+
+```bash
+yay -Syu libmotorbridge
+yay -Syu python-motorbridge
+yay -Syu motorbridge
+```
+
+[![Packaging status](https://repology.org/badge/vertical-allrepos/motorbridge.svg)](https://repology.org/project/motorbridge/versions)
+
 说明：
 - `.deb` 当前面向 Linux x86_64；其他 Linux 目标建议使用 ABI `.tar.gz`。
 - 当前发布矩阵故意不产出 macOS x86_64 wheel。

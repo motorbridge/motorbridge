@@ -32,4 +32,22 @@ If no key is configured, workflow publishes unsigned metadata (`-skip-signing`).
 | `motorbridge-*.whl` / `motorbridge-*.tar.gz` | Python application and tooling developers | Build robot apps, calibration tools, factory scripts with Python SDK |
 | `motor-cli-<tag>-<platform>.tar.gz/.zip` | Test/ops/factory engineers | Direct motor scan/control without embedding SDK code |
 
+## 2) Arch Linux Repository
+
+Install through [AUR repo](https://aur.archlinux.org/pkgbase/motorbridge) or [Self-Hosted repo](https://github.com/taotieren/aur-repo).
+
+- motorbridge/lilac.yaml automatically obtains the current repo `tag` and triggers a version update and pushes it to the AUR repo
+
+```bash
+yay -Syu libmotorbridge
+yay -Syu python-motorbridge
+yay -Syu motorbridge
+```
+
+| Package/Asset| for developers| typical uses|
+|---|---|---|
+| `libmotorbridge-<tag>-*.tar.pkg.zst`| C/C++ robotics developers on Arch Linux | Install ABI (`libmotor_abi`) + headers + CMake config for native integration |
+| `python-motorbridge-<tag>-*.tar.pkg.zst`| Python application and tooling developers | Build robot apps, calibration tools, factory scripts with Python SDK |
+| `motorbridge-<tag>-*.tar.pkg.zst`| Test/ops/factory engineers | Direct motor scan/control without embedding SDK code |
+
 At this stage, Homebrew and Windows package-manager metadata automation were intentionally removed to keep the release process fully deterministic and fully automated in CI.

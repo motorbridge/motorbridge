@@ -32,4 +32,22 @@
 | `motorbridge-*.whl` / `motorbridge-*.tar.gz` | Python 应用与工具开发者 | 用 Python SDK 开发上位机、标定脚本、工厂工具 |
 | `motor-cli-<tag>-<platform>.tar.gz/.zip` | 测试/运维/工厂工程师 | 不写 SDK 代码，直接做电机扫描和控制 |
 
+## 2) Arch Linux 仓库
+
+通过 [AUR 仓库](https://aur.archlinux.org/pkgbase/motorbridge) 或 [自托管仓库](https://github.com/taotieren/aur-repo) 安装。
+
+- motorbridge/lilac.yaml 自动获取当前仓库 `tag` 并触发版本更新后并推送到 AUR 仓库
+
+```bash
+yay -Syu libmotorbridge
+yay -Syu python-motorbridge
+yay -Syu motorbridge
+```
+
+| 包 / 资产 | 面向开发者 | 典型用途 |
+|---|---|---|
+| `libmotorbridge-<tag>-*.tar.pkg.zst` | Arch Linux 上的 C/C++ 机器人开发者 | 安装 ABI（`libmotor_abi`）+ 头文件 + CMake 配置做原生集成 |
+| `python-motorbridge-<tag>-*.tar.pkg.zst` | Python 应用与工具开发者 | 用 Python SDK 开发上位机、标定脚本、工厂工具 |
+| `motorbridge-<tag>-*.tar.pkg.zst` | 测试/运维/工厂工程师 | 不写 SDK 代码，直接做电机扫描和控制 |
+
 当前阶段，为保证发布链路“可完全自动化且可预测”，Homebrew 与 Windows 包管理元数据自动化已暂时移除。
