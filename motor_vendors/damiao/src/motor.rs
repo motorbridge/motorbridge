@@ -18,6 +18,7 @@ const REGISTER_POLL_INTERVAL_MS: u64 = 2;
 const SET_ZERO_SETTLE_MS: u64 = 20;
 const ENSURE_MODE_VERIFY_ATTEMPTS: usize = 3;
 const ENSURE_MODE_VERIFY_RETRY_GAP_MS: u64 = 10;
+const WRITE_MODE_REGISTER_WAIT_MS: u64 = 20;
 
 const DAMIAO_MODELS: &[MotorModelSpec] = &[
     MotorModelSpec {
@@ -337,6 +338,10 @@ impl DamiaoMotor {
         }
 
         self.write_register_u32(10, desired)?;
+
+        std::thread::sleep(std::time::Duration::from_millis(
+            WRITE_MODE_REGISTER_WAIT_MS,
+        ));
 
         let mut last_error = None;
         for attempt in 0..ENSURE_MODE_VERIFY_ATTEMPTS {
