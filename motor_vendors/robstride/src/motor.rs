@@ -19,7 +19,7 @@ const ROBSTRIDE_MODELS: &[MotorModelSpec] = &[
         vendor: "robstride",
         model: "rs-00",
         pmax: 4.0 * std::f32::consts::PI,
-        vmax: 50.0,
+        vmax: 33.0,
         tmax: 14.0,
     },
     MotorModelSpec {
@@ -40,7 +40,7 @@ const ROBSTRIDE_MODELS: &[MotorModelSpec] = &[
         vendor: "robstride",
         model: "rs-03",
         pmax: 4.0 * std::f32::consts::PI,
-        vmax: 50.0,
+        vmax: 20.0,
         tmax: 60.0,
     },
     MotorModelSpec {
@@ -61,7 +61,7 @@ const ROBSTRIDE_MODELS: &[MotorModelSpec] = &[
         vendor: "robstride",
         model: "rs-06",
         pmax: 4.0 * std::f32::consts::PI,
-        vmax: 20.0,
+        vmax: 50.0,
         tmax: 36.0,
     },
 ];
