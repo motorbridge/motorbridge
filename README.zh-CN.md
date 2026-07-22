@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10--3.14-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platforms](https://img.shields.io/badge/Platforms-Linux%20%7C%20Windows%20%7C%20macOS-6f42c1.svg)](README.zh-CN.md#发布与安装总览完整矩阵)
-[![GitHub Release](https://img.shields.io/github/v/release/tianrking/motorbridge)](https://github.com/tianrking/motorbridge/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/motorbridge/motorbridge)](https://github.com/motorbridge/motorbridge/releases)
 
 这是一个统一的 CAN 电机控制栈，包含 vendor-agnostic Rust core、稳定 C ABI，以及 Python/C++ bindings。
 
@@ -12,7 +12,7 @@
 
 ## 配套仓库
 
-- `motorbridge-studio`：https://github.com/tianrking/motorbridge-studio
+- `motorbridge-studio`：https://github.com/motorbridge/motorbridge-studio
   基于 `ws_gateway` 的独立 Web 控制台。
 
 ## 更新说明（2026-07）：v0.4.9
@@ -360,7 +360,7 @@ cargo run -p motor_cli --release -- --vendor damiao --channel can0@1000000 --mod
 - 已在 macOS 上拉取并编译 `motorbridge`。
 - 仓库内置安装包：`third_party/pcan/macos/macOS_Library_for_PCANUSB_v0.13.tar.gz`。
 - 或直接从 GitHub 下载：
-  - <https://github.com/tianrking/motorbridge/blob/main/third_party/pcan/macos/macOS_Library_for_PCANUSB_v0.13.tar.gz>
+  - <https://github.com/motorbridge/motorbridge/blob/main/third_party/pcan/macos/macOS_Library_for_PCANUSB_v0.13.tar.gz>
 
 ### 2. 使用仓库内置包一键安装（推荐）
 
@@ -387,7 +387,7 @@ DYLD_LIBRARY_PATH=$HOME/.local/lib ./target/release/motor_cli ...
 ```bash
 mkdir -p /tmp/motorbridge-pcan && cd /tmp/motorbridge-pcan
 curl -L -o macOS_Library_for_PCANUSB_v0.13.tar.gz \
-  https://raw.githubusercontent.com/tianrking/motorbridge/main/third_party/pcan/macos/macOS_Library_for_PCANUSB_v0.13.tar.gz
+  https://raw.githubusercontent.com/motorbridge/motorbridge/main/third_party/pcan/macos/macOS_Library_for_PCANUSB_v0.13.tar.gz
 ```
 
 然后安装：

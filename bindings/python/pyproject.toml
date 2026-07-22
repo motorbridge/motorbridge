@@ -28,8 +28,8 @@ classifiers = [
 version = { attr = "motorbridge._version.VERSION" }
 
 [project.urls]
-Homepage = "https://github.com/tianrking/motorbridge"
-Repository = "https://github.com/tianrking/motorbridge"
+Homepage = "https://github.com/motorbridge/motorbridge"
+Repository = "https://github.com/motorbridge/motorbridge"
 
 [project.scripts]
 motorbridge = "motorbridge.cli:main"

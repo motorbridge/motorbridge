@@ -20,8 +20,8 @@ version = "0.5.0"
 edition = "2021"
 authors = ["tianrking"]
 license = "MIT"
-repository = "https://github.com/tianrking/motorbridge.git"
-homepage = "https://github.com/tianrking/motorbridge"
+repository = "https://github.com/motorbridge/motorbridge.git"
+homepage = "https://github.com/motorbridge/motorbridge"
 description = "Unified CAN motor control stack with pluggable vendor drivers and C ABI"
 
 [workspace.lints.clippy]

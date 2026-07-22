@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10--3.14-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platforms](https://img.shields.io/badge/Platforms-Linux%20%7C%20Windows%20%7C%20macOS-6f42c1.svg)](README.md#release-and-installation-overview-full-matrix)
-[![GitHub Release](https://img.shields.io/github/v/release/tianrking/motorbridge)](https://github.com/tianrking/motorbridge/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/motorbridge/motorbridge)](https://github.com/motorbridge/motorbridge/releases)
 
 Unified CAN motor control stack with a vendor-agnostic Rust core, stable C ABI, and Python/C++ bindings.
 
@@ -12,7 +12,7 @@ Unified CAN motor control stack with a vendor-agnostic Rust core, stable C ABI, 
 
 ## Companion Repos
 
-- `motorbridge-studio`: https://github.com/tianrking/motorbridge-studio
+- `motorbridge-studio`: https://github.com/motorbridge/motorbridge-studio
   Standalone web control UI built on top of `ws_gateway`.
 
 ## Update (2026-07): v0.4.9
@@ -492,7 +492,7 @@ On macOS, `PCANBasic.dll` is not used.
 - `motorbridge` source built on macOS.
 - Bundled archive in this repo: `third_party/pcan/macos/macOS_Library_for_PCANUSB_v0.13.tar.gz`.
 - Or download directly from GitHub:
-  - <https://github.com/tianrking/motorbridge/blob/main/third_party/pcan/macos/macOS_Library_for_PCANUSB_v0.13.tar.gz>
+  - <https://github.com/motorbridge/motorbridge/blob/main/third_party/pcan/macos/macOS_Library_for_PCANUSB_v0.13.tar.gz>
 
 ### 2. Quick install from bundled archive (recommended)
 
@@ -519,7 +519,7 @@ If you want to download manually first:
 ```bash
 mkdir -p /tmp/motorbridge-pcan && cd /tmp/motorbridge-pcan
 curl -L -o macOS_Library_for_PCANUSB_v0.13.tar.gz \
-  https://raw.githubusercontent.com/tianrking/motorbridge/main/third_party/pcan/macos/macOS_Library_for_PCANUSB_v0.13.tar.gz
+  https://raw.githubusercontent.com/motorbridge/motorbridge/main/third_party/pcan/macos/macOS_Library_for_PCANUSB_v0.13.tar.gz
 ```
 
 Then install:
