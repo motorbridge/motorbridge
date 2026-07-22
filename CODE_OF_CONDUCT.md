@@ -46,7 +46,7 @@ an individual is officially representing the community in public spaces.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported by contacting the project team at
-**tianrking@users.noreply.github.com**. All complaints will be reviewed and
+**killingjacky@users.noreply.github.com**. All complaints will be reviewed and
 investigated promptly and fairly.
 
 ## Attribution
