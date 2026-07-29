@@ -257,6 +257,7 @@ name = "motor_abi"
 version = "0.5.0"
 dependencies = [
  "motor_core",
+ "motor_vendor_cyberbeast",
  "motor_vendor_damiao",
  "motor_vendor_hexfellow",
  "motor_vendor_hightorque",
@@ -269,8 +270,10 @@ name = "motor_cli"
 version = "0.5.0"
 dependencies = [
  "motor_core",
+ "motor_vendor_cyberbeast",
  "motor_vendor_damiao",
  "motor_vendor_hexfellow",
+ "motor_vendor_hightorque",
  "motor_vendor_myactuator",
  "motor_vendor_robstride",
  "motor_vendor_robstride_cia402",
@@ -284,6 +287,13 @@ dependencies = [
  "cc",
  "libloading",
  "serialport",
+]
+
+[[package]]
+name = "motor_vendor_cyberbeast"
+version = "0.5.0"
+dependencies = [
+ "motor_core",
 ]
 
 [[package]]

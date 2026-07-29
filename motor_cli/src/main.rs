@@ -1,4 +1,5 @@
 mod args;
+mod cyberbeast_cli;
 mod damiao_cli;
 mod hexfellow_cli;
 mod hightorque_cli;
@@ -8,6 +9,7 @@ mod robstride_cli;
 mod robstride_mit_cli;
 
 use args::{get_str, get_u16_hex_or_dec, print_help};
+use cyberbeast_cli::run_cyberbeast;
 use damiao_cli::run_damiao;
 use hexfellow_cli::run_hexfellow;
 use hightorque_cli::run_hightorque;
@@ -40,6 +42,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "X8"
         } else if vendor == "hexfellow" {
             "hexfellow"
+        } else if vendor == "cyberbeast" {
+            "odrive-default"
         } else {
             "4340"
         };
@@ -50,6 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "robstride_cia402" | "hexfellow" => 0x0000,
         "hightorque" => 0x0001,
         "myactuator" => 0x0241,
+        "cyberbeast" => 0x0000,
         _ => 0x0011,
     };
     let feedback_id = get_u16_hex_or_dec(&args, "feedback-id", feedback_default)?;
@@ -60,6 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "robstride" => "ping",
             "robstride_mit" | "robstride_cia402" | "myactuator" | "hexfellow" => "status",
             "hightorque" => "read",
+            "cyberbeast" => "status",
             "all" => "scan",
             _ => "mit",
         },
@@ -181,6 +187,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "hightorque" => run_hightorque(&args, &channel, motor_id),
         "myactuator" => run_myactuator(&args, &channel, &model, motor_id, feedback_id),
         "hexfellow" => run_hexfellow(&args, &channel, &model, motor_id, feedback_id),
+        "cyberbeast" => run_cyberbeast(&args, &channel, &model, motor_id, feedback_id),
         _ => Err(format!("unknown vendor: {vendor}").into()),
     }
 }

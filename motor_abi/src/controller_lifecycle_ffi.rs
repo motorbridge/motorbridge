@@ -7,6 +7,7 @@ macro_rules! dispatch_controller {
             ControllerInner::Hexfellow(ctrl) => ctrl.$method().map_err(|e| e.to_string()),
             ControllerInner::MyActuator(ctrl) => ctrl.$method().map_err(|e| e.to_string()),
             ControllerInner::Robstride(ctrl) => ctrl.$method().map_err(|e| e.to_string()),
+            ControllerInner::CyberBeast(ctrl) => ctrl.$method().map_err(|e| e.to_string()),
             ControllerInner::Hightorque(ctrl) => ctrl.$method().map_err(|e| e.to_string()),
             ControllerInner::Unbound(_) => Err(
                 "controller has no motor; add a motor before calling this operation".to_string(),
