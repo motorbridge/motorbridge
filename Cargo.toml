@@ -9,6 +9,7 @@ members = [
   "motor_vendors/hexfellow",
   "motor_vendors/hightorque",
   "motor_vendors/template",
+  "motor_vendors/cyberbeast",
   "motor_cli",
   "motor_abi",
   "integrations/ws_gateway",

@@ -287,6 +287,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "motor_vendor_cyberbeast"
+version = "0.5.0"
+dependencies = [
+ "motor_core",
+]
+
+[[package]]
 name = "motor_vendor_damiao"
 version = "0.5.0"
 dependencies = [
