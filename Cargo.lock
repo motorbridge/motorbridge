@@ -766,6 +766,7 @@ version = "0.5.0"
 dependencies = [
  "futures-util",
  "motor_core",
+ "motor_vendor_cyberbeast",
  "motor_vendor_damiao",
  "motor_vendor_hexfellow",
  "motor_vendor_myactuator",

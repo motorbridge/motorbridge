@@ -55,6 +55,9 @@ fn handle_clear_error(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> 
         Some(MotorHandle::Myactuator(_)) => {
             return Err("clear_error is not supported for myactuator".to_string())
         }
+        Some(MotorHandle::CyberBeast(_)) => {
+            return Err("cyberbeast not supported".to_string());
+        }
         None => return Err("motor not connected".to_string()),
     }
     Ok(json!({"cleared": true}))
@@ -84,6 +87,9 @@ fn handle_set_zero_position(v: &Value, ctx: &mut SessionCtx) -> Result<Value, St
         }
         Some(MotorHandle::Hightorque(_)) => {
             return Err("set_zero_position is not supported for hightorque".to_string())
+        }
+        Some(MotorHandle::CyberBeast(_)) => {
+            return Err("cyberbeast not supported".to_string());
         }
         None => return Err("motor not connected".to_string()),
     }
@@ -127,6 +133,9 @@ fn handle_ensure_mode(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> 
         }
         Some(MotorHandle::Hightorque(_)) => {
             return Err("ensure_mode is not supported for hightorque".to_string())
+        }
+        Some(MotorHandle::CyberBeast(_)) => {
+            return Err("cyberbeast not supported".to_string());
         }
         None => return Err("motor not connected".to_string()),
     }
@@ -198,6 +207,9 @@ fn handle_set_active_report(v: &Value, ctx: &mut SessionCtx) -> Result<Value, St
         Some(MotorHandle::Myactuator(_)) => {
             return Err("set_active_report is not supported for myactuator".to_string())
         }
+        Some(MotorHandle::CyberBeast(_)) => {
+            return Err("cyberbeast not supported".to_string());
+        }
         None => return Err("motor not connected".to_string()),
     }
     Ok(json!({"active_report": enabled}))
@@ -231,6 +243,9 @@ fn handle_store_parameters(v: &Value, ctx: &mut SessionCtx) -> Result<Value, Str
         Some(MotorHandle::Myactuator(_)) => {
             return Err("store_parameters is not supported for myactuator".to_string())
         }
+        Some(MotorHandle::CyberBeast(_)) => {
+            return Err("cyberbeast not supported".to_string());
+        }
         None => return Err("motor not connected".to_string()),
     }
     Ok(json!({"stored": true}))
@@ -259,6 +274,9 @@ fn handle_set_can_timeout_ms(v: &Value, ctx: &mut SessionCtx) -> Result<Value, S
         }
         Some(MotorHandle::Myactuator(_)) => {
             Err("set_can_timeout_ms is not supported for myactuator".to_string())
+        }
+        Some(MotorHandle::CyberBeast(_)) => {
+            Err("cyberbeast not supported".to_string())
         }
         None => Err("motor not connected".to_string()),
     }

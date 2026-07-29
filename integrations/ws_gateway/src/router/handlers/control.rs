@@ -110,6 +110,9 @@ fn handle_mit(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         Some(MotorHandle::Myactuator(_)) => {
             return Err("mit is not supported for myactuator".to_string());
         }
+        Some(MotorHandle::CyberBeast(_)) => {
+            return Err("cyberbeast not supported for this operation".to_string());
+        }
         None => return Err("motor not connected".to_string()),
     }
     ctx.active = if as_bool(v, "continuous", false) {
@@ -202,6 +205,9 @@ fn handle_pos_vel(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         Some(MotorHandle::Myactuator(_)) => {
             Err("pos_vel is not supported for myactuator".to_string())
         }
+        Some(MotorHandle::CyberBeast(_)) => {
+            Err("cyberbeast not supported for this operation".to_string())
+        }
         None => Err("motor not connected".to_string()),
     }
 }
@@ -267,6 +273,9 @@ fn handle_vel(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         Some(MotorHandle::Hexfellow(_)) => {
             return Err("vel is not supported for hexfellow; use pos_vel or mit".to_string())
         }
+        Some(MotorHandle::CyberBeast(_)) => {
+            return Err("cyberbeast not supported for this operation".to_string());
+        }
         None => return Err("motor not connected".to_string()),
     }
     ctx.active = if as_bool(v, "continuous", false) {
@@ -319,6 +328,9 @@ fn handle_force_pos(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         }
         Some(MotorHandle::Myactuator(_)) => {
             Err("force_pos is not supported for myactuator".to_string())
+        }
+        Some(MotorHandle::CyberBeast(_)) => {
+            Err("cyberbeast not supported for this operation".to_string())
         }
         None => Err("motor not connected".to_string()),
     }

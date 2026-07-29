@@ -149,6 +149,21 @@ impl SessionCtx {
                 }
                 None => Ok(()),
             },
+            Some(MotorHandle::CyberBeast(motor)) => match self.active.as_ref() {
+                Some(ActiveCommand::Mit { pos, vel, kp, kd, tau }) => motor
+                    .send_mit_command(*pos, *vel, *kp, *kd, *tau)
+                    .map_err(|e| e.to_string()),
+                Some(ActiveCommand::Vel { vel }) => motor
+                    .send_vel_control(vel.abs() * 60.0 / TWO_PI, 0.0)
+                    .map_err(|e| e.to_string()),
+                Some(ActiveCommand::PosVel { pos, vlim }) => motor
+                    .send_pos_control(pos * 360.0 / TWO_PI, vlim.abs() * 60.0 / TWO_PI, 0.0)
+                    .map_err(|e| e.to_string()),
+                Some(ActiveCommand::ForcePos { .. }) => motor
+                    .send_torque_control(0.0)
+                    .map_err(|e| e.to_string()),
+                None => Ok(()),
+            },
             None => Err("motor not connected".to_string()),
         }
     }

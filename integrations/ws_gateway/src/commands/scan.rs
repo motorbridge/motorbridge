@@ -8,6 +8,7 @@ use super::{
     as_u16, as_u64, parse_hex_or_dec, parse_id_list_csv, parse_transport_in_msg,
     parse_vendor_in_msg,
 };
+use crate::vendors::cyberbeast_ws::cmd_scan_cyberbeast;
 use crate::vendors::damiao_ws::cmd_scan_damiao;
 use crate::vendors::hightorque_ws::{send_hightorque_ext, wait_hightorque_status_for_motor};
 use crate::vendors::transport_ws::{
@@ -387,6 +388,7 @@ pub(crate) fn cmd_scan(v: &Value, base: &Target) -> Result<Value, String> {
         Vendor::Hexfellow => cmd_scan_hexfellow(v, base),
         Vendor::Myactuator => cmd_scan_myactuator(v, base),
         Vendor::Hightorque => cmd_scan_hightorque(v, base),
+        Vendor::CyberBeast => cmd_scan_cyberbeast(v, base),
     }
 }
 
