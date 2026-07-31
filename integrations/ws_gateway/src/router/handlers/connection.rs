@@ -19,7 +19,7 @@ pub(crate) fn handle(
         "set_target" => Some(handle_set_target(v, ctx)),
         "enable" => Some(handle_enable(v, ctx)),
         "disable" => Some(handle_disable(v, ctx)),
-        "stop" => Some(handle_stop(ctx)),
+        "stop" => Some(handle_stop(v, ctx)),
         "state_once" => Some(handle_state_once(ctx)),
         "damiao_state_many" => Some(handle_damiao_state_many(v, ctx)),
         "state_stream" => Some(handle_state_stream(v, state_stream_enabled)),
@@ -260,11 +260,23 @@ fn handle_disable(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         None => return Err("motor not connected".to_string()),
     }
     ctx.active = None;
+    ctx.robstride_mit_gains = None;
     Ok(json!({"disabled": true}))
 }
 
-fn handle_stop(ctx: &mut SessionCtx) -> Result<Value, String> {
-    ctx.active = None;
+fn handle_stop(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
+    ctx.retarget_from_request_if_present(
+        v.get("vendor")
+            .and_then(Value::as_str)
+            .map(crate::model::Vendor::from_str)
+            .transpose()?,
+        v.get("model").and_then(Value::as_str),
+        v.get("motor_id")
+            .map(|_| as_u16(v, "motor_id", ctx.target.motor_id)),
+        v.get("feedback_id")
+            .map(|_| as_u16(v, "feedback_id", ctx.target.feedback_id)),
+    )?;
+    ctx.ensure_connected()?;
     if let Some(m) = ctx.motor.as_ref() {
         match m {
             MotorHandle::Damiao(mm) => mm.send_cmd_vel(0.0).map_err(|e| e.to_string())?,
@@ -291,10 +303,38 @@ fn handle_stop(ctx: &mut SessionCtx) -> Result<Value, String> {
                 }
             }
             MotorHandle::Myactuator(mm) => mm.stop_motor().map_err(|e| e.to_string())?,
-            MotorHandle::Robstride(mm) => mm.set_velocity_target(0.0).map_err(|e| e.to_string())?,
+            MotorHandle::Robstride(mm) => {
+                // Resolve the live run_mode before clearing session state. One-shot
+                // commands are not stored in `active`, and the mode may also have
+                // been changed through the parameter API.
+                let mode_result = mm.controlled_stop(
+                    ctx.robstride_mit_gains,
+                    std::time::Duration::from_millis(300),
+                );
+                ctx.active = None;
+                let mode = mode_result.map_err(|e| e.to_string())?;
+                return Ok(json!({
+                    "stopped": true,
+                    "stop_requested": true,
+                    "motion_confirmed": false,
+                    "torque_off": false,
+                    "mode": mode.as_str(),
+                    "strategy": match mode {
+                        motor_vendor_robstride::ControlMode::Mit => "hold-current-position-mit",
+                        motor_vendor_robstride::ControlMode::Position => "pp-vel-max-zero",
+                        motor_vendor_robstride::ControlMode::Velocity => "velocity-target-zero",
+                        motor_vendor_robstride::ControlMode::PositionCsp => "hold-current-position-csp",
+                    }
+                }));
+            }
         }
     }
-    Ok(json!({"stopped": true}))
+    ctx.active = None;
+    Ok(json!({
+        "stopped": true,
+        "stop_requested": true,
+        "motion_confirmed": false
+    }))
 }
 
 fn handle_state_once(ctx: &mut SessionCtx) -> Result<Value, String> {

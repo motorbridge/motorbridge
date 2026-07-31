@@ -333,7 +333,10 @@ RobStride parameter stream frame:
 - `--vendor damiao|robstride|hexfellow|myactuator|hightorque` controls default target vendor.
 - `set_target` can switch vendor/transport/channel/serial/model/id on the fly per session.
 - `continuous=true` keeps sending that control command every tick.
-- `stop` clears continuous control.
+- `stop` clears continuous control and requests a vendor-aware controlled stop.
+  For RobStride it reads `run_mode`, keeps torque enabled, and uses zero
+  `spd_ref` (Velocity), zero `vel_max` (PP), or a current-position hold
+  (CSP/MIT). `disable` remains the separate torque-off operation.
 - `set_id` is vendor-aware:
   - Damiao: write `MST_ID` first, then `ESC_ID`.
   - RobStride: device ID update via `SET_DEVICE_ID`.

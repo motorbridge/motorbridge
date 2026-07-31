@@ -6,7 +6,9 @@ use crate::model::{ControllerHandle, MotorHandle};
 use crate::session::SessionCtx;
 use crate::vendors::damiao_ws::ensure_control_mode_soft;
 use crate::vendors::hightorque_ws::send_hightorque_ext;
-use motor_vendor_robstride::ParameterValue as RobstrideParameterValue;
+use motor_vendor_robstride::{
+    ParameterId as RobstrideParameterId, ParameterValue as RobstrideParameterValue,
+};
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -485,12 +487,19 @@ fn handle_robstride_read_param_op(v: &Value, ctx: &mut SessionCtx) -> Result<Val
 
 fn handle_robstride_write_param_op(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
     ctx.ensure_connected()?;
-    match ctx.motor.as_ref() {
+    let run_mode_changed = as_u16(v, "param_id", 0x700A) == RobstrideParameterId::Mode as u16;
+    let result = match ctx.motor.as_ref() {
         Some(MotorHandle::Robstride(m)) => handle_robstride_write_param(m, v),
         Some(MotorHandle::Damiao(_)) => {
             Err("robstride_write_param requires vendor=robstride".to_string())
         }
         Some(_) => Err("robstride_write_param requires vendor=robstride".to_string()),
         None => Err("motor not connected".to_string()),
+    };
+    if result.is_ok() && run_mode_changed {
+        // Raw run_mode writes bypass the typed control handlers, so any MIT
+        // gains remembered by this gateway session can no longer be trusted.
+        ctx.robstride_mit_gains = None;
     }
+    result
 }

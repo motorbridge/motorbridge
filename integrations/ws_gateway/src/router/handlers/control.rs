@@ -68,6 +68,7 @@ fn handle_mit(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
             {
                 m.send_cmd_mit(pos, vel, kp, kd, tau)
                     .map_err(|e| e.to_string())?;
+                ctx.robstride_mit_gains = Some((kp, kd));
             }
         }
         Some(MotorHandle::Hexfellow(m)) => {
@@ -189,6 +190,7 @@ fn handle_pos_vel(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
                 m.write_parameter(0x7016, RobstrideParameterValue::F32(pos))
                     .map_err(|e| e.to_string())?;
             }
+            ctx.robstride_mit_gains = None;
             ctx.active = if as_bool(v, "continuous", false) {
                 Some(cmd)
             } else {
@@ -245,6 +247,7 @@ fn handle_vel(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
             if let ActiveCommand::Vel { vel } = cmd {
                 m.set_velocity_target(vel).map_err(|e| e.to_string())?;
             }
+            ctx.robstride_mit_gains = None;
         }
         Some(MotorHandle::Myactuator(m)) => {
             if let ActiveCommand::Vel { vel } = cmd {
