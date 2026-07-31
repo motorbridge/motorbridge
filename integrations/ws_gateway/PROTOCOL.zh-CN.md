@@ -363,14 +363,15 @@ RobStride：
 
 ### 8.5 `stop`
 
-作用：停止 continuous active 命令，并发送厂商对应的停止/零速度命令。
+作用：停止 continuous active 命令，并发送厂商对应的受控停止命令。`stop`
+与 `disable` 语义不同：前者尽量保留闭环控制/保持力矩，后者取消电机力矩。
 
 厂商行为：
 
 | 厂商 | 行为 |
 | --- | --- |
 | Damiao | `send_cmd_vel(0.0)` |
-| RobStride | `set_velocity_target(0.0)` |
+| RobStride | 按实时读取的 `run_mode` 选择：MIT 保持当前位置（沿用最近一次 `kp/kd`）、PP 写 `vel_max=0`、Velocity 写 `spd_ref=0`、CSP 将 `loc_ref` 写为当前位置 |
 | Hexfellow | 发送零 MIT |
 | MyActuator | `stop_motor()` |
 | HighTorque | 发送 stop raw frame |
@@ -384,8 +385,13 @@ RobStride：
 返回：
 
 ```json
-{"stopped":true}
+{"stopped":true,"stop_requested":true,"motion_confirmed":false}
 ```
+
+`stopped` 是为兼容旧客户端保留的命令接受字段，不代表网关已经测得速度为零。
+新客户端应读取 `stop_requested` 和 `motion_confirmed`。RobStride 还返回
+`mode`、`strategy` 与 `torque_off:false`。如果 MIT 会话没有可靠的最近一次
+`kp/kd`，网关会返回错误，而不会猜测可能不安全的保持增益。
 
 ### 8.6 `state_once`
 

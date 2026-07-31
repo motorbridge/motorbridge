@@ -8,6 +8,7 @@ pub(crate) struct SessionCtx {
     pub(crate) controller: Option<ControllerHandle>,
     pub(crate) motor: Option<MotorHandle>,
     pub(crate) active: Option<ActiveCommand>,
+    pub(crate) robstride_mit_gains: Option<(f32, f32)>,
 }
 
 pub(crate) fn myactuator_feedback_default(motor_id: u16) -> u16 {
@@ -26,6 +27,7 @@ impl SessionCtx {
             controller: None,
             motor: None,
             active: None,
+            robstride_mit_gains: None,
         }
     }
 

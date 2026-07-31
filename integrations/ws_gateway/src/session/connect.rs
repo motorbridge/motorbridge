@@ -138,6 +138,7 @@ impl SessionCtx {
 
     pub(crate) fn disconnect(&mut self, shutdown: bool) {
         self.active = None;
+        self.robstride_mit_gains = None;
         self.motor = None;
         if let Some(ctrl) = self.controller.take() {
             match ctrl {

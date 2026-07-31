@@ -332,7 +332,9 @@ or offline joints return `has_value:false` instead of failing the whole request.
 - `--vendor damiao|robstride|hexfellow|myactuator|hightorque` 用于设置会话默认厂商。
 - `set_target` 可在单个会话中动态切换厂商/transport/通道/串口/型号/ID。
 - `continuous=true` 会在每个 tick 持续发送该控制命令。
-- `stop` 用于清除持续控制。
+- `stop` 用于清除持续控制并请求厂商感知的受控停车。RobStride 会读取
+  `run_mode`，保持电机使能，并按模式使用零 `spd_ref`（Velocity）、零
+  `vel_max`（PP）或当前位置保持（CSP/MIT）；`disable` 仍是独立的失能操作。
 - `set_id` 按厂商处理：
   - Damiao：先写 `MST_ID`，再写 `ESC_ID`。
   - RobStride：使用 `SET_DEVICE_ID` 更新设备 ID。
