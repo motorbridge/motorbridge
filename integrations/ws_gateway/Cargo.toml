@@ -23,3 +23,6 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
 tokio-tungstenite = "0.24"
 futures-util = "0.3"
+
+[dev-dependencies]
+motor_core = { path = "../../motor_core", features = ["test-support"] }

@@ -696,7 +696,7 @@ Damiao 周期推送：
 | 厂商 | 支持 | 说明 |
 | --- | --- | --- |
 | Damiao | 是 | 原生 POS_VEL |
-| RobStride | 是 | 切 Position mode，写 `0x7017 limit_spd`、`0x701E loc_kp`、`0x7016 loc_ref` |
+| RobStride | 是（兼容路径） | PP：写 `0x7024 vel_max`、可选 `0x7025 acc_set`、`0x701E loc_kp`、`0x7016 loc_ref`；推荐使用显式 PP/CSP op |
 | Hexfellow | 是 | 转成 rev / rev/s |
 | HighTorque | 当前 handler 返回不支持 | 后续可扩展 |
 | MyActuator | 当前 handler 返回不支持 | 可用 `pos` 原生 op |
@@ -709,7 +709,7 @@ Damiao 周期推送：
 | `vlim` | f32 | `1.0` | 速度限制，rad/s |
 | `loc_kp` | f32 | 无 | RobStride 位置环 Kp；若无则尝试 `kp` |
 | `kp` | f32 | 无 | RobStride `loc_kp` fallback |
-| `continuous` | bool | `false` | 是否周期发送 |
+| `continuous` | bool | `false` | RobStride 兼容 PP 路径不接受 `true`；周期目标请使用 CSP |
 | `ensure_timeout_ms` | u64 | `1000` | Damiao ensure mode 超时 |
 
 请求：
@@ -721,13 +721,44 @@ Damiao 周期推送：
 RobStride：
 
 ```json
-{"op":"pos_vel","pos":0.5,"vlim":1.0,"loc_kp":2.0,"continuous":true}
+{"op":"pos_vel","pos":0.5,"vlim":1.0,"acc_set":10.0,"loc_kp":2.0}
 ```
 
 返回：
 
 ```json
-{"op":"pos_vel","continuous":true}
+{"op":"pos_vel","continuous":false,"native_mode":"pp","velocity_parameter":"vel_max","warning":"RobStride pos_vel is a legacy PP alias; prefer pos_vel_pp with vel_max and acc_set"}
+```
+
+### 9.2.1 RobStride `pos_vel_pp` / `pos-vel-pp`
+
+作用：按 RobStride 手册执行 PP 位置模式：`run_mode=1`、`vel_max(0x7024)`、
+`acc_set(0x7025)`、`loc_ref(0x7016)`。
+
+| 字段 | 类型 | 默认值 | 作用 |
+| --- | --- | --- | --- |
+| `pos` | f32 | `0.0` | 目标位置，rad |
+| `vel_max` | f32 | `1.0` | PP 最大速度，rad/s；兼容别名 `vlim` |
+| `acc_set` | f32 | `10.0` | PP 加速度，rad/s²；兼容别名 `acc` |
+| `continuous` | bool | `false` | 必须为 `false`；PP 运动中不支持动态改变速度/加速度 |
+
+```json
+{"op":"pos_vel_pp","pos":0.5,"vel_max":0.02,"acc_set":0.05}
+```
+
+### 9.2.2 RobStride `pos_vel_csp` / `pos-vel-csp`
+
+作用：按 RobStride 手册执行 CSP 位置模式：`run_mode=5`、
+`limit_spd(0x7017)`、`loc_ref(0x7016)`。
+
+| 字段 | 类型 | 默认值 | 作用 |
+| --- | --- | --- | --- |
+| `pos` | f32 | `0.0` | 目标位置，rad |
+| `limit_spd` | f32 | `1.0` | CSP 速度限制，rad/s；兼容别名 `vlim` |
+| `continuous` | bool | `false` | 是否周期发送 CSP 目标 |
+
+```json
+{"op":"pos_vel_csp","pos":0.5,"limit_spd":0.02,"continuous":true}
 ```
 
 ### 9.3 `vel`

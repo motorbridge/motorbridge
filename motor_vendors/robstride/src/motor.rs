@@ -778,6 +778,57 @@ mod tests {
     use motor_core::device::MotorDevice;
     use motor_core::test_support::MockBus;
 
+    fn spawn_enable_responder(
+        motor: Arc<RobstrideMotor>,
+        bus: Arc<MockBus>,
+    ) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_millis(250);
+            loop {
+                let enable_seen = {
+                    let sent = bus.sent.lock().expect("sent frames");
+                    sent.iter().any(|frame| {
+                        let (comm_type, _, _) = ext_id_parts(frame.arbitration_id);
+                        comm_type == CommunicationType::ENABLE
+                    })
+                };
+                if enable_seen {
+                    motor
+                        .process_feedback_frame(CanFrame {
+                            arbitration_id: build_ext_id(
+                                CommunicationType::OPERATION_STATUS,
+                                motor.motor_id,
+                                motor.feedback_id as u8,
+                            ),
+                            data: [0u8; 8],
+                            dlc: 8,
+                            is_extended: true,
+                            is_rx: true,
+                        })
+                        .expect("process enable acknowledgement");
+                    return;
+                }
+                assert!(Instant::now() < deadline, "enable frame was not sent");
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        })
+    }
+
+    fn parameter_writes(sent: &[CanFrame]) -> Vec<(u16, [u8; 4])> {
+        sent.iter()
+            .filter_map(|frame| {
+                let (comm_type, _, _) = ext_id_parts(frame.arbitration_id);
+                if comm_type != CommunicationType::WRITE_PARAMETER {
+                    return None;
+                }
+                Some((
+                    u16::from_le_bytes([frame.data[0], frame.data[1]]),
+                    [frame.data[4], frame.data[5], frame.data[6], frame.data[7]],
+                ))
+            })
+            .collect()
+    }
+
     #[test]
     fn get_parameter_times_out_when_no_reply_arrives() {
         let bus: Arc<dyn CanBus> = Arc::new(MockBus::new());
@@ -858,6 +909,64 @@ mod tests {
         assert_eq!(sent[0].dlc, 8);
         assert!(sent[0].is_extended);
         assert!(!sent[0].is_rx);
+    }
+
+    #[test]
+    fn pp_position_command_writes_vel_max_acc_set_and_loc_ref() {
+        let bus = Arc::new(MockBus::new());
+        let motor =
+            Arc::new(RobstrideMotor::new(2, 0xFD, "rs-00", bus.clone()).expect("create motor"));
+        let responder = spawn_enable_responder(Arc::clone(&motor), Arc::clone(&bus));
+
+        motor
+            .send_cmd_pos_vel_pp(0.25, 0.02, 0.05)
+            .expect("send PP position command");
+        responder.join().expect("enable responder");
+
+        let sent = bus.sent.lock().expect("sent frames");
+        assert_eq!(
+            parameter_writes(&sent),
+            vec![
+                (ParameterId::Mode as u16, [1, 0, 0, 0]),
+                (ParameterId::PpVelocityMax as u16, 0.02f32.to_le_bytes()),
+                (
+                    ParameterId::PpAccelerationTarget as u16,
+                    0.05f32.to_le_bytes()
+                ),
+                (ParameterId::PositionTarget as u16, 0.25f32.to_le_bytes()),
+            ]
+        );
+        assert!(sent.iter().any(|frame| {
+            let (comm_type, _, _) = ext_id_parts(frame.arbitration_id);
+            comm_type == CommunicationType::ENABLE
+        }));
+    }
+
+    #[test]
+    fn csp_position_command_writes_limit_spd_and_loc_ref() {
+        let bus = Arc::new(MockBus::new());
+        let motor =
+            Arc::new(RobstrideMotor::new(2, 0xFD, "rs-00", bus.clone()).expect("create motor"));
+        let responder = spawn_enable_responder(Arc::clone(&motor), Arc::clone(&bus));
+
+        motor
+            .send_cmd_pos_vel_csp(-0.3, 0.04)
+            .expect("send CSP position command");
+        responder.join().expect("enable responder");
+
+        let sent = bus.sent.lock().expect("sent frames");
+        assert_eq!(
+            parameter_writes(&sent),
+            vec![
+                (ParameterId::Mode as u16, [5, 0, 0, 0]),
+                (ParameterId::VelocityLimit as u16, 0.04f32.to_le_bytes()),
+                (ParameterId::PositionTarget as u16, (-0.3f32).to_le_bytes()),
+            ]
+        );
+        assert!(sent.iter().any(|frame| {
+            let (comm_type, _, _) = ext_id_parts(frame.arbitration_id);
+            comm_type == CommunicationType::ENABLE
+        }));
     }
 
     #[test]

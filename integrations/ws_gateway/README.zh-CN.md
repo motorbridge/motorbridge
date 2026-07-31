@@ -59,13 +59,15 @@ WS API 主链路已实现。
 | `force_pos` | `{"op":"force_pos", ...}` | `pos`, `vlim`, `ratio` |
 
 若某厂商不支持这四种基线模式，网关统一返回 `unsupported`。
+RobStride 另外显式提供 `pos_vel_pp`（`pos`、`vel_max`、`acc_set`）和
+`pos_vel_csp`（`pos`、`limit_spd`），同时接受连字符形式的 op 别名。
 
 ### 厂商映射表（统一模式 -> 厂商原生）
 
 | 厂商 | `mit` | `pos_vel` | `vel` | `force_pos` | 参数差异 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | damiao | 原生 MIT | 原生 POS_VEL | 原生 VEL | 原生 FORCE_POS | 参数完整对齐 | 基线参考实现 |
-| robstride | 原生 MIT | 映射到原生 Position（`run_mode=1` + `limit_spd` + `loc_ref`） | 原生 Velocity 模式 | 不支持 | `vel` 映射到 vendor velocity target；`pos_vel` 映射到 vendor Position | 参数读写走 `robstride_*` |
+| robstride | 原生 MIT | PP 兼容别名（`run_mode=1` + `vel_max` + 可选 `acc_set` + `loc_ref`） | 原生 Velocity 模式 | 不支持 | 显式 `pos_vel_pp` 使用 `vel_max`/`acc_set`；显式 `pos_vel_csp` 使用 `limit_spd` | 参数读写走 `robstride_*` |
 | hexfellow | 原生 MIT | 原生 POS_VEL | 不支持 | 不支持 | `mit` 支持 `kp/kd/tau`，无独立 `vel` | CAN-FD 链路 |
 | myactuator | 不支持 | Position 设定流程 | 原生速度设定 | 不支持 | `pos_vel` 通过 position setpoint 实现；基线里 `vel` 可用 | 强项是 current/position/version/mode-query |
 | hightorque | 原生 MIT（ht_can 映射） | 映射到原生 pos+vel+tqe | 原生速度帧 | 映射到原生 pos+vel+tqe | `mit/vel` 为原生帧映射；`kp/kd` 保留但协议侧忽略；`pos_vel/force_pos` 映射到 pos+vel+tqe | 当前子集 scan/read/mit/vel/pos-vel/force-pos/stop；`enable/disable` 接受但为 no-op |
@@ -84,7 +86,8 @@ WS API 主链路已实现。
 
 - `mit`：统一字段一致，但各厂商内部缩放/编码不同，由网关适配层处理。
   HighTorque 细节：当前协议路径会忽略 `kp/kd`。
-- `pos_vel`：仅对具备等价模式的厂商可用。
+- `pos_vel`：仅对具备等价模式的厂商可用。对 RobStride，它是已弃用的 PP
+  兼容别名；应使用 `pos_vel_pp` 或 `pos_vel_csp` 明确原生模式和参数语义。
 - `vel`：方向与量纲转换由厂商适配层内部处理。
 - `force_pos`：Damiao 原生支持；HighTorque 映射到 pos+vel+tqe；其他厂商不支持。
 
@@ -110,7 +113,7 @@ WS API 主链路已实现。
       },
       "robstride": {
         "transports": ["auto", "socketcan", "socketcanfd"],
-        "modes": ["mit", "vel"],
+        "modes": ["mit", "pos_vel", "pos_vel_pp", "pos_vel_csp", "vel"],
         "ops_unified": ["scan", "set_id", "enable", "disable", "stop", "state_once", "status", "verify"],
         "ops_vendor_native": ["robstride_ping", "robstride_read_param", "robstride_write_param"]
       },
@@ -250,6 +253,8 @@ cargo run -p motor_cli --release -- --vendor damiao --channel can0@1000000 --mod
 {"op":"set_target","vendor":"robstride","channel":"can0","model":"rs-06","motor_id":127,"feedback_id":255}
 {"op":"mit","pos":0.0,"vel":0.0,"kp":20.0,"kd":1.0,"tau":0.0,"continuous":true}
 {"op":"pos_vel","pos":3.1,"vlim":1.5,"continuous":true}
+{"op":"pos_vel_pp","pos":0.5,"vel_max":0.02,"acc_set":0.05}
+{"op":"pos_vel_csp","pos":0.5,"limit_spd":0.02,"continuous":true}
 {"op":"vel","vel":0.5,"continuous":true}
 {"op":"force_pos","pos":0.8,"vlim":2.0,"ratio":0.3,"continuous":true}
 {"op":"stop"}
