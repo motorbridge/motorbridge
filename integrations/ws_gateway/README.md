@@ -56,13 +56,15 @@ Goal: application layer uses one unified operation set first; vendor-specific op
 | `force_pos` | `{"op":"force_pos", ...}` | `pos`, `vlim`, `ratio` |
 
 If a vendor does not support one of these four baseline modes, gateway returns `unsupported`.
+RobStride additionally exposes `pos_vel_pp` (`pos`, `vel_max`, `acc_set`) and
+`pos_vel_csp` (`pos`, `limit_spd`); hyphenated operation aliases are accepted.
 
 ### Vendor Mapping Table (unified mode -> vendor-native)
 
 | Vendor | `mit` | `pos_vel` | `vel` | `force_pos` | Parameter Differences | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | damiao | native MIT | native POS_VEL | native VEL | native FORCE_POS | full parameter match | baseline reference |
-| robstride | native MIT | maps to native Position (`run_mode=1` + `limit_spd` + `loc_ref`) | native Velocity mode | unsupported | `vel` maps to vendor velocity target; `pos_vel` maps to vendor Position | native param read/write via `robstride_*` |
+| robstride | native MIT | legacy alias for PP (`run_mode=1` + `vel_max` + optional `acc_set` + `loc_ref`) | native Velocity mode | unsupported | explicit `pos_vel_pp` uses `vel_max`/`acc_set`; explicit `pos_vel_csp` uses `limit_spd` | native param read/write via `robstride_*` |
 | hexfellow | native MIT | native POS_VEL | unsupported | unsupported | `mit` supports `kp/kd/tau`; no standalone `vel` | CAN-FD path |
 | myactuator | unsupported | Position setpoint flow | native velocity setpoint | unsupported | `pos_vel` via position setpoint; `vel` in baseline set | native strengths: current/position/version/mode-query |
 | hightorque | native MIT (ht_can mapping) | maps to native pos+vel+tqe | native velocity frame | maps to native pos+vel+tqe | `mit/vel` are raw-frame mapped; `kp/kd` accepted but ignored by protocol; `pos_vel/force_pos` map to pos+vel+tqe | current subset: scan/read/mit/vel/pos-vel/force-pos/stop; `enable/disable` accepted as no-op |
@@ -81,7 +83,9 @@ If a vendor does not support one of these four baseline modes, gateway returns `
 
 - `mit`: same unified fields, but vendor scaling differs internally (gateway adapter handles conversion).
   HighTorque detail: `kp/kd` are currently ignored by protocol path.
-- `pos_vel`: only valid where vendor has equivalent mode.
+- `pos_vel`: only valid where vendor has equivalent mode. For RobStride it is a
+  deprecated PP alias; use `pos_vel_pp` or `pos_vel_csp` to make the native
+  mode and parameter semantics explicit.
 - `vel`: sign/scale conversion is vendor-specific internally.
 - `force_pos`: Damiao native; HighTorque maps to pos+vel+tqe; others unsupported.
 
@@ -107,7 +111,7 @@ Recommended: client calls `{"op":"capabilities"}` on connect and adapts UI/flows
       },
       "robstride": {
         "transports": ["auto", "socketcan", "socketcanfd"],
-        "modes": ["mit", "vel"],
+        "modes": ["mit", "pos_vel", "pos_vel_pp", "pos_vel_csp", "vel"],
         "ops_unified": ["scan", "set_id", "enable", "disable", "stop", "state_once", "status", "verify"],
         "ops_vendor_native": ["robstride_ping", "robstride_read_param", "robstride_write_param"]
       },
@@ -247,6 +251,8 @@ cargo run -p motor_cli --release -- --vendor damiao --channel can0@1000000 --mod
 {"op":"set_target","vendor":"robstride","channel":"can0","model":"rs-06","motor_id":127,"feedback_id":255}
 {"op":"mit","pos":0.0,"vel":0.0,"kp":20.0,"kd":1.0,"tau":0.0,"continuous":true}
 {"op":"pos_vel","pos":3.1,"vlim":1.5,"continuous":true}
+{"op":"pos_vel_pp","pos":0.5,"vel_max":0.02,"acc_set":0.05}
+{"op":"pos_vel_csp","pos":0.5,"limit_spd":0.02,"continuous":true}
 {"op":"vel","vel":0.5,"continuous":true}
 {"op":"force_pos","pos":0.8,"vlim":2.0,"ratio":0.3,"continuous":true}
 {"op":"stop"}

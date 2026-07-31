@@ -78,7 +78,7 @@ fn handle_capabilities(ctx: &SessionCtx) -> Result<Value, String> {
             },
             "robstride": {
                 "transports": ["auto", "socketcan", "socketcanfd"],
-                "modes": ["mit", "pos_vel", "vel"],
+                "modes": ["mit", "pos_vel", "pos_vel_pp", "pos_vel_csp", "vel"],
                 "ops_unified": ["scan", "set_id", "enable", "disable", "stop", "state_once", "status", "verify"],
                 "ops_vendor_native": ["robstride_ping", "robstride_read_param", "robstride_write_param", "set_active_report"]
             },
@@ -547,4 +547,42 @@ fn handle_shutdown(ctx: &mut SessionCtx) -> Result<Value, String> {
 fn handle_close_bus(ctx: &mut SessionCtx) -> Result<Value, String> {
     ctx.disconnect(false);
     Ok(json!({"closed": true}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Target, Transport};
+
+    fn test_ctx() -> SessionCtx {
+        SessionCtx::new(Target {
+            vendor: Vendor::Robstride,
+            transport: Transport::Auto,
+            channel: "can0".to_string(),
+            serial_port: String::new(),
+            serial_baud: 115_200,
+            dm_device_type: String::new(),
+            dm_channel: String::new(),
+            model: "rs-00".to_string(),
+            motor_id: 1,
+            feedback_id: 0xFD,
+        })
+    }
+
+    #[test]
+    fn capabilities_advertise_explicit_robstride_pp_and_csp_only_for_robstride() {
+        let capabilities = handle_capabilities(&test_ctx()).expect("capabilities");
+        let vendors = capabilities["vendors"].as_object().expect("vendors");
+        let robstride_modes = vendors["robstride"]["modes"]
+            .as_array()
+            .expect("RobStride modes");
+        assert!(robstride_modes.iter().any(|mode| mode == "pos_vel_pp"));
+        assert!(robstride_modes.iter().any(|mode| mode == "pos_vel_csp"));
+
+        for vendor in ["damiao", "hexfellow", "myactuator", "hightorque"] {
+            let modes = vendors[vendor]["modes"].as_array().expect("vendor modes");
+            assert!(!modes.iter().any(|mode| mode == "pos_vel_pp"));
+            assert!(!modes.iter().any(|mode| mode == "pos_vel_csp"));
+        }
+    }
 }
