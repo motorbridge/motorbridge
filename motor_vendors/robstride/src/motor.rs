@@ -77,12 +77,35 @@ pub fn model_limits(model: &str) -> Option<(f32, f32, f32)> {
         .map(|spec| (spec.pmax, spec.vmax, spec.tmax))
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlMode {
     Mit = 0,
     Position = 1,
     Velocity = 2,
     PositionCsp = 5,
+}
+
+impl ControlMode {
+    pub fn from_raw(value: i8) -> Result<Self> {
+        match value {
+            0 => Ok(Self::Mit),
+            1 => Ok(Self::Position),
+            2 => Ok(Self::Velocity),
+            5 => Ok(Self::PositionCsp),
+            _ => Err(MotorError::Protocol(format!(
+                "unsupported RobStride run_mode value {value}"
+            ))),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Mit => "mit",
+            Self::Position => "pp",
+            Self::Velocity => "velocity",
+            Self::PositionCsp => "csp",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -125,6 +148,8 @@ pub struct RobstrideMotor {
     response_seq: AtomicU64,
     param_state: Mutex<ParameterState>,
     ping_reply: Mutex<Option<PingReply>>,
+    last_mit_gains: Mutex<Option<(f32, f32)>>,
+    current_mode: Mutex<Option<ControlMode>>, // 追踪当前已知模式
 }
 
 #[derive(Default)]
@@ -159,6 +184,8 @@ impl RobstrideMotor {
             response_seq: AtomicU64::new(0),
             param_state: Mutex::new(ParameterState::default()),
             ping_reply: Mutex::new(None),
+            last_mit_gains: Mutex::new(None),
+            current_mode: Mutex::new(None),
         })
     }
 
@@ -313,9 +340,15 @@ impl RobstrideMotor {
         let desired = Self::control_mode_value(mode);
         let read_timeout = timeout.max(Duration::from_millis(150));
 
-        if let Ok(current) = self.get_parameter_i8(ParameterId::Mode as u16, read_timeout) {
-            if current == desired {
-                return Ok(());
+        {
+            let current = self
+                .current_mode
+                .lock()
+                .map_err(|_| MotorError::Io("current_mode lock poisoned".to_string()))?;
+            if let Some(cached_mode) = *current {
+                if cached_mode == mode {
+                    return Ok(());
+                }
             }
         }
 
@@ -326,22 +359,43 @@ impl RobstrideMotor {
         std::thread::sleep(Duration::from_millis(60));
 
         let mut actual = None;
-        for _ in 0..3 {
+        for attempt in 0..3 {
             if let Err(err) = self.set_mode(mode) {
                 last_error = Some(err.to_string());
+                eprintln!(
+                    "[warn] ensure_control_mode: set_mode attempt {} failed: {}",
+                    attempt + 1,
+                    err
+                );
                 std::thread::sleep(Duration::from_millis(30));
                 continue;
             }
 
             std::thread::sleep(Duration::from_millis(30));
             match self.get_parameter_i8(ParameterId::Mode as u16, read_timeout) {
-                Ok(value) if value == desired => return Ok(()),
+                Ok(value) if value == desired => {
+                    if let Ok(mut current) = self.current_mode.lock() {
+                        *current = Some(mode);
+                    }
+                    if attempt > 0 {
+                        eprintln!(
+                            "[info] ensure_control_mode: mode switch succeeded on attempt {}",
+                            attempt + 1
+                        );
+                    }
+                    return Ok(());
+                }
                 Ok(value) => {
                     actual = Some(value);
                     last_error = None;
+                    eprintln!(
+                        "[warn] ensure_control_mode: mode readback mismatch, expected {} got {}",
+                        desired, value
+                    );
                 }
                 Err(err) => {
                     last_error = Some(err.to_string());
+                    eprintln!("[warn] ensure_control_mode: mode readback failed: {}", err);
                 }
             }
             std::thread::sleep(Duration::from_millis(30));
@@ -465,7 +519,11 @@ impl RobstrideMotor {
             self.kp_max,
             self.kd_max,
         );
-        self.send_ext(CommunicationType::OPERATION_CONTROL, extra_data, data, 8)
+        self.send_ext(CommunicationType::OPERATION_CONTROL, extra_data, data, 8)?;
+        if let Ok(mut gains) = self.last_mit_gains.lock() {
+            *gains = Some((stiffness, damping));
+        }
+        Ok(())
     }
 
     pub fn set_velocity_target(&self, velocity: f32) -> Result<()> {
@@ -473,6 +531,78 @@ impl RobstrideMotor {
             ParameterId::VelocityTarget as u16,
             ParameterValue::F32(velocity),
         )
+    }
+
+    pub fn get_control_mode(&self, timeout: Duration) -> Result<ControlMode> {
+        ControlMode::from_raw(self.get_parameter_i8(ParameterId::Mode as u16, timeout)?)
+    }
+
+    pub fn controlled_stop(&self, timeout: Duration) -> Result<ControlMode> {
+        let mode = self.get_control_mode(timeout)?;
+        match mode {
+            ControlMode::Velocity => {
+                self.set_velocity_target(0.0)?;
+            }
+            ControlMode::Position => {
+                self.write_parameter(ParameterId::PpVelocityMax as u16, ParameterValue::F32(0.0))?;
+            }
+            ControlMode::PositionCsp => {
+                let position =
+                    self.get_parameter_f32(ParameterId::MechanicalPosition as u16, timeout)?;
+                self.write_parameter(
+                    ParameterId::PositionTarget as u16,
+                    ParameterValue::F32(position),
+                )?;
+            }
+            ControlMode::Mit => {
+                const DEFAULT_KP_RATIO: f32 = 0.10;
+                const DEFAULT_KD_RATIO: f32 = 0.10;
+                const MIN_KP_RATIO: f32 = 0.02;
+                const MIN_KD_RATIO: f32 = 0.02;
+
+                let (cached_kp, cached_kd) = {
+                    let gains = self
+                        .last_mit_gains
+                        .lock()
+                        .map_err(|_| MotorError::Io("last_mit_gains lock poisoned".to_string()))?;
+                    gains.unwrap_or((0.0, 0.0))
+                };
+
+                let (kp, kd) = {
+                    let min_kp = self.kp_max * MIN_KP_RATIO;
+                    let min_kd = self.kd_max * MIN_KD_RATIO;
+                    let default_kp = self.kp_max * DEFAULT_KP_RATIO;
+                    let default_kd = self.kd_max * DEFAULT_KD_RATIO;
+
+                    let effective_kp = if cached_kp < min_kp {
+                        eprintln!(
+                            "[warn] MIT stop: cached kp={} too small (min={}), using default={}",
+                            cached_kp, min_kp, default_kp
+                        );
+                        default_kp
+                    } else {
+                        cached_kp
+                    };
+
+                    let effective_kd = if cached_kd < min_kd {
+                        eprintln!(
+                            "[warn] MIT stop: cached kd={} too small (min={}), using default={}",
+                            cached_kd, min_kd, default_kd
+                        );
+                        default_kd
+                    } else {
+                        cached_kd
+                    };
+
+                    (effective_kp, effective_kd)
+                };
+
+                let position =
+                    self.get_parameter_f32(ParameterId::MechanicalPosition as u16, timeout)?;
+                self.send_cmd_mit(position, 0.0, kp, kd, 0.0)?;
+            }
+        }
+        Ok(mode)
     }
 
     pub fn write_parameter(&self, param_id: u16, value: ParameterValue) -> Result<()> {
@@ -947,5 +1077,320 @@ mod tests {
             .save_parameters()
             .expect("save should accept device reply");
         handle.join().expect("responder thread");
+    }
+
+    fn parameter_write(sent: &[CanFrame], param_id: u16) -> Option<[u8; 4]> {
+        sent.iter().find_map(|frame| {
+            let (comm_type, _, _) = ext_id_parts(frame.arbitration_id);
+            if comm_type == CommunicationType::WRITE_PARAMETER
+                && u16::from_le_bytes([frame.data[0], frame.data[1]]) == param_id
+            {
+                Some([frame.data[4], frame.data[5], frame.data[6], frame.data[7]])
+            } else {
+                None
+            }
+        })
+    }
+
+    fn assert_no_torque_off_frame(sent: &[CanFrame]) {
+        assert!(sent.iter().all(|frame| {
+            let (comm_type, _, _) = ext_id_parts(frame.arbitration_id);
+            comm_type != CommunicationType::DISABLE
+        }));
+    }
+
+    fn spawn_param_responder(
+        motor: Arc<RobstrideMotor>,
+        bus: Arc<MockBus>,
+        replies: Vec<(u16, ParameterValue)>,
+    ) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            let mut replied = vec![false; replies.len()];
+            let deadline = Instant::now() + Duration::from_millis(500);
+            while replied.iter().any(|&r| !r) && Instant::now() < deadline {
+                let sent_snapshot = {
+                    let sent = bus.sent.lock().expect("sent frames");
+                    sent.clone()
+                };
+                for frame in &sent_snapshot {
+                    let (comm_type, _, _) = ext_id_parts(frame.arbitration_id);
+                    if comm_type == CommunicationType::READ_PARAMETER {
+                        let req_param_id = u16::from_le_bytes([frame.data[0], frame.data[1]]);
+                        for (i, (param_id, value)) in replies.iter().enumerate() {
+                            if req_param_id == *param_id && !replied[i] {
+                                let raw = encode_parameter_value(*param_id, *value)
+                                    .expect("encode param");
+                                motor
+                                    .process_feedback_frame(CanFrame {
+                                        arbitration_id: build_ext_id(
+                                            CommunicationType::READ_PARAMETER,
+                                            motor.motor_id,
+                                            motor.feedback_id as u8,
+                                        ),
+                                        data: encode_parameter_write(*param_id, raw),
+                                        dlc: 8,
+                                        is_extended: true,
+                                        is_rx: true,
+                                    })
+                                    .expect("process param reply");
+                                replied[i] = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        })
+    }
+
+    #[test]
+    fn controlled_stop_in_pp_writes_vel_max_zero_without_disabling() {
+        let bus = Arc::new(MockBus::new());
+        let motor =
+            Arc::new(RobstrideMotor::new(2, 0xFD, "rs-00", bus.clone()).expect("create motor"));
+
+        let responder = spawn_param_responder(
+            Arc::clone(&motor),
+            Arc::clone(&bus),
+            vec![(ParameterId::Mode as u16, ParameterValue::I8(1))],
+        );
+
+        let mode = motor
+            .controlled_stop(Duration::from_millis(100))
+            .expect("controlled PP stop");
+        responder.join().expect("responder thread");
+
+        assert_eq!(mode, ControlMode::Position);
+        let sent = bus.sent.lock().expect("sent frames");
+        assert_eq!(
+            parameter_write(&sent, ParameterId::PpVelocityMax as u16),
+            Some(0.0f32.to_le_bytes())
+        );
+        assert_no_torque_off_frame(&sent);
+    }
+
+    #[test]
+    fn controlled_stop_in_velocity_mode_writes_zero_speed_without_disabling() {
+        let bus = Arc::new(MockBus::new());
+        let motor =
+            Arc::new(RobstrideMotor::new(2, 0xFD, "rs-00", bus.clone()).expect("create motor"));
+
+        let responder = spawn_param_responder(
+            Arc::clone(&motor),
+            Arc::clone(&bus),
+            vec![(ParameterId::Mode as u16, ParameterValue::I8(2))],
+        );
+
+        let mode = motor
+            .controlled_stop(Duration::from_millis(100))
+            .expect("controlled velocity stop");
+        responder.join().expect("responder thread");
+
+        assert_eq!(mode, ControlMode::Velocity);
+        let sent = bus.sent.lock().expect("sent frames");
+        assert_eq!(
+            parameter_write(&sent, ParameterId::VelocityTarget as u16),
+            Some(0.0f32.to_le_bytes())
+        );
+        assert_no_torque_off_frame(&sent);
+    }
+
+    #[test]
+    fn controlled_stop_in_csp_holds_measured_position_without_disabling() {
+        let bus = Arc::new(MockBus::new());
+        let motor =
+            Arc::new(RobstrideMotor::new(2, 0xFD, "rs-00", bus.clone()).expect("create motor"));
+
+        let responder = spawn_param_responder(
+            Arc::clone(&motor),
+            Arc::clone(&bus),
+            vec![
+                (ParameterId::Mode as u16, ParameterValue::I8(5)),
+                (
+                    ParameterId::MechanicalPosition as u16,
+                    ParameterValue::F32(0.42),
+                ),
+            ],
+        );
+
+        let mode = motor
+            .controlled_stop(Duration::from_millis(100))
+            .expect("controlled CSP stop");
+        responder.join().expect("responder");
+
+        assert_eq!(mode, ControlMode::PositionCsp);
+        let sent = bus.sent.lock().expect("sent frames");
+        assert_eq!(
+            parameter_write(&sent, ParameterId::PositionTarget as u16),
+            Some(0.42f32.to_le_bytes())
+        );
+        assert_no_torque_off_frame(&sent);
+    }
+
+    #[test]
+    fn controlled_stop_in_mit_holds_position_with_cached_gains() {
+        let bus = Arc::new(MockBus::new());
+        let motor =
+            Arc::new(RobstrideMotor::new(2, 0xFD, "rs-00", bus.clone()).expect("create motor"));
+
+        {
+            let mut gains = motor.last_mit_gains.lock().expect("lock gains");
+            *gains = Some((12.0, 0.5));
+        }
+
+        let responder = spawn_param_responder(
+            Arc::clone(&motor),
+            Arc::clone(&bus),
+            vec![
+                (ParameterId::Mode as u16, ParameterValue::I8(0)), // MIT mode
+                (
+                    ParameterId::MechanicalPosition as u16,
+                    ParameterValue::F32(-0.25),
+                ),
+            ],
+        );
+
+        let mode = motor
+            .controlled_stop(Duration::from_millis(100))
+            .expect("controlled MIT stop");
+        responder.join().expect("responder");
+
+        assert_eq!(mode, ControlMode::Mit);
+        let sent = bus.sent.lock().expect("sent frames");
+        // 断言发出了 OPERATION_CONTROL 帧（MIT 命令帧）
+        let operation_frame = sent
+            .iter()
+            .find(|frame| {
+                let (comm_type, _, _) = ext_id_parts(frame.arbitration_id);
+                comm_type == CommunicationType::OPERATION_CONTROL
+            })
+            .expect("MIT hold frame");
+        let (expected_extra, expected_data) = encode_mit_command(
+            -0.25,
+            0.0,
+            12.0,
+            0.5,
+            0.0,
+            motor.limits.p_max,
+            motor.limits.v_max,
+            motor.limits.t_max,
+            motor.kp_max,
+            motor.kd_max,
+        );
+        let (_, actual_extra, _) = ext_id_parts(operation_frame.arbitration_id);
+        assert_eq!(actual_extra, expected_extra);
+        assert_eq!(operation_frame.data, expected_data);
+        assert_no_torque_off_frame(&sent);
+    }
+
+    #[test]
+    fn controlled_stop_in_mit_uses_default_gains_when_no_prior_command() {
+        let bus = Arc::new(MockBus::new());
+        let motor =
+            Arc::new(RobstrideMotor::new(2, 0xFD, "rs-00", bus.clone()).expect("create motor"));
+
+        let responder = spawn_param_responder(
+            Arc::clone(&motor),
+            Arc::clone(&bus),
+            vec![
+                (ParameterId::Mode as u16, ParameterValue::I8(0)),
+                (
+                    ParameterId::MechanicalPosition as u16,
+                    ParameterValue::F32(-0.25),
+                ),
+            ],
+        );
+
+        let mode = motor
+            .controlled_stop(Duration::from_millis(100))
+            .expect("should succeed with default gains");
+        responder.join().expect("responder");
+
+        assert_eq!(mode, ControlMode::Mit);
+        let sent = bus.sent.lock().expect("sent frames");
+
+        let operation_frame = sent
+            .iter()
+            .find(|frame| {
+                let (comm_type, _, _) = ext_id_parts(frame.arbitration_id);
+                comm_type == CommunicationType::OPERATION_CONTROL
+            })
+            .expect("MIT hold frame");
+
+        let (expected_extra, expected_data) = encode_mit_command(
+            -0.25,
+            0.0,
+            50.0, // default kp = 500 * 0.10
+            0.5,  // default kd = 5 * 0.10
+            0.0,
+            motor.limits.p_max,
+            motor.limits.v_max,
+            motor.limits.t_max,
+            motor.kp_max,
+            motor.kd_max,
+        );
+        let (_, actual_extra, _) = ext_id_parts(operation_frame.arbitration_id);
+        assert_eq!(actual_extra, expected_extra);
+        assert_eq!(operation_frame.data, expected_data);
+        assert_no_torque_off_frame(&sent);
+    }
+
+    #[test]
+    fn controlled_stop_in_mit_uses_default_gains_when_cached_gains_too_small() {
+        let bus = Arc::new(MockBus::new());
+        let motor =
+            Arc::new(RobstrideMotor::new(2, 0xFD, "rs-00", bus.clone()).expect("create motor"));
+
+        // 发送一个纯力矩命令（kp=0, kd=0）
+        motor
+            .send_cmd_mit(0.0, 0.0, 0.0, 0.0, 5.0)
+            .expect("send MIT");
+
+        let responder = spawn_param_responder(
+            Arc::clone(&motor),
+            Arc::clone(&bus),
+            vec![
+                (ParameterId::Mode as u16, ParameterValue::I8(0)),
+                (
+                    ParameterId::MechanicalPosition as u16,
+                    ParameterValue::F32(0.42),
+                ),
+            ],
+        );
+
+        let mode = motor
+            .controlled_stop(Duration::from_millis(100))
+            .expect("should succeed with default gains");
+        responder.join().expect("responder");
+
+        assert_eq!(mode, ControlMode::Mit);
+        let sent = bus.sent.lock().expect("sent frames");
+
+        let operation_frame = sent
+            .iter()
+            .rev()
+            .find(|frame| {
+                let (comm_type, _, _) = ext_id_parts(frame.arbitration_id);
+                comm_type == CommunicationType::OPERATION_CONTROL
+            })
+            .expect("MIT hold frame");
+
+        let (expected_extra, expected_data) = encode_mit_command(
+            0.42,
+            0.0,
+            50.0, // default kp (not 0.0)
+            0.5,  // default kd (not 0.0)
+            0.0,
+            motor.limits.p_max,
+            motor.limits.v_max,
+            motor.limits.t_max,
+            motor.kp_max,
+            motor.kd_max,
+        );
+        let (_, actual_extra, _) = ext_id_parts(operation_frame.arbitration_id);
+        assert_eq!(actual_extra, expected_extra);
+        assert_eq!(operation_frame.data, expected_data);
+        assert_no_torque_off_frame(&sent);
     }
 }

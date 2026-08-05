@@ -272,3 +272,41 @@ pub extern "C" fn motor_handle_request_feedback(motor: *mut MotorHandle) -> i32 
         }
     })
 }
+
+/// 受控停止：保留电机使能，按当前运行模式选择零化策略。
+///
+/// 与 `motor_handle_disable`（失能、取消力矩）语义不同。
+///
+/// 各厂商行为：
+/// - Damiao: 发送零速度 MIT 帧
+/// - Hexfellow: 发送零 MIT 命令
+/// - MyActuator: 调用 `stop_motor()`
+/// - Robstride: 模式感知受控停止（MIT 保持位置、PP 写 vel_max=0、Velocity 写 0、CSP 锁位置）
+/// - Hightorque: 发送原始 stop 帧（与 disable 同实现）
+#[unsafe(no_mangle)]
+pub extern "C" fn motor_handle_stop(motor: *mut MotorHandle) -> i32 {
+    ffi_wrap_motor!(motor, |motor: &MotorHandleInner| {
+        match motor {
+            MotorHandleInner::Damiao(m) => m.send_cmd_vel(0.0).map_err(|e| e.to_string()),
+            MotorHandleInner::Hexfellow(m) => m
+                .command_mit(
+                    HexfellowMitTarget {
+                        position_rev: 0.0,
+                        velocity_rev_s: 0.0,
+                        torque_nm: 0.0,
+                        kp: 0,
+                        kd: 0,
+                        limit_permille: 1000,
+                    },
+                    Duration::from_millis(200),
+                )
+                .map_err(|e| e.to_string()),
+            MotorHandleInner::MyActuator(m) => m.stop_motor().map_err(|e| e.to_string()),
+            MotorHandleInner::Robstride(m) => m
+                .controlled_stop(Duration::from_millis(300))
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
+            MotorHandleInner::Hightorque(m) => m.disable().map_err(|e| e.to_string()),
+        }
+    })
+}

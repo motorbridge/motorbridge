@@ -80,6 +80,7 @@ int32_t motor_handle_disable(MotorHandle* motor);
 int32_t motor_handle_clear_error(MotorHandle* motor);
 int32_t motor_handle_set_zero_position(MotorHandle* motor);
 int32_t motor_handle_ensure_mode(MotorHandle* motor, uint32_t mode, uint32_t timeout_ms);
+int32_t motor_handle_stop(MotorHandle* motor);
 
 int32_t motor_handle_send_mit(MotorHandle* motor, float target_position, float target_velocity, float stiffness, float damping, float feedforward_torque);
 int32_t motor_handle_send_pos_vel(MotorHandle* motor, float target_position, float velocity_limit);

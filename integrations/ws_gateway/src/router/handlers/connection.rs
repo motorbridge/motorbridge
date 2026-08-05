@@ -264,6 +264,13 @@ fn handle_disable(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
 }
 
 fn handle_stop(ctx: &mut SessionCtx) -> Result<Value, String> {
+    // Disarm the continuous-control loop first, unconditionally. `stop`'s
+    // safety contract is "the gateway stops driving the motor from this
+    // moment on" — it must NOT depend on the vendor stop command below
+    // succeeding. If that command fails (e.g. a RobStride parameter-read
+    // timeout while the CAN bus is still healthy), leaving `ctx.active` set
+    // would let the ticker keep re-sending the previous active command,
+    // i.e. the motor would keep moving despite the stop request.
     ctx.active = None;
     if let Some(m) = ctx.motor.as_ref() {
         match m {
@@ -291,7 +298,22 @@ fn handle_stop(ctx: &mut SessionCtx) -> Result<Value, String> {
                 }
             }
             MotorHandle::Myactuator(mm) => mm.stop_motor().map_err(|e| e.to_string())?,
-            MotorHandle::Robstride(mm) => mm.set_velocity_target(0.0).map_err(|e| e.to_string())?,
+            MotorHandle::Robstride(mm) => {
+                let mode = mm
+                    .controlled_stop(std::time::Duration::from_millis(300))
+                    .map_err(|e| e.to_string())?;
+                let strategy = match mode {
+                    motor_vendor_robstride::ControlMode::Mit => "hold-current-position-mit",
+                    motor_vendor_robstride::ControlMode::Position => "pp-vel-max-zero",
+                    motor_vendor_robstride::ControlMode::Velocity => "velocity-target-zero",
+                    motor_vendor_robstride::ControlMode::PositionCsp => "hold-current-position-csp",
+                };
+                return Ok(json!({
+                    "stopped": true,
+                    "mode": mode.as_str(),
+                    "strategy": strategy
+                }));
+            }
         }
     }
     Ok(json!({"stopped": true}))

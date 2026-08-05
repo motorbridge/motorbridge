@@ -542,6 +542,7 @@ pub fn run_robstride(
     }
 
     if mode != "disable"
+        && mode != "stop"
         && mode != "zero"
         && mode != "set-zero"
         && mode != "save"
@@ -581,6 +582,29 @@ pub fn run_robstride(
                     }
                 }
             }
+            "stop" => match motor.controlled_stop(std::time::Duration::from_millis(300)) {
+                Ok(mode) => {
+                    println!(
+                        "[ok] controlled stop: mode={} strategy={}",
+                        mode.as_str(),
+                        match mode {
+                            motor_vendor_robstride::ControlMode::Mit => "hold-current-position-mit",
+                            motor_vendor_robstride::ControlMode::Position => "pp-vel-max-zero",
+                            motor_vendor_robstride::ControlMode::Velocity => "velocity-target-zero",
+                            motor_vendor_robstride::ControlMode::PositionCsp =>
+                                "hold-current-position-csp",
+                        }
+                    );
+                }
+                Err(e) => {
+                    let msg = e.to_string();
+                    if msg.contains("control ack timeout") {
+                        println!("[warn] stop ack timeout; command may still have been applied");
+                    } else {
+                        return Err(e.into());
+                    }
+                }
+            },
             "clear-error" => {
                 if let Err(e) = motor.clear_error() {
                     let msg = e.to_string();
@@ -777,6 +801,7 @@ pub fn run_robstride(
 
     if mode == "enable"
         || mode == "disable"
+        || mode == "stop"
         || mode == "zero"
         || mode == "set-zero"
         || mode == "save"
