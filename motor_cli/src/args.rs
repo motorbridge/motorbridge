@@ -209,7 +209,7 @@ Vendors:\n\
 Damiao modes:\n\
   --mode scan | enable | disable | mit | pos-vel | vel | force-pos | read-param | write-param\n\n\
 RobStride modes:\n\
-  --mode ping | scan | enable | disable | clear-error | active-report | zero | set-zero | save | zero-by-offset | get-protocol | get-mode | set-protocol | mit | pos-vel | pos-vel-pp | pos-vel-csp | vel | read-param | write-param\n\n\
+  --mode ping | scan | enable | disable | stop | clear-error | active-report | zero | set-zero | save | zero-by-offset | get-protocol | get-mode | set-protocol | mit | pos-vel | pos-vel-pp | pos-vel-csp | vel | read-param | write-param\n\n\
 RobStride CiA402 modes:\n\
   --mode scan | status | enable | disable | quick-stop | clear-error | zero | watchdog | get-protocol | set-protocol | pos-vel | vel | mit | torque\n\n\
 RobStride MIT protocol modes:\n\
