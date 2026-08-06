@@ -172,8 +172,17 @@ fn handle_pos_vel(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
             if let ActiveCommand::PosVel { pos, vlim } = cmd {
                 let speed = vlim.abs();
                 if speed.is_finite() && speed > 0.0 {
-                    m.write_parameter(0x7017, RobstrideParameterValue::F32(speed))
+                    // PP reads velocity cap from 0x7024 vel_max, not 0x7017 limit_spd
+                    // (the latter belongs to CSP run_mode=5 and is ignored in PP).
+                    m.write_parameter(0x7024, RobstrideParameterValue::F32(speed))
                         .map_err(|e| e.to_string())?;
+                }
+                let acc = v.get("acc").and_then(|x| x.as_f64()).map(|x| x as f32);
+                if let Some(acc) = acc {
+                    if acc.is_finite() && acc > 0.0 {
+                        m.write_parameter(0x7025, RobstrideParameterValue::F32(acc))
+                            .map_err(|e| e.to_string())?;
+                    }
                 }
                 let loc_kp = v
                     .get("loc_kp")

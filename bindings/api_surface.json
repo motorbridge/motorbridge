@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "package": "motorbridge",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "purpose": "Canonical API surface used to keep ABI, Python, C++ and docs aligned.",
   "abi": {
     "metadata": [

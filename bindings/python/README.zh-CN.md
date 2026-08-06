@@ -47,7 +47,7 @@
 
 ## 范围
 
-- 当前目标包版本：`0.5.0`。
+- 当前目标包版本：`0.5.1`。
 - wheel 会随包携带当前平台对应的 `motor_abi` 和 `ws_gateway`，但不再内置
   DaMiao DM_Device SDK runtime。真正使用 `Controller.from_dm_device(...)`、
   Python CLI `--transport dm-device` 或
@@ -137,7 +137,7 @@
 | 顶层统一模式 | Damiao | RobStride | Hexfellow | MyActuator | HighTorque |
 | --- | --- | --- | --- | --- | --- |
 | `Mode.MIT` | 原生 MIT | 原生 MIT | 原生 MIT（模式 5） | 不支持 | 映射到原生 pos+vel+tqe |
-| `Mode.POS_VEL` | 原生 POS_VEL | 映射到原生 Position（`run_mode=1` + `limit_spd(0x7017)` + `loc_ref(0x7016)`） | 原生 POS_VEL（模式 1） | Position 设定流程 | 映射到原生 pos+vel+tqe |
+| `Mode.POS_VEL` | 原生 POS_VEL | 映射到原生 Position（`run_mode=1` + `vel_max(0x7024)` + `loc_ref(0x7016)`） | 原生 POS_VEL（模式 1） | Position 设定流程 | 映射到原生 pos+vel+tqe |
 | `Mode.VEL` | 原生 VEL | 原生 Velocity | 不支持 | 原生 Velocity 设定流程 | 原生速度命令 |
 | `Mode.FORCE_POS` | 原生 FORCE_POS | 不支持 | 不支持 | 不支持 | 映射到原生 pos+vel+tqe |
 
@@ -297,7 +297,7 @@ motorbridge-cli run \
 ```
 
 RobStride 位置目标，已与 WS gateway 的原生寄存器路径对齐
-（`limit_spd` `0x7017`、`loc_kp` `0x701E`、`loc_ref` `0x7016`）：
+（`vel_max` `0x7024`、`loc_kp` `0x701E`、`loc_ref` `0x7016`）：
 
 ```bash
 motorbridge-cli run \

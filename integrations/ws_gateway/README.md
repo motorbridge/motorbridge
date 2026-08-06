@@ -62,7 +62,7 @@ If a vendor does not support one of these four baseline modes, gateway returns `
 | Vendor | `mit` | `pos_vel` | `vel` | `force_pos` | Parameter Differences | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | damiao | native MIT | native POS_VEL | native VEL | native FORCE_POS | full parameter match | baseline reference |
-| robstride | native MIT | maps to native Position (`run_mode=1` + `limit_spd` + `loc_ref`) | native Velocity mode | unsupported | `vel` maps to vendor velocity target; `pos_vel` maps to vendor Position | native param read/write via `robstride_*` |
+| robstride | native MIT | maps to native Position (`run_mode=1` + `vel_max` + `loc_ref`) | native Velocity mode | unsupported | `vel` maps to vendor velocity target; `pos_vel` maps to vendor Position | native param read/write via `robstride_*` |
 | hexfellow | native MIT | native POS_VEL | unsupported | unsupported | `mit` supports `kp/kd/tau`; no standalone `vel` | CAN-FD path |
 | myactuator | unsupported | Position setpoint flow | native velocity setpoint | unsupported | `pos_vel` via position setpoint; `vel` in baseline set | native strengths: current/position/version/mode-query |
 | hightorque | native MIT (ht_can mapping) | maps to native pos+vel+tqe | native velocity frame | maps to native pos+vel+tqe | `mit/vel` are raw-frame mapped; `kp/kd` accepted but ignored by protocol; `pos_vel/force_pos` map to pos+vel+tqe | current subset: scan/read/mit/vel/pos-vel/force-pos/stop; `enable/disable` accepted as no-op |

@@ -48,7 +48,7 @@ Notes:
 ## Scope
 Packaging note:
 
-- Current package target version: `0.5.0`.
+- Current package target version: `0.5.1`.
 - Published wheel includes `motor_abi` shared library and `ws_gateway` binary for that platform.
 - Published wheels do not bundle the DaMiao DM_Device SDK runtime. When
   `Controller.from_dm_device(...)`, Python CLI `--transport dm-device`, or
@@ -152,7 +152,7 @@ Packaging note:
 | Unified Mode | Damiao | RobStride | Hexfellow | MyActuator | HighTorque |
 | --- | --- | --- | --- | --- | --- |
 | `Mode.MIT` | native MIT | native MIT | native MIT (mode 5) | unsupported | maps to native pos+vel+tqe |
-| `Mode.POS_VEL` | native POS_VEL | maps to native Position (`run_mode=1` + `limit_spd(0x7017)` + `loc_ref(0x7016)`) | native POS_VEL (mode 1) | Position setpoint flow | maps to native pos+vel+tqe |
+| `Mode.POS_VEL` | native POS_VEL | maps to native Position (`run_mode=1` + `vel_max(0x7024)` + `loc_ref(0x7016)`) | native POS_VEL (mode 1) | Position setpoint flow | maps to native pos+vel+tqe |
 | `Mode.VEL` | native VEL | native Velocity | unsupported | native velocity setpoint flow | native velocity command |
 | `Mode.FORCE_POS` | native FORCE_POS | unsupported | unsupported | unsupported | maps to native pos+vel+tqe |
 
@@ -265,7 +265,7 @@ motorbridge-cli run \
 ```
 
 RobStride position target, aligned with the WS gateway native register path
-(`limit_spd` `0x7017`, `loc_kp` `0x701E`, `loc_ref` `0x7016`):
+(`vel_max` `0x7024`, `loc_kp` `0x701E`, `loc_ref` `0x7016`):
 
 ```bash
 motorbridge-cli run \

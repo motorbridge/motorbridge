@@ -114,7 +114,10 @@ def main() -> None:
                     motor.send_mit(args.pos, args.vel, args.kp, args.kd, args.tau)
                 elif args.mode == "pos-vel":
                     if args.vlim > 0:
-                        motor.robstride_write_param_f32(0x7017, abs(args.vlim))
+                        # PP reads velocity cap from 0x7024 vel_max, not 0x7017
+                        # limit_spd (the latter belongs to CSP run_mode=5 and is
+                        # ignored in PP).
+                        motor.robstride_write_param_f32(0x7024, abs(args.vlim))
                     if args.loc_kp >= 0:
                         motor.robstride_write_param_f32(0x701E, args.loc_kp)
                     motor.robstride_write_param_f32(0x7016, args.pos)

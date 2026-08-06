@@ -38,7 +38,7 @@ FID=0xFD
 - 统一默认反馈 ID：`0xFD`（运行时可回退尝试 `0xFF/0xFE`）。
 - 统一模式与原厂语义映射：
   - `mit` -> 原厂 MIT/阻抗控制帧（`pos/vel/kp/kd/tau` 全有效）。
-  - `pos-vel` -> 原厂位置流程：`run_mode=1`，`loc_ref(0x7016)`，`limit_spd(0x7017)`。
+  - `pos-vel` -> 原厂位置流程（PP）：`run_mode=1`，`vel_max(0x7024)`，`loc_ref(0x7016)`。
   - `vel` -> 原厂速度流程：`run_mode=2`，`spd_ref(0x700A)`。
   - `zero/set-zero` -> 原厂置零命令序列（需 `--zero-exp 1` 才真正下发）。
 - 常用原厂参数：
@@ -245,7 +245,7 @@ with Controller("can0") as ctrl:
 - 建议先 `loop=1` 做到位命令，再观察反馈。
 
 原厂协议对应：
-- `run_mode=1`，`loc_ref(0x7016)`，`limit_spd(0x7017)`。
+- `run_mode=1`，`vel_max(0x7024)`，`loc_ref(0x7016)`。
 
 ### Core CLI
 

@@ -7,6 +7,57 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-06
+
+### Added
+
+- Added a mode-aware RobStride `controlled_stop` that zeroes the correct
+  actuator per current mode instead of always zeroing velocity: Velocity writes
+  `spd_ref=0`, Position (PP) writes `vel_max=0`, PositionCsp holds the measured
+  position as `loc_ref`, and MIT holds position reusing the last `kp/kd` (or a
+  10% fallback). Hardened `ws_gateway` `handle_stop` to clear the active ticker
+  command unconditionally before dispatching, so a failed vendor stop no longer
+  leaves the loop re-sending the previous motion command. Exposed the new
+  `motor_handle_stop` FFI (separate from disable) and a `stop` mode in the
+  RobStride CLI, and documented stop-vs-disable semantics per mode.
+
+### Fixed
+
+- Corrected the RobStride `pos_vel` register misdirection in PP mode: the
+  velocity cap was written to `0x7017 limit_spd` (the CSP speed limit, ignored
+  by `run_mode=1`) instead of `0x7024 vel_max`, so user-supplied `vlim` silently
+  had no effect. The WS gateway (one-shot entry and the 50 Hz continuous
+  ticker), the Python CLI `pos-vel` path, and the wrapper demo now write
+  `0x7024 vel_max`; the gateway also accepts an optional `acc` field routed to
+  `0x7025 acc_set`. The legacy `loc_kp` (`0x701E`) and `loc_ref` (`0x7016`)
+  writes are preserved. Documentation and protocol tables were synced from
+  `limit_spd(0x7017)` to `vel_max(0x7024)`. The timing demo's intentional
+  legacy baseline is left untouched as a comparison fixture.
+
+### Changed
+
+- Replaced `tianrking` organization references with `motorbridge` across the
+  repository.
+- Python package version advanced to `0.5.1`.
+- Rust workspace package version advanced to `0.5.1` for release/tag alignment.
+- C++ package metadata advanced to `0.5.1`.
+
+## [0.5.0] - 2026-07-22
+
+### Added
+
+- Added RobStride firmware version request and reply decoding so the host can
+  read the motor firmware version over the parameter protocol.
+
+### Fixed
+
+- Corrected RobStride MIT velocity normalization: `rs-00` vmax `50 -> 33`,
+  `rs-03` vmax `50 -> 20`, and `rs-06` vmax `20 -> 50` so MIT velocity
+  encoding/decoding uses the vendor-specified denominator instead of a wrong
+  shared range that distorted commands and feedback.
+- Aligned `rs-05` velocity and torque limits with the RS05 manual so model
+  specs, validation, and downstream tooling use the correct maximum ranges.
+
 ## [0.4.9] - 2026-07-06
 
 ### Fixed

@@ -137,7 +137,7 @@ impl SessionCtx {
                     let speed = vlim.abs();
                     if speed.is_finite() && speed > 0.0 {
                         motor
-                            .write_parameter(0x7017, RobstrideParameterValue::F32(speed))
+                            .write_parameter(0x7024, RobstrideParameterValue::F32(speed))
                             .map_err(|e| e.to_string())?;
                     }
                     motor

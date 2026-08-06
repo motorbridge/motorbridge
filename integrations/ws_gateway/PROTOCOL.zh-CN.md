@@ -703,7 +703,7 @@ Damiao 周期推送：
 | 厂商 | 支持 | 说明 |
 | --- | --- | --- |
 | Damiao | 是 | 原生 POS_VEL |
-| RobStride | 是 | 切 Position mode，写 `0x7017 limit_spd`、`0x701E loc_kp`、`0x7016 loc_ref` |
+| RobStride | 是 | 切 Position mode (PP)，写 `0x7024 vel_max`、`0x701E loc_kp`、`0x7016 loc_ref` |
 | Hexfellow | 是 | 转成 rev / rev/s |
 | HighTorque | 当前 handler 返回不支持 | 后续可扩展 |
 | MyActuator | 当前 handler 返回不支持 | 可用 `pos` 原生 op |

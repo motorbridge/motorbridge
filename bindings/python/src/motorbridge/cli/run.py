@@ -162,7 +162,7 @@ def _run_command(args: argparse.Namespace) -> None:
                             )
                         speed = abs(float(args.vlim))
                         if speed > 0.0:
-                            motor.robstride_write_param_f32(0x7017, speed)
+                            motor.robstride_write_param_f32(0x7024, speed)
                         loc_kp = args.loc_kp if args.loc_kp is not None else args.kp
                         if loc_kp is not None and loc_kp >= 0.0:
                             motor.robstride_write_param_f32(0x701E, float(loc_kp))
