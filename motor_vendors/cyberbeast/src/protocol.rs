@@ -535,33 +535,80 @@ pub fn encode_clear_errors() -> [u8; 8] {
 // ============================================================================
 // Heartbeat decode
 //
-// CAN 2.0 heartbeat (8 bytes):
-//   Byte 0:    life_counter
-//   Byte 1:    device_id
-//   Byte 2-3:  axis_error   (uint16, BE)
-//   Byte 4-5:  motor_error  (uint16, BE)
-//   Byte 6-7:  encoder_error (uint16, BE)
+// CAN 2.0 heartbeat (8 bytes) — one frame covers all core state:
+//   Byte 0:    [Life:3] [ErrorFlags:5]  — high 3 bits = life counter (0-7),
+//                                         low 5 bits = subsystem error flags
+//   Byte 1:    [State:4] [Mode:4]       — high 4 bits = motor state, low 4 = control mode
+//   Byte 2:    Motor Temp (uint8, offset -50°C → actual = raw - 50)
+//   Byte 3-4:  Motor Position (int16, BE, motor turns × 100)
+//   Byte 5-6:  Motor Velocity (int16, BE, motor turns/s × 100)
+//   Byte 7:    Iq Current (int8, 0.5 A/bit)
+//
+// ErrorFlags bitmask:
+//   bit 0 (0x01): AXIS       — axis.error_
+//   bit 1 (0x02): MOTOR      — axis.motor_.error_
+//   bit 2 (0x04): ENCODER    — axis.encoder_.error_
+//   bit 3 (0x08): CONTROLLER — axis.controller_.error_
+//   bit 4 (0x10): BOARD      — odrv.error_ (system level)
 // ============================================================================
+
+/// Heartbeat error flags (1 byte bitmask, lower 5 bits used).
+pub mod heartbeat_error {
+    pub const AXIS: u8 = 0x01;
+    pub const MOTOR: u8 = 0x02;
+    pub const ENCODER: u8 = 0x04;
+    pub const CONTROLLER: u8 = 0x08;
+    pub const BOARD: u8 = 0x10;
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct HeartbeatFrame {
+    /// Life counter (0-7, extracted from high 3 bits of byte 0).
     pub life_counter: u8,
-    pub device_id: u8,
-    pub axis_error: u16,
-    pub motor_error: u16,
-    pub encoder_error: u16,
+    /// Subsystem error flags (lower 5 bits of byte 0).
+    pub error_flags: u8,
+    /// Motor state (high 4 bits of byte 1).
+    pub motor_state: u8,
+    /// Control mode (low 4 bits of byte 1).
+    pub control_mode: u8,
+    /// Motor temperature in °C (offset -50 decoded).
+    pub motor_temp: f32,
+    /// Motor position in turns (decoded from int16 BE × 100).
+    pub position_turns: f32,
+    /// Motor velocity in turns/s (decoded from int16 BE × 100).
+    pub velocity_turns_per_s: f32,
+    /// Iq current in Amps (decoded from int8, 0.5 A/bit).
+    pub iq_current: f32,
 }
 
 pub fn decode_heartbeat(data: &[u8]) -> Option<HeartbeatFrame> {
     if data.len() < 8 {
         return None;
     }
+    let life_counter = (data[0] >> 5) & 0x07;
+    let error_flags = data[0] & 0x1F;
+    let motor_state = (data[1] >> 4) & 0x0F;
+    let control_mode = data[1] & 0x0F;
+    let motor_temp = data[2] as f32 - 50.0;
+
+    let pos_raw = ((data[3] as i16) << 8) | (data[4] as i16);
+    let position_turns = pos_raw as f32 / 100.0;
+
+    let vel_raw = ((data[5] as i16) << 8) | (data[6] as i16);
+    let velocity_turns_per_s = vel_raw as f32 / 100.0;
+
+    let iq_raw = data[7] as i8;
+    let iq_current = iq_raw as f32 * 0.5;
+
     Some(HeartbeatFrame {
-        life_counter: data[0],
-        device_id: data[1],
-        axis_error: ((data[2] as u16) << 8) | (data[3] as u16),
-        motor_error: ((data[4] as u16) << 8) | (data[5] as u16),
-        encoder_error: ((data[6] as u16) << 8) | (data[7] as u16),
+        life_counter,
+        error_flags,
+        motor_state,
+        control_mode,
+        motor_temp,
+        position_turns,
+        velocity_turns_per_s,
+        iq_current,
     })
 }
 
@@ -701,9 +748,9 @@ mod tests {
     #[test]
     fn test_big_endian_float_roundtrip() {
         let mut buf = [0u8; 8];
-        f32_to_big_endian_bytes(3.14, &mut buf, 0);
+        f32_to_big_endian_bytes(1.5, &mut buf, 0);
         let val = big_endian_bytes_to_f32(&buf, 0);
-        assert!((val - 3.14).abs() < 0.001);
+        assert!((val - 1.5).abs() < 0.001);
     }
 
     #[test]
@@ -791,5 +838,31 @@ mod tests {
         assert_eq!(parts.source, 0xFF);
         assert_eq!(parts.seq, 3);
         assert!(parts.is_broadcast); // 0xFF >= 0x80
+    }
+
+    #[test]
+    fn test_decode_heartbeat() {
+        // Build a heartbeat frame per the new v8.1 format
+        let mut data = [0u8; 8];
+        data[0] = (2 << 5) | 0x03; // Life=2, ErrorFlags=AXIS|MOTOR
+        data[1] = (0x3 << 4) | 0x1; // State=3(CLOSED_LOOP), Mode=1(POSITION)
+        data[2] = 80; // Motor Temp raw → 30°C
+        let pos_raw: i16 = 5000;
+        data[3] = (pos_raw >> 8) as u8;
+        data[4] = pos_raw as u8;
+        let vel_raw: i16 = -200;
+        data[5] = (vel_raw >> 8) as u8;
+        data[6] = vel_raw as u8;
+        data[7] = 20u8; // Iq = 10.0A
+
+        let hb = decode_heartbeat(&data).expect("valid heartbeat");
+        assert_eq!(hb.life_counter, 2);
+        assert_eq!(hb.error_flags, 0x03);
+        assert_eq!(hb.motor_state, 3);
+        assert_eq!(hb.control_mode, 1);
+        assert!((hb.motor_temp - 30.0).abs() < 1.0);
+        assert!((hb.position_turns - 50.0).abs() < 0.1);
+        assert!((hb.velocity_turns_per_s - (-2.0)).abs() < 0.1);
+        assert!((hb.iq_current - 10.0).abs() < 0.5);
     }
 }

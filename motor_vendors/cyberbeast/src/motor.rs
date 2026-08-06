@@ -155,14 +155,10 @@ pub struct CyberBeastMotorState {
     pub motor_temp: f32,
     /// MOSFET temperature in °C.
     pub mos_temp: f32,
-    /// Life counter from heartbeat (if this was a heartbeat frame).
-    pub heartbeat_life: Option<u8>,
-    /// Raw axis error from heartbeat.
-    pub axis_error: Option<u16>,
-    /// Raw motor error from heartbeat.
-    pub motor_error: Option<u16>,
-    /// Raw encoder error from heartbeat.
-    pub encoder_error: Option<u16>,
+    /// Heartbeat error flags bitmask (0 if no heartbeat received).
+    pub error_flags: u8,
+    /// Life counter from last heartbeat frame.
+    pub heartbeat_life: u8,
 }
 
 impl Default for CyberBeastMotorState {
@@ -184,10 +180,8 @@ impl Default for CyberBeastMotorState {
             mode_state: 0,
             motor_temp: 0.0,
             mos_temp: 0.0,
-            heartbeat_life: None,
-            axis_error: None,
-            motor_error: None,
-            encoder_error: None,
+            error_flags: 0,
+            heartbeat_life: 0,
         }
     }
 }
@@ -575,10 +569,8 @@ impl CyberBeastMotor {
                     mode_state: resp.mode_state,
                     motor_temp: resp.motor_temp,
                     mos_temp: resp.mos_temp,
+                    error_flags: existing.error_flags,
                     heartbeat_life: existing.heartbeat_life,
-                    axis_error: existing.axis_error,
-                    motor_error: existing.motor_error,
-                    encoder_error: existing.encoder_error,
                 });
             }
 
@@ -594,10 +586,16 @@ impl CyberBeastMotor {
                     state.replace(CyberBeastMotorState {
                         arbitration_id: frame.arbitration_id,
                         can_id_parts: parts,
-                        heartbeat_life: Some(hb.life_counter),
-                        axis_error: Some(hb.axis_error),
-                        motor_error: Some(hb.motor_error),
-                        encoder_error: Some(hb.encoder_error),
+                        // Heartbeat now provides position, velocity, current,
+                        // temperature, error flags, and life counter all in one frame.
+                        // Position/velocity are in motor turns — convert to output rad.
+                        pos: hb.position_turns * (2.0 * std::f32::consts::PI),
+                        vel: hb.velocity_turns_per_s * (2.0 * std::f32::consts::PI),
+                        current: hb.iq_current,
+                        error_flags: hb.error_flags,
+                        motor_temp: hb.motor_temp,
+                        mos_temp: existing.mos_temp,
+                        heartbeat_life: hb.life_counter,
                         ..existing
                     });
                 }
@@ -933,16 +931,24 @@ mod tests {
         let bus: Arc<dyn CanBus> = Arc::new(MockBus::new());
         let motor = CyberBeastMotor::new(0x03, 0x03, "odrive-default", Arc::clone(&bus)).unwrap();
 
-        // Build a mock heartbeat frame
+        // Build a mock heartbeat frame (new v8.1 format)
+        // Life=2 (0b010xxxxx), ErrorFlags=0x03 (AXIS|MOTOR)
+        // State=0x3 (CLOSED_LOOP), Mode=0x1 (POSITION)
+        // Motor Temp=80 (raw) → actual 30°C
+        // Position=5000 (raw int16) → 50.0 turns
+        // Velocity=200 (raw int16) → 2.0 turns/s
+        // Iq=20 (raw int8) → 10.0 A
         let mut data = [0u8; 8];
-        data[0] = 42; // life_counter
-        data[1] = 0x03; // device_id
-        data[2] = 0x00;
-        data[3] = 0x01; // axis_error = 1
-        data[4] = 0x00;
-        data[5] = 0x00; // motor_error = 0
-        data[6] = 0x00;
-        data[7] = 0x00; // encoder_error = 0
+        data[0] = (2 << 5) | 0x03; // Life=2, ErrorFlags=AXIS|MOTOR
+        data[1] = (0x3 << 4) | 0x1; // State=3, ControlMode=1
+        data[2] = 80; // Motor Temp = 30°C
+        let pos_raw: i16 = 5000;
+        data[3] = (pos_raw >> 8) as u8;
+        data[4] = pos_raw as u8;
+        let vel_raw: i16 = 200;
+        data[5] = (vel_raw >> 8) as u8;
+        data[6] = vel_raw as u8;
+        data[7] = 20; // Iq = 10.0 A
 
         let can_id = make_can_id(6, MsgType::Heartbeat as u8, 0x01, 0x03, 0);
         let frame = CanFrame {
@@ -956,9 +962,14 @@ mod tests {
         motor.process_feedback_frame(frame).unwrap();
 
         let state = motor.latest_state().unwrap();
-        assert_eq!(state.heartbeat_life, Some(42));
-        assert_eq!(state.axis_error, Some(1));
-        assert_eq!(state.motor_error, Some(0));
+        assert_eq!(state.heartbeat_life, 2);
+        assert_eq!(state.error_flags, 0x03); // AXIS|MOTOR
+        assert!((state.motor_temp - 30.0).abs() < 1.0);
+        // Position: 50.0 turns → output rad = 50.0 * 2π
+        assert!((state.pos - 50.0 * 2.0 * std::f32::consts::PI).abs() < 1.0);
+        // Velocity: 2.0 turns/s → output rad/s = 2.0 * 2π
+        assert!((state.vel - 2.0 * 2.0 * std::f32::consts::PI).abs() < 1.0);
+        assert!((state.current - 10.0).abs() < 0.5);
     }
 
     #[test]

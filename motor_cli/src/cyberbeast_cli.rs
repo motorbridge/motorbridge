@@ -54,9 +54,7 @@ pub fn run_cyberbeast(
                 println!("  pos={:.4} rad, vel={:.4} rad/s", state.pos, state.vel);
                 println!("  current={:.3} A, error=0x{:X}, mode={}", state.current, state.error_code, state.mode_state);
                 println!("  motor_temp={:.1}°C, mos_temp={:.1}°C", state.motor_temp, state.mos_temp);
-                if let Some(life) = state.heartbeat_life {
-                    println!("  heartbeat_life={}", life);
-                }
+                println!("  heartbeat_life={} error_flags=0x{:02X}", state.heartbeat_life, state.error_flags);
             } else {
                 println!("no response from motor 0x{motor_id:02X}");
             }
