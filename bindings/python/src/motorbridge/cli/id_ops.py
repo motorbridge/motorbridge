@@ -76,30 +76,32 @@ def _id_set_command(args: argparse.Namespace) -> None:
         if new_motor_id != motor_id:
             motor.write_register_u32(8, new_motor_id)
             print(f"write rid=8 (ESC_ID) <= 0x{new_motor_id:X}")
-        if args.store:
-            motor.store_parameters()
-            print("store_parameters sent")
     finally:
         motor.close()
         ctrl.close_bus()
         ctrl.close()
 
-    if not args.verify:
+    if not args.store and not args.verify:
         return
 
     verify_ctrl = _open_controller(args, args.vendor)
     verify_motor = verify_ctrl.add_damiao_motor(new_motor_id, new_feedback_id, args.model)
     try:
-        esc = verify_motor.get_register_u32(8, args.timeout_ms)
-        mst = verify_motor.get_register_u32(7, args.timeout_ms)
-        print(f"verify rid=8 (ESC_ID): 0x{esc:X}")
-        print(f"verify rid=7 (MST_ID): 0x{mst:X}")
-        if esc != new_motor_id or mst != new_feedback_id:
-            raise RuntimeError(
-                f"verify failed: expected ESC_ID=0x{new_motor_id:X}, MST_ID=0x{new_feedback_id:X}, "
-                f"got ESC_ID=0x{esc:X}, MST_ID=0x{mst:X}"
-            )
-        print("verify ok")
+        if args.store:
+            verify_motor.store_parameters()
+            print("store_parameters sent (via new id)")
+            time.sleep(0.12)
+        if args.verify:
+            esc = verify_motor.get_register_u32(8, args.timeout_ms)
+            mst = verify_motor.get_register_u32(7, args.timeout_ms)
+            print(f"verify rid=8 (ESC_ID): 0x{esc:X}")
+            print(f"verify rid=7 (MST_ID): 0x{mst:X}")
+            if esc != new_motor_id or mst != new_feedback_id:
+                raise RuntimeError(
+                    f"verify failed: expected ESC_ID=0x{new_motor_id:X}, MST_ID=0x{new_feedback_id:X}, "
+                    f"got ESC_ID=0x{esc:X}, MST_ID=0x{mst:X}"
+                )
+            print("verify ok")
     finally:
         verify_motor.close()
         verify_ctrl.close_bus()
