@@ -3,6 +3,7 @@
 use crate::bus::{CanBus, CanFrame};
 use crate::error::{MotorError, Result};
 use libloading::Library;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -65,39 +66,50 @@ struct PcanApi {
     can_write: CanWriteFn,
 }
 
+fn library_candidates(home: Option<&Path>) -> Vec<PathBuf> {
+    if cfg!(target_os = "macos") {
+        let mut candidates = vec![PathBuf::from("libPCBUSB.dylib")];
+        if let Some(home) = home {
+            candidates.push(home.join(".local/lib/libPCBUSB.dylib"));
+        }
+        candidates.push(PathBuf::from("PCBUSB"));
+        candidates
+    } else {
+        vec![PathBuf::from("PCANBasic.dll")]
+    }
+}
+
+fn library_load_error(load_errors: &[String]) -> MotorError {
+    let errors = load_errors.join("; ");
+    if cfg!(target_os = "macos") {
+        MotorError::Unsupported(format!(
+            "load PCBUSB failed (tried: {errors}). Install MacCAN PCBUSB runtime (libPCBUSB.dylib)."
+        ))
+    } else {
+        MotorError::Unsupported(format!(
+            "load PCANBasic.dll failed: {errors}. Install PEAK PCAN-Basic runtime."
+        ))
+    }
+}
+
 impl PcanApi {
     fn load() -> Result<Self> {
-        let lib_candidates: &[&str] = if cfg!(target_os = "macos") {
-            &["libPCBUSB.dylib", "PCBUSB"]
-        } else {
-            &["PCANBasic.dll"]
-        };
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let lib_candidates = library_candidates(home.as_deref());
 
-        let mut last_err: Option<String> = None;
+        let mut load_errors = Vec::new();
         let mut loaded: Option<Library> = None;
-        for name in lib_candidates {
+        for name in &lib_candidates {
             match unsafe { Library::new(name) } {
                 Ok(lib) => {
                     loaded = Some(lib);
                     break;
                 }
-                Err(e) => last_err = Some(format!("{name}: {e}")),
+                Err(e) => load_errors.push(format!("{}: {e}", name.display())),
             }
         }
 
-        let lib = loaded.ok_or_else(|| {
-            if cfg!(target_os = "macos") {
-                MotorError::Unsupported(format!(
-                    "load PCBUSB failed (tried: {}). Install MacCAN PCBUSB runtime (libPCBUSB.dylib).",
-                    last_err.unwrap_or_else(|| "unknown".to_string())
-                ))
-            } else {
-                MotorError::Unsupported(format!(
-                    "load PCANBasic.dll failed: {}. Install PEAK PCAN-Basic runtime.",
-                    last_err.unwrap_or_else(|| "unknown".to_string())
-                ))
-            }
-        })?;
+        let lib = loaded.ok_or_else(|| library_load_error(&load_errors))?;
 
         let can_initialize = unsafe {
             *lib.get::<CanInitializeFn>(b"CAN_Initialize\0")
@@ -412,6 +424,38 @@ impl Drop for PcanBus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn library_candidates_include_user_local_path() {
+        let candidates = library_candidates(Some(Path::new("/Users/tester")));
+
+        if cfg!(target_os = "macos") {
+            assert_eq!(
+                candidates,
+                vec![
+                    PathBuf::from("libPCBUSB.dylib"),
+                    PathBuf::from("/Users/tester/.local/lib/libPCBUSB.dylib"),
+                    PathBuf::from("PCBUSB"),
+                ]
+            );
+        } else {
+            assert_eq!(candidates, vec![PathBuf::from("PCANBasic.dll")]);
+        }
+    }
+
+    #[test]
+    fn library_load_error_includes_all_attempts() {
+        let error = library_load_error(&[
+            "libPCBUSB.dylib: first failure".to_string(),
+            "/Users/tester/.local/lib/libPCBUSB.dylib: second failure".to_string(),
+            "PCBUSB: third failure".to_string(),
+        ]);
+        let message = error.to_string();
+
+        assert!(message.contains("libPCBUSB.dylib: first failure"));
+        assert!(message.contains("/Users/tester/.local/lib/libPCBUSB.dylib: second failure"));
+        assert!(message.contains("PCBUSB: third failure"));
+    }
 
     #[test]
     fn bitrate_mapping_has_common_values() {
