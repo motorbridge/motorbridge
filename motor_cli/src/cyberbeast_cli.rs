@@ -52,9 +52,18 @@ pub fn run_cyberbeast(
             if let Some(state) = motor.latest_state() {
                 println!("status for motor 0x{motor_id:02X}:");
                 println!("  pos={:.4} rad, vel={:.4} rad/s", state.pos, state.vel);
-                println!("  current={:.3} A, error=0x{:X}, mode={}", state.current, state.error_code, state.mode_state);
-                println!("  motor_temp={:.1}°C, mos_temp={:.1}°C", state.motor_temp, state.mos_temp);
-                println!("  heartbeat_life={} error_flags=0x{:02X}", state.heartbeat_life, state.error_flags);
+                println!(
+                    "  current={:.3} A, error=0x{:X}, mode={}",
+                    state.current, state.error_code, state.mode_state
+                );
+                println!(
+                    "  motor_temp={:.1}°C, mos_temp={:.1}°C",
+                    state.motor_temp, state.mos_temp
+                );
+                println!(
+                    "  heartbeat_life={} error_flags=0x{:02X}",
+                    state.heartbeat_life, state.error_flags
+                );
             } else {
                 println!("no response from motor 0x{motor_id:02X}");
             }
@@ -77,8 +86,15 @@ pub fn run_cyberbeast(
                 motor.send_mit_command(pos, vel, kp, kd, torque)?;
                 let _ = ctrl.poll_feedback_once();
                 if let Some(state) = motor.latest_state() {
-                    print!("\rpos={:.4} vel={:.4} cur={:.3} err=0x{:X} mode={} temp={:.1}°C",
-                        state.pos, state.vel, state.current, state.error_code, state.mode_state, state.motor_temp);
+                    print!(
+                        "\rpos={:.4} vel={:.4} cur={:.3} err=0x{:X} mode={} temp={:.1}°C",
+                        state.pos,
+                        state.vel,
+                        state.current,
+                        state.error_code,
+                        state.mode_state,
+                        state.motor_temp
+                    );
                 }
                 std::thread::sleep(Duration::from_millis(loop_ms));
             }
@@ -96,8 +112,10 @@ pub fn run_cyberbeast(
                 motor.send_pos_control(pos, vel_limit, 0.0)?;
                 let _ = ctrl.poll_feedback_once();
                 if let Some(state) = motor.latest_state() {
-                    print!("\rpos={:.4} vel={:.4} err=0x{:X}",
-                        state.pos, state.vel, state.error_code);
+                    print!(
+                        "\rpos={:.4} vel={:.4} err=0x{:X}",
+                        state.pos, state.vel, state.error_code
+                    );
                 }
                 std::thread::sleep(Duration::from_millis(loop_ms));
             }
@@ -114,8 +132,10 @@ pub fn run_cyberbeast(
                 motor.send_vel_control(vel_rpm, 0.0)?;
                 let _ = ctrl.poll_feedback_once();
                 if let Some(state) = motor.latest_state() {
-                    print!("\rvel={:.4} cur={:.3} err=0x{:X}",
-                        state.vel, state.current, state.error_code);
+                    print!(
+                        "\rvel={:.4} cur={:.3} err=0x{:X}",
+                        state.vel, state.current, state.error_code
+                    );
                 }
                 std::thread::sleep(Duration::from_millis(loop_ms));
             }
@@ -132,8 +152,10 @@ pub fn run_cyberbeast(
                 motor.send_torque_control(torque_nm)?;
                 let _ = ctrl.poll_feedback_once();
                 if let Some(state) = motor.latest_state() {
-                    print!("\rtorque_target={:.4} cur={:.3} err=0x{:X}",
-                        torque_nm, state.current, state.error_code);
+                    print!(
+                        "\rtorque_target={:.4} cur={:.3} err=0x{:X}",
+                        torque_nm, state.current, state.error_code
+                    );
                 }
                 std::thread::sleep(Duration::from_millis(loop_ms));
             }

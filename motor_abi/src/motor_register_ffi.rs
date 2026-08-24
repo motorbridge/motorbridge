@@ -133,7 +133,8 @@ pub extern "C" fn motor_handle_robstride_ping(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::CyberBeast(_) | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::CyberBeast(_)
+        | MotorHandleInner::Hightorque(_) => {
             Err("robstride_ping requires a RobStride motor".to_string())
         }
     };
@@ -172,7 +173,8 @@ pub extern "C" fn motor_handle_robstride_ping_host_id(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::CyberBeast(_) | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::CyberBeast(_)
+        | MotorHandleInner::Hightorque(_) => {
             Err("robstride_ping_host_id requires a RobStride motor".to_string())
         }
     };
@@ -219,7 +221,8 @@ pub extern "C" fn motor_handle_robstride_get_param_f32_host_id(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::CyberBeast(_) | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::CyberBeast(_)
+        | MotorHandleInner::Hightorque(_) => {
             Err("robstride_get_param_f32_host_id requires a RobStride motor".to_string())
         }
     };
@@ -249,7 +252,8 @@ pub extern "C" fn motor_handle_robstride_get_fault_report(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::CyberBeast(_) | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::CyberBeast(_)
+        | MotorHandleInner::Hightorque(_) => {
             set_last_error("robstride_get_fault_report requires a RobStride motor");
             -1
         }
@@ -271,7 +275,8 @@ pub extern "C" fn motor_handle_robstride_set_device_id(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::CyberBeast(_) | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::CyberBeast(_)
+        | MotorHandleInner::Hightorque(_) => {
             Err("robstride_set_device_id requires a RobStride motor".to_string())
         }
     };
@@ -295,7 +300,8 @@ pub extern "C" fn motor_handle_robstride_set_active_report(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::CyberBeast(_) | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::CyberBeast(_)
+        | MotorHandleInner::Hightorque(_) => {
             Err("robstride_set_active_report requires a RobStride motor".to_string())
         }
     };

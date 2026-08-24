@@ -1,8 +1,8 @@
 use motor_core::bus::CanBus;
+use motor_vendor_cyberbeast::{CyberBeastController, CyberBeastMotor};
 use motor_vendor_damiao::{DamiaoController, DamiaoMotor};
 use motor_vendor_hexfellow::{HexfellowController, HexfellowMotor};
 use motor_vendor_myactuator::{MyActuatorController, MyActuatorMotor};
-use motor_vendor_cyberbeast::{CyberBeastController, CyberBeastMotor};
 use motor_vendor_robstride::{RobstrideController, RobstrideMotor};
 use std::sync::Arc;
 

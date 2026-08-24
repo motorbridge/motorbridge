@@ -2,8 +2,8 @@ use crate::protocol::{
     self, can_id_parts, encode_clear_errors, encode_config_save, encode_current_control,
     encode_param_read, encode_param_write, encode_pos_control, encode_set_zero,
     encode_torque_control, encode_vel_control, make_can_id, pack_mit_command, seq_next,
-    unpack_mit_response, CyberBeastCanId, MitCommandParams, MsgType, Priority, DEFAULT_MASTER_ID,
-    MAX_BROADCAST_DEVICES,
+    unpack_mit_response, CyberBeastCanId, MitCommandParams, MsgType, Priority, ADDR_BROADCAST,
+    DEFAULT_MASTER_ID, MAX_BROADCAST_DEVICES,
 };
 use motor_core::bus::{CanBus, CanFrame};
 use motor_core::device::MotorDevice;
@@ -122,13 +122,14 @@ impl ParamCache {
 }
 
 // ============================================================================
-// Default MIT limits (ODrive defaults)
+// Default MIT limits (ODrive CyberBeast defaults, per protocol v2.4)
 // ============================================================================
 
-const DEFAULT_MIT_POS_LIMIT: f32 = 12.5; // ± rad
-const DEFAULT_MIT_VEL_LIMIT: f32 = 50.0; // ± rad/s
-const DEFAULT_MIT_KP_LIMIT: f32 = 500.0; // max Kp
-const DEFAULT_MIT_KD_LIMIT: f32 = 100.0; // max Kd
+const DEFAULT_MIT_POS_LIMIT: f32 = 4.0 * std::f32::consts::PI; // ±4π rad ≈ 12.566
+const DEFAULT_MIT_VEL_LIMIT: f32 = 30.0; // ±30 rad/s
+const DEFAULT_MIT_KP_LIMIT: f32 = 500.0; // max Kp (N·m/rad)
+const DEFAULT_MIT_KD_LIMIT: f32 = 100.0; // max Kd (N·m·s/rad)
+const DEFAULT_MIT_TORQUE_LIMIT: f32 = 18.0; // ±18 N·m
 const DEFAULT_MIT_CURRENT_LIMIT: f32 = 40.0; // ± A (for response decoding)
 
 // ============================================================================
@@ -159,6 +160,12 @@ pub struct CyberBeastMotorState {
     pub error_flags: u8,
     /// Life counter from last heartbeat frame.
     pub heartbeat_life: u8,
+    /// Hardware version (raw uint32) from QUERY_DEVICE_INFO, if queried.
+    pub hw_version: Option<u32>,
+    /// Firmware version (raw uint32) from QUERY_DEVICE_INFO, if queried.
+    pub fw_version: Option<u32>,
+    /// Subsystem error value (raw uint32) from QUERY_ERROR, if queried.
+    pub error_value: Option<u32>,
 }
 
 impl Default for CyberBeastMotorState {
@@ -182,6 +189,9 @@ impl Default for CyberBeastMotorState {
             mos_temp: 0.0,
             error_flags: 0,
             heartbeat_life: 0,
+            hw_version: None,
+            fw_version: None,
+            error_value: None,
         }
     }
 }
@@ -245,7 +255,7 @@ impl CyberBeastMotor {
             mit_vel_limit: DEFAULT_MIT_VEL_LIMIT,
             mit_kp_limit: DEFAULT_MIT_KP_LIMIT,
             mit_kd_limit: DEFAULT_MIT_KD_LIMIT,
-            mit_torque_limit: spec.tmax,
+            mit_torque_limit: DEFAULT_MIT_TORQUE_LIMIT,
             mit_current_limit: DEFAULT_MIT_CURRENT_LIMIT,
             param_cache: Mutex::new(ParamCache::new()),
         })
@@ -434,6 +444,50 @@ impl CyberBeastMotor {
         self.send_ext(can_id, [0u8; 8])
     }
 
+    /// Send current query (Iq + Id).
+    pub fn send_query_current(&self) -> Result<()> {
+        let can_id = self.cmd_can_id(Priority::Query, MsgType::QueryCurrent);
+        self.send_ext(can_id, [0u8; 8])
+    }
+
+    /// Send temperature query (motor + FET temp).
+    pub fn send_query_temperature(&self) -> Result<()> {
+        let can_id = self.cmd_can_id(Priority::Query, MsgType::QueryTemperature);
+        self.send_ext(can_id, [0u8; 8])
+    }
+
+    /// Send bus voltage/current query.
+    pub fn send_query_bus(&self) -> Result<()> {
+        let can_id = self.cmd_can_id(Priority::Query, MsgType::QueryBus);
+        self.send_ext(can_id, [0u8; 8])
+    }
+
+    /// Send device info query (hardware + firmware version).
+    pub fn send_query_device_info(&self) -> Result<()> {
+        let can_id = self.cmd_can_id(Priority::Query, MsgType::QueryDeviceInfo);
+        self.send_ext(can_id, [0u8; 8])
+    }
+
+    /// Send detailed error query for a subsystem.
+    pub fn send_query_error(&self, err_type: u8) -> Result<()> {
+        let data = protocol::encode_query_error(err_type);
+        let can_id = self.cmd_can_id(Priority::Query, MsgType::QueryError);
+        self.send_ext(can_id, data)
+    }
+
+    /// Request an immediate status feedback (device responds with MIT frame).
+    pub fn send_status_feedback(&self) -> Result<()> {
+        let can_id = self.cmd_can_id(Priority::Query, MsgType::StatusFeedback);
+        self.send_ext(can_id, [0u8; 8])
+    }
+
+    /// Send config reset command (erase config and reboot).
+    pub fn send_config_reset(&self) -> Result<()> {
+        let data = protocol::encode_config_reset();
+        let can_id = self.cmd_can_id(Priority::Config, MsgType::ConfigReset);
+        self.send_ext(can_id, data)
+    }
+
     // ========================================================================
     // Parameter (SDO endpoint) access
     // ========================================================================
@@ -571,6 +625,9 @@ impl CyberBeastMotor {
                     mos_temp: resp.mos_temp,
                     error_flags: existing.error_flags,
                     heartbeat_life: existing.heartbeat_life,
+                    hw_version: existing.hw_version,
+                    fw_version: existing.fw_version,
+                    error_value: existing.error_value,
                 });
             }
 
@@ -657,6 +714,45 @@ impl CyberBeastMotor {
                 let _ = protocol::decode_bus_response(&frame.data);
             }
 
+            // QUERY_DEVICE_INFO response (Classic CAN: HW + FW version)
+            t if t == MsgType::QueryDeviceInfo as u8 => {
+                if let Some(info) = protocol::decode_device_info_response(&frame.data) {
+                    let mut state = self
+                        .state
+                        .lock()
+                        .map_err(|_| MotorError::Io("state lock poisoned".into()))?;
+                    let existing = state.unwrap_or_default();
+                    state.replace(CyberBeastMotorState {
+                        arbitration_id: frame.arbitration_id,
+                        can_id_parts: parts,
+                        hw_version: Some(info.hw_version),
+                        fw_version: Some(info.fw_version),
+                        ..existing
+                    });
+                }
+            }
+
+            // QUERY_ERROR response: Byte 0=type echo, Byte 4-7=error value (uint32 BE)
+            t if t == MsgType::QueryError as u8 => {
+                if frame.data.len() >= 8 {
+                    let value = ((frame.data[4] as u32) << 24)
+                        | ((frame.data[5] as u32) << 16)
+                        | ((frame.data[6] as u32) << 8)
+                        | (frame.data[7] as u32);
+                    let mut state = self
+                        .state
+                        .lock()
+                        .map_err(|_| MotorError::Io("state lock poisoned".into()))?;
+                    let existing = state.unwrap_or_default();
+                    state.replace(CyberBeastMotorState {
+                        arbitration_id: frame.arbitration_id,
+                        can_id_parts: parts,
+                        error_value: Some(value),
+                        ..existing
+                    });
+                }
+            }
+
             // PARAM_READ response
             t if t == MsgType::ParamRead as u8 => {
                 // Parse endpoint_id from response
@@ -696,16 +792,26 @@ impl CyberBeastMotor {
         Ok(())
     }
 
-    /// Check if a broadcast MIT control frame targets this motor (by slot position).
+    /// Check if a broadcast CAN frame targets this motor.
     ///
-    /// Broadcast MIT frames encode up to 8 devices in 64-byte FD frames.
-    /// In CAN 2.0 mode, only slot 0 is used for point-to-point.
+    /// Protocol v2.4 broadcast semantics:
+    /// - `Dest=0xFF`: global broadcast → reaches ALL devices (no bitmap limit)
+    /// - `Dest=bitmap`: multicast to Device#0~7 via 8-bit bitmap (bit0=Dev#0)
+    /// - In Classic CAN, MIT broadcast applies the same 8-byte command to every
+    ///   bitmap-matched device (no per-device slots, which require CAN FD).
     fn is_broadcast_slot_for_me(&self, parts: &CyberBeastCanId) -> bool {
         let device_id = self.motor_id as u8;
-        if device_id == 0 || device_id >= MAX_BROADCAST_DEVICES {
+        if device_id == 0 {
             return false;
         }
-        // dest field encodes bitmask of target devices
+        // Dest=0xFF is global broadcast — every device responds/applies.
+        if parts.dest == ADDR_BROADCAST {
+            return true;
+        }
+        // Bitmap multicast only addresses Device#0~7.
+        if device_id >= MAX_BROADCAST_DEVICES {
+            return false;
+        }
         (parts.dest & (1 << device_id)) != 0
     }
 }

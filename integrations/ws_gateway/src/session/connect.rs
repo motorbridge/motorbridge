@@ -1,10 +1,10 @@
 use crate::model::{ControllerHandle, MotorHandle, Transport, Vendor};
 use crate::vendors::hightorque_ws::open_hightorque_bus;
 use motor_core::dm_device::DmDeviceType;
+use motor_vendor_cyberbeast::CyberBeastController;
 use motor_vendor_damiao::DamiaoController;
 use motor_vendor_hexfellow::HexfellowController;
 use motor_vendor_myactuator::MyActuatorController;
-use motor_vendor_cyberbeast::CyberBeastController;
 use motor_vendor_robstride::RobstrideController;
 
 use super::{myactuator_feedback_default, SessionCtx};

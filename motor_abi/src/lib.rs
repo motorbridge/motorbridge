@@ -1,4 +1,7 @@
 use motor_core::dm_device::DmDeviceType;
+use motor_vendor_cyberbeast::{
+    ControlMode as CyberBeastControlMode, CyberBeastController, CyberBeastMotor,
+};
 use motor_vendor_damiao::{ControlMode as DamiaoControlMode, DamiaoController, DamiaoMotor};
 use motor_vendor_hexfellow::{
     HexfellowController, HexfellowMotor, MitTarget as HexfellowMitTarget,
@@ -7,9 +10,6 @@ use motor_vendor_hexfellow::{
 use motor_vendor_hightorque::{HightorqueController, HightorqueMotor};
 use motor_vendor_myactuator::{
     ControlMode as MyActuatorControlMode, MyActuatorController, MyActuatorMotor,
-};
-use motor_vendor_cyberbeast::{
-    ControlMode as CyberBeastControlMode, CyberBeastController, CyberBeastMotor,
 };
 use motor_vendor_robstride::{
     ControlMode as RobstrideControlMode, ParameterValue, RobstrideController, RobstrideMotor,

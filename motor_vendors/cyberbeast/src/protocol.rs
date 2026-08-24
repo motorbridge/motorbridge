@@ -484,17 +484,27 @@ pub fn unpack_mit_response(
 // POS/VOL/TORQUE/CURRENT control encode
 // ============================================================================
 
-/// Encode POS_CONTROL frame (8-byte CAN 2.0 compatible).
+/// Encode POS_CONTROL frame (Classic CAN 8-byte compact variant).
 ///
-/// Encodes target position and velocity limit as two float32 BE values.
-/// Current limit is omitted — set it separately via PARAM_WRITE (endpoint 0x001C:
-/// `motor.config.current_lim`) or use the existing device configuration.
+/// Protocol v2.4 Classic CAN layout:
+///   Byte 0-3:  Target Position (float32, BE, output degrees)
+///   Byte 4-5:  Velocity Limit  (int16, BE, output RPM)
+///   Byte 6-7:  Current Limit   (int16, BE, output 0.1A)
 ///
-/// For full 12-byte encoding (including cur_limit), use CAN FD frames.
-pub fn encode_pos_control(target_pos_deg: f32, vel_limit_rpm: f32, _cur_limit_a: f32) -> [u8; 8] {
+/// This is the Classic CAN variant; CAN FD uses 12-byte float32×3 encoding.
+pub fn encode_pos_control(target_pos_deg: f32, vel_limit_rpm: f32, cur_limit_a: f32) -> [u8; 8] {
     let mut buf = [0u8; 8];
     f32_to_big_endian_bytes(target_pos_deg, &mut buf, 0);
-    f32_to_big_endian_bytes(vel_limit_rpm, &mut buf, 4);
+
+    let vel_int = vel_limit_rpm.round().clamp(-32768.0, 32767.0) as i16;
+    buf[4] = (vel_int >> 8) as u8;
+    buf[5] = vel_int as u8;
+
+    // Current limit in 0.1A units (A × 10)
+    let cur_int = (cur_limit_a * 10.0).round().clamp(-32768.0, 32767.0) as i16;
+    buf[6] = (cur_int >> 8) as u8;
+    buf[7] = cur_int as u8;
+
     buf
 }
 
@@ -657,6 +667,87 @@ pub fn decode_bus_response(data: &[u8]) -> (f32, f32) {
 }
 
 // ============================================================================
+// QUERY_DEVICE_INFO (0x46) decode
+//
+// Classic CAN 8-byte response:
+//   Byte 0-3:  Hardware Version (uint32, BE)
+//              = (MAJOR << 16) | (MINOR << 8) | VARIANT
+//   Byte 4-7:  Firmware Version (uint32, BE)
+//              = (MAJOR << 16) | (MINOR << 8) | REVISION
+//
+// Serial Number is NOT in the Classic CAN response — read the
+// `serial_number` endpoint via PARAM_READ instead.
+// ============================================================================
+
+#[derive(Debug, Clone, Copy)]
+pub struct DeviceInfo {
+    /// Raw hardware version (uint32).
+    pub hw_version: u32,
+    /// Raw firmware version (uint32).
+    pub fw_version: u32,
+}
+
+impl DeviceInfo {
+    pub fn hw_version_parts(&self) -> (u16, u16, u16) {
+        (
+            ((self.hw_version >> 16) & 0xFF) as u16,
+            ((self.hw_version >> 8) & 0xFF) as u16,
+            (self.hw_version & 0xFF) as u16,
+        )
+    }
+
+    pub fn fw_version_parts(&self) -> (u16, u16, u16) {
+        (
+            ((self.fw_version >> 16) & 0xFF) as u16,
+            ((self.fw_version >> 8) & 0xFF) as u16,
+            (self.fw_version & 0xFF) as u16,
+        )
+    }
+}
+
+/// Decode a QUERY_DEVICE_INFO response (Classic CAN 8 bytes).
+pub fn decode_device_info_response(data: &[u8]) -> Option<DeviceInfo> {
+    if data.len() < 8 {
+        return None;
+    }
+    let hw_version = ((data[0] as u32) << 24)
+        | ((data[1] as u32) << 16)
+        | ((data[2] as u32) << 8)
+        | (data[3] as u32);
+    let fw_version = ((data[4] as u32) << 24)
+        | ((data[5] as u32) << 16)
+        | ((data[6] as u32) << 8)
+        | (data[7] as u32);
+    Some(DeviceInfo {
+        hw_version,
+        fw_version,
+    })
+}
+
+// ============================================================================
+// QUERY_ERROR (0x45) encode
+//
+// Request: Byte 0 = ErrorType (0=Motor,1=Encoder,2=Sensorless,3=Controller,4=System,5=Axis)
+// ============================================================================
+
+/// Subsystem error types for QUERY_ERROR.
+pub mod error_type {
+    pub const MOTOR: u8 = 0;
+    pub const ENCODER: u8 = 1;
+    pub const SENSORLESS: u8 = 2;
+    pub const CONTROLLER: u8 = 3;
+    pub const SYSTEM: u8 = 4;
+    pub const AXIS: u8 = 5;
+}
+
+/// Encode a QUERY_ERROR request frame.
+pub fn encode_query_error(err_type: u8) -> [u8; 8] {
+    let mut buf = [0u8; 8];
+    buf[0] = err_type;
+    buf
+}
+
+// ============================================================================
 // Parameter (SDO endpoint) read/write encode/decode
 //
 // PARAM_READ request (8 bytes):
@@ -691,7 +782,7 @@ pub fn encode_param_read(endpoint_id: u16) -> [u8; 8] {
     buf[1] = (endpoint_id >> 8) as u8;
     buf[2] = endpoint_id as u8;
     buf[3] = 0x00; // data_len = 0 (read request)
-    // bytes 4-7 remain zero
+                   // bytes 4-7 remain zero
     buf
 }
 
@@ -864,5 +955,46 @@ mod tests {
         assert!((hb.position_turns - 50.0).abs() < 0.1);
         assert!((hb.velocity_turns_per_s - (-2.0)).abs() < 0.1);
         assert!((hb.iq_current - 10.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn test_encode_pos_control_classic() {
+        // Protocol v2.4 Classic CAN 8-byte variant:
+        // float32 pos(deg) + int16 vel_limit(RPM) + int16 cur_limit(0.1A)
+        let data = encode_pos_control(90.0, 120.0, 5.0);
+
+        // Byte 0-3: 90.0 deg as float32 BE
+        let pos = big_endian_bytes_to_f32(&data, 0);
+        assert!((pos - 90.0).abs() < 0.01);
+
+        // Byte 4-5: 120 RPM as int16 BE
+        let vel = ((data[4] as i16) << 8) | (data[5] as i16);
+        assert_eq!(vel, 120);
+
+        // Byte 6-7: 5.0A as int16 BE in 0.1A units (50)
+        let cur = ((data[6] as i16) << 8) | (data[7] as i16);
+        assert_eq!(cur, 50);
+    }
+
+    #[test]
+    fn test_decode_device_info_classic() {
+        // Classic CAN QUERY_DEVICE_INFO: HW(uint32) + FW(uint32)
+        // HW = (MAJOR<<16)|(MINOR<<8)|VARIANT = 1.2.3
+        // FW = (MAJOR<<16)|(MINOR<<8)|REVISION = 4.5.6
+        let mut data = [0u8; 8];
+        data[0] = 0x00;
+        data[1] = 0x01; // MAJOR=1
+        data[2] = 0x02; // MINOR=2
+        data[3] = 0x03; // VARIANT=3
+        data[4] = 0x00;
+        data[5] = 0x04; // MAJOR=4
+        data[6] = 0x05; // MINOR=5
+        data[7] = 0x06; // REVISION=6
+
+        let info = decode_device_info_response(&data).expect("valid device info");
+        assert_eq!(info.hw_version, 0x0001_0203);
+        assert_eq!(info.fw_version, 0x0004_0506);
+        assert_eq!(info.hw_version_parts(), (1, 2, 3));
+        assert_eq!(info.fw_version_parts(), (4, 5, 6));
     }
 }

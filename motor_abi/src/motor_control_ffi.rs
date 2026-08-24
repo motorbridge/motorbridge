@@ -219,10 +219,7 @@ pub extern "C" fn motor_handle_send_vel(motor: *mut MotorHandle, target_velocity
                 .set_velocity_target(target_velocity)
                 .map_err(|e| e.to_string()),
             MotorHandleInner::CyberBeast(m) => m
-                .send_vel_control(
-                    target_velocity.abs() * (60.0 / (2.0 * PI)),
-                    0.0,
-                )
+                .send_vel_control(target_velocity.abs() * (60.0 / (2.0 * PI)), 0.0)
                 .map_err(|e| e.to_string()),
             MotorHandleInner::Hightorque(m) => {
                 m.send_cmd_vel(target_velocity).map_err(|e| e.to_string())
@@ -296,9 +293,7 @@ pub extern "C" fn motor_handle_request_feedback(motor: *mut MotorHandle) -> i32 
             // robstride_ping() for connectivity checks, active report for streaming state,
             // or typed parameter reads for fresh position/velocity values.
             MotorHandleInner::Robstride(_) => Ok(()),
-            MotorHandleInner::CyberBeast(m) => {
-                m.send_query_status().map_err(|e| e.to_string())
-            }
+            MotorHandleInner::CyberBeast(m) => m.send_query_status().map_err(|e| e.to_string()),
             MotorHandleInner::Hightorque(m) => m
                 .request_motor_feedback(Duration::from_millis(500))
                 .map_err(|e| e.to_string()),
@@ -339,6 +334,7 @@ pub extern "C" fn motor_handle_stop(motor: *mut MotorHandle) -> i32 {
                 .controlled_stop(Duration::from_millis(300))
                 .map(|_| ())
                 .map_err(|e| e.to_string()),
+            MotorHandleInner::CyberBeast(m) => m.send_stop_motor().map_err(|e| e.to_string()),
             MotorHandleInner::Hightorque(m) => m.disable().map_err(|e| e.to_string()),
         }
     })

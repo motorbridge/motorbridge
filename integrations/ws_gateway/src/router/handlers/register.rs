@@ -275,9 +275,7 @@ fn handle_set_can_timeout_ms(v: &Value, ctx: &mut SessionCtx) -> Result<Value, S
         Some(MotorHandle::Myactuator(_)) => {
             Err("set_can_timeout_ms is not supported for myactuator".to_string())
         }
-        Some(MotorHandle::CyberBeast(_)) => {
-            Err("cyberbeast not supported".to_string())
-        }
+        Some(MotorHandle::CyberBeast(_)) => Err("cyberbeast not supported".to_string()),
         None => Err("motor not connected".to_string()),
     }
 }

@@ -316,7 +316,7 @@ fn handle_stop(ctx: &mut SessionCtx) -> Result<Value, String> {
                     "mode": mode.as_str(),
                     "strategy": strategy
                 }));
-            },
+            }
             MotorHandle::CyberBeast(mm) => mm.send_stop_motor().map_err(|e| e.to_string())?,
         }
     }
