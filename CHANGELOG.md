@@ -7,6 +7,16 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-08-31
+
+### Fixed
+
+- Aligned RobStride `set_zero_position` frame with the vendor manual: the
+  SET_ZERO_POSITION (comm type 6) data area is now a full 8-byte frame
+  (`01 00 00 00 00 00 00 00`, DLC=8) instead of a 1-byte short frame,
+  matching the manual's 8-byte data area and the other control frames
+  (enable/disable/clear_error/save_parameters).
+
 ## [0.5.1] - 2026-08-06
 
 ### Added

@@ -149,7 +149,6 @@ pub struct RobstrideMotor {
     param_state: Mutex<ParameterState>,
     ping_reply: Mutex<Option<PingReply>>,
     last_mit_gains: Mutex<Option<(f32, f32)>>,
-    current_mode: Mutex<Option<ControlMode>>, // 追踪当前已知模式
 }
 
 #[derive(Default)]
@@ -185,7 +184,6 @@ impl RobstrideMotor {
             param_state: Mutex::new(ParameterState::default()),
             ping_reply: Mutex::new(None),
             last_mit_gains: Mutex::new(None),
-            current_mode: Mutex::new(None),
         })
     }
 
@@ -340,15 +338,9 @@ impl RobstrideMotor {
         let desired = Self::control_mode_value(mode);
         let read_timeout = timeout.max(Duration::from_millis(150));
 
-        {
-            let current = self
-                .current_mode
-                .lock()
-                .map_err(|_| MotorError::Io("current_mode lock poisoned".to_string()))?;
-            if let Some(cached_mode) = *current {
-                if cached_mode == mode {
-                    return Ok(());
-                }
+        if let Ok(current) = self.get_parameter_i8(ParameterId::Mode as u16, read_timeout) {
+            if current == desired {
+                return Ok(());
             }
         }
 
@@ -374,9 +366,6 @@ impl RobstrideMotor {
             std::thread::sleep(Duration::from_millis(30));
             match self.get_parameter_i8(ParameterId::Mode as u16, read_timeout) {
                 Ok(value) if value == desired => {
-                    if let Ok(mut current) = self.current_mode.lock() {
-                        *current = Some(mode);
-                    }
                     if attempt > 0 {
                         eprintln!(
                             "[info] ensure_control_mode: mode switch succeeded on attempt {}",
@@ -412,7 +401,7 @@ impl RobstrideMotor {
         self.send_with_status_ack(
             CommunicationType::SET_ZERO_POSITION,
             payload,
-            1,
+            8,
             Duration::from_millis(320),
         )?;
 
