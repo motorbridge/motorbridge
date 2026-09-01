@@ -15,6 +15,7 @@ flowchart TD
   IDX --> WIN["windows_distribution.md"]
   IDX --> TST["testing.md"]
   IDX --> CANDBG["can_debugging.md"]
+  IDX --> PCAN["pcan_reinit_limit.md"]
   IDX --> DIST["distribution_channels.md"]
   IDX --> OPMAN["operation_manual.md"]
   IDX --> STUDIO["motorbridge-studio（独立仓库）"]
@@ -32,6 +33,7 @@ flowchart TD
 - Windows 分发：[windows_distribution.md](windows_distribution.md)
 - 测试指南：[testing.md](testing.md)
 - CAN 调试（PCAN + CANable candleLight/gs_usb）：[can_debugging.md](can_debugging.md)
+- 平台差异（Windows PCAN 高频重初始化限制）：[pcan_reinit_limit.md](pcan_reinit_limit.md)
 - 分发渠道（APT/Homebrew/Winget/Scoop/Choco）：[distribution_channels.md](distribution_channels.md)
 - 最终用户操作手册（PCAN 主链路 + Damiao 串口桥备用链路）：[operation_manual.md](operation_manual.md)
 - MotorBridge Studio：独立仓库 `motorbridge-studio`（由 `tools/factory_calib_ui_ws` 拆分）
@@ -57,6 +59,7 @@ flowchart TD
 6. [extending.md](extending.md)
 7. [windows_distribution.md](windows_distribution.md)
 8. [can_debugging.md](can_debugging.md)
-9. [distribution_channels.md](distribution_channels.md)
-10. [operation_manual.md](operation_manual.md)
-11. [testing.md](testing.md)
+9. [pcan_reinit_limit.md](pcan_reinit_limit.md)
+10. [distribution_channels.md](distribution_channels.md)
+11. [operation_manual.md](operation_manual.md)
+12. [testing.md](testing.md)

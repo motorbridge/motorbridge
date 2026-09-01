@@ -11,6 +11,8 @@
 
 完整的跨平台排障流程（PCAN + CANable candleLight/gs_usb）见 [can_debugging.md](can_debugging.md)。
 
+> **平台特性**：Windows 下 PCAN 驱动不支持高频 `CAN_Initialize`/`CAN_Uninitialize`，反复重开总线会触发 `PCAN_ERROR_INITIALIZE` 失败（Linux SocketCAN 无此问题）。这会影响 RobStride 扫描等"每对 (motor_id, feedback_id) 重开总线"的逻辑，详见 [pcan_reinit_limit.md](pcan_reinit_limit.md)。
+
 本文说明 `motorbridge` 在 Windows 上如何分发与使用。
 
 ## 产物类型对照
