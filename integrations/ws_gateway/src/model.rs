@@ -1,4 +1,5 @@
 use motor_core::bus::CanBus;
+use motor_vendor_cyberbeast::{CyberBeastController, CyberBeastMotor};
 use motor_vendor_damiao::{DamiaoController, DamiaoMotor};
 use motor_vendor_hexfellow::{HexfellowController, HexfellowMotor};
 use motor_vendor_myactuator::{MyActuatorController, MyActuatorMotor};
@@ -12,6 +13,7 @@ pub(crate) enum Vendor {
     Hightorque,
     Myactuator,
     Robstride,
+    CyberBeast,
 }
 
 impl Vendor {
@@ -22,6 +24,7 @@ impl Vendor {
             "hightorque" => Ok(Self::Hightorque),
             "myactuator" => Ok(Self::Myactuator),
             "robstride" => Ok(Self::Robstride),
+            "cyberbeast" => Ok(Self::CyberBeast),
             _ => Err(format!("unsupported vendor: {s}")),
         }
     }
@@ -32,6 +35,7 @@ impl Vendor {
             Self::Hexfellow => "hexfellow",
             Self::Hightorque => "hightorque",
             Self::Myactuator => "myactuator",
+            Self::CyberBeast => "cyberbeast",
             Self::Robstride => "robstride",
         }
     }
@@ -119,6 +123,7 @@ pub(crate) enum ControllerHandle {
     Hightorque(Box<dyn CanBus>),
     Myactuator(MyActuatorController),
     Robstride(RobstrideController),
+    CyberBeast(CyberBeastController),
 }
 
 pub(crate) enum MotorHandle {
@@ -127,4 +132,5 @@ pub(crate) enum MotorHandle {
     Hightorque(u16),
     Myactuator(Arc<MyActuatorMotor>),
     Robstride(Arc<RobstrideMotor>),
+    CyberBeast(Arc<CyberBeastMotor>),
 }

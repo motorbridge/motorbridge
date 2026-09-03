@@ -30,6 +30,10 @@ pub extern "C" fn motor_handle_ensure_mode(
                 m.ensure_control_mode(rs_mode, Duration::from_millis(timeout_ms as u64))
                     .map_err(|e| e.to_string())
             }
+            MotorHandleInner::CyberBeast(m) => {
+                let _ = to_cyberbeast_mode(mode).map_err(|e| e.to_string())?;
+                m.send_start_motor().map_err(|e| e.to_string())
+            }
             MotorHandleInner::Hightorque(m) => m
                 .ensure_control_mode(mode, Duration::from_millis(timeout_ms as u64))
                 .map_err(|e| e.to_string()),
@@ -78,6 +82,15 @@ pub extern "C" fn motor_handle_send_mit(
             }
             MotorHandleInner::Robstride(m) => m
                 .send_cmd_mit(
+                    target_position,
+                    target_velocity,
+                    stiffness,
+                    damping,
+                    feedforward_torque,
+                )
+                .map_err(|e| e.to_string()),
+            MotorHandleInner::CyberBeast(m) => m
+                .send_mit_command(
                     target_position,
                     target_velocity,
                     stiffness,
@@ -142,6 +155,13 @@ pub extern "C" fn motor_handle_send_pos_vel(
                         .map_err(|e| e.to_string())
                 })
             }
+            MotorHandleInner::CyberBeast(m) => m
+                .send_pos_control(
+                    target_position * (180.0 / PI),
+                    velocity_limit.abs() * (60.0 / (2.0 * PI)),
+                    0.0,
+                )
+                .map_err(|e| e.to_string()),
             MotorHandleInner::Hightorque(m) => m
                 .send_cmd_pos_vel(target_position, velocity_limit)
                 .map_err(|e| e.to_string()),
@@ -198,6 +218,9 @@ pub extern "C" fn motor_handle_send_vel(motor: *mut MotorHandle, target_velocity
             MotorHandleInner::Robstride(m) => m
                 .set_velocity_target(target_velocity)
                 .map_err(|e| e.to_string()),
+            MotorHandleInner::CyberBeast(m) => m
+                .send_vel_control(target_velocity.abs() * (60.0 / (2.0 * PI)), 0.0)
+                .map_err(|e| e.to_string()),
             MotorHandleInner::Hightorque(m) => {
                 m.send_cmd_vel(target_velocity).map_err(|e| e.to_string())
             }
@@ -226,6 +249,9 @@ pub extern "C" fn motor_handle_send_force_pos(
             MotorHandleInner::Robstride(_) => {
                 Err("send_force_pos is not supported for RobStride".to_string())
             }
+            MotorHandleInner::CyberBeast(m) => m
+                .send_torque_control(torque_limit_ratio * m.mit_torque_limit)
+                .map_err(|e| e.to_string()),
             MotorHandleInner::Hightorque(m) => m
                 .send_cmd_force_pos(target_position, velocity_limit, torque_limit_ratio)
                 .map_err(|e| e.to_string()),
@@ -237,6 +263,7 @@ pub extern "C" fn motor_handle_send_force_pos(
 pub extern "C" fn motor_handle_store_parameters(motor: *mut MotorHandle) -> i32 {
     ffi_wrap_motor!(motor, |motor: &MotorHandleInner| {
         match motor {
+            MotorHandleInner::CyberBeast(m) => m.store_parameters().map_err(|e| e.to_string()),
             MotorHandleInner::Damiao(m) => m.store_parameters().map_err(|e| e.to_string()),
             MotorHandleInner::Hexfellow(_) => {
                 Err("store_parameters is not supported for Hexfellow".to_string())
@@ -266,6 +293,7 @@ pub extern "C" fn motor_handle_request_feedback(motor: *mut MotorHandle) -> i32 
             // robstride_ping() for connectivity checks, active report for streaming state,
             // or typed parameter reads for fresh position/velocity values.
             MotorHandleInner::Robstride(_) => Ok(()),
+            MotorHandleInner::CyberBeast(m) => m.send_query_status().map_err(|e| e.to_string()),
             MotorHandleInner::Hightorque(m) => m
                 .request_motor_feedback(Duration::from_millis(500))
                 .map_err(|e| e.to_string()),
@@ -306,6 +334,7 @@ pub extern "C" fn motor_handle_stop(motor: *mut MotorHandle) -> i32 {
                 .controlled_stop(Duration::from_millis(300))
                 .map(|_| ())
                 .map_err(|e| e.to_string()),
+            MotorHandleInner::CyberBeast(m) => m.send_stop_motor().map_err(|e| e.to_string()),
             MotorHandleInner::Hightorque(m) => m.disable().map_err(|e| e.to_string()),
         }
     })

@@ -1,3 +1,4 @@
+pub(crate) mod cyberbeast;
 pub(crate) mod damiao;
 pub(crate) mod hexfellow;
 pub(crate) mod hightorque;

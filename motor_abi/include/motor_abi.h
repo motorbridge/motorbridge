@@ -73,6 +73,7 @@ MotorHandle* motor_controller_add_hexfellow_motor(MotorController* controller, u
 MotorHandle* motor_controller_add_myactuator_motor(MotorController* controller, uint16_t motor_id, uint16_t feedback_id, const char* model);
 MotorHandle* motor_controller_add_robstride_motor(MotorController* controller, uint16_t motor_id, uint16_t feedback_id, const char* model);
 MotorHandle* motor_controller_add_hightorque_motor(MotorController* controller, uint16_t motor_id, uint16_t feedback_id, const char* model);
+MotorHandle* motor_controller_add_cyberbeast_motor(MotorController* controller, uint16_t motor_id, uint16_t feedback_id, const char* model);
 void motor_handle_free(MotorHandle* motor);
 
 int32_t motor_handle_enable(MotorHandle* motor);
@@ -121,6 +122,10 @@ int32_t motor_handle_damiao_get_param_f32(MotorHandle* motor, uint16_t param_id,
 int32_t motor_handle_damiao_get_param_u32(MotorHandle* motor, uint16_t param_id, uint32_t timeout_ms, uint32_t* out_value);
 int32_t motor_handle_damiao_write_param_f32(MotorHandle* motor, uint16_t param_id, float value);
 int32_t motor_handle_damiao_write_param_u32(MotorHandle* motor, uint16_t param_id, uint32_t value);
+
+// CyberBeast parameter access (SDO endpoint IDs)
+int32_t motor_handle_cyberbeast_get_param_f32(MotorHandle* motor, uint16_t param_id, uint32_t timeout_ms, float* out_value);
+int32_t motor_handle_cyberbeast_write_param_f32(MotorHandle* motor, uint16_t param_id, float value);
 
 #ifdef __cplusplus
 }

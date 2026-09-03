@@ -1,4 +1,7 @@
 use motor_core::dm_device::DmDeviceType;
+use motor_vendor_cyberbeast::{
+    ControlMode as CyberBeastControlMode, CyberBeastController, CyberBeastMotor,
+};
 use motor_vendor_damiao::{ControlMode as DamiaoControlMode, DamiaoController, DamiaoMotor};
 use motor_vendor_hexfellow::{
     HexfellowController, HexfellowMotor, MitTarget as HexfellowMitTarget,
@@ -31,7 +34,7 @@ const ABI_CAPABILITIES: &str = r#"{
     "version": "__MOTORBRIDGE_VERSION__"
   },
   "transports": ["socketcan", "socketcanfd", "dm-serial", "dm-device"],
-  "vendors": ["damiao", "robstride", "myactuator", "hexfellow", "hightorque"],
+  "vendors": ["damiao", "robstride", "myactuator", "hexfellow", "hightorque", "cyberbeast"],
   "features": {
     "state_cache": true,
     "controller_lifecycle": ["shutdown", "close_bus", "poll_feedback_once", "enable_all", "disable_all"],
@@ -40,7 +43,8 @@ const ABI_CAPABILITIES: &str = r#"{
     "robstride": ["ping", "ping_host_id", "fault_report", "active_report", "device_id", "param_i8", "param_u8", "param_u16", "param_u32", "param_f32", "param_f32_host_id", "pos_vel_pp", "pos_vel_csp"],
     "myactuator": ["param_i8", "param_u8", "param_u16", "param_u32", "param_f32"],
     "hexfellow": ["socketcanfd", "mit", "pos_vel"],
-    "hightorque": ["mit", "vel", "param_i8", "param_u8", "param_u16", "param_u32", "param_f32"]
+    "hightorque": ["mit", "vel", "param_i8", "param_u8", "param_u16", "param_u32", "param_f32"],
+    "cyberbeast": ["mit", "pos-vel", "vel", "torque", "estop", "heartbeat", "param_f32"]
   }
 }"#;
 
@@ -82,6 +86,16 @@ fn to_robstride_mode(mode: u32) -> Result<RobstrideControlMode, &'static str> {
     }
 }
 
+fn to_cyberbeast_mode(mode: u32) -> Result<CyberBeastControlMode, &'static str> {
+    match mode {
+        1 => Ok(CyberBeastControlMode::Mit),
+        2 => Ok(CyberBeastControlMode::Position),
+        3 => Ok(CyberBeastControlMode::Velocity),
+        4 => Ok(CyberBeastControlMode::Torque),
+        _ => Err("CyberBeast mode must be 1(MIT) / 2(POSITION) / 3(VELOCITY) / 4(TORQUE)"),
+    }
+}
+
 fn to_myactuator_mode(mode: u32) -> Result<MyActuatorControlMode, &'static str> {
     match mode {
         1 => Ok(MyActuatorControlMode::Current),
@@ -93,6 +107,7 @@ fn to_myactuator_mode(mode: u32) -> Result<MyActuatorControlMode, &'static str> 
 
 enum ControllerInner {
     Unbound(String),
+    CyberBeast(CyberBeastController),
     Damiao(DamiaoController),
     Hexfellow(HexfellowController),
     MyActuator(MyActuatorController),
@@ -101,6 +116,7 @@ enum ControllerInner {
 }
 
 enum MotorHandleInner {
+    CyberBeast(Arc<CyberBeastMotor>),
     Damiao(Arc<DamiaoMotor>),
     Hexfellow(Arc<HexfellowMotor>),
     MyActuator(Arc<MyActuatorMotor>),
@@ -193,6 +209,7 @@ fn parse_cstr(ptr: *const c_char, name: &str) -> Result<String, String> {
 
 fn controller_vendor_name(inner: &ControllerInner) -> &'static str {
     match inner {
+        ControllerInner::CyberBeast(_) => "CyberBeast",
         ControllerInner::Damiao(_) => "Damiao",
         ControllerInner::Hexfellow(_) => "Hexfellow",
         ControllerInner::MyActuator(_) => "MyActuator",
@@ -249,6 +266,12 @@ ensure_controller!(
     Hightorque,
     HightorqueController,
     HightorqueController::new_socketcan
+);
+ensure_controller!(
+    ensure_cyberbeast_controller,
+    CyberBeast,
+    CyberBeastController,
+    CyberBeastController::new_socketcan
 );
 
 mod controller_add_motor_ffi;

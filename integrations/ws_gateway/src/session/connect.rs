@@ -1,6 +1,7 @@
 use crate::model::{ControllerHandle, MotorHandle, Transport, Vendor};
 use crate::vendors::hightorque_ws::open_hightorque_bus;
 use motor_core::dm_device::DmDeviceType;
+use motor_vendor_cyberbeast::CyberBeastController;
 use motor_vendor_damiao::DamiaoController;
 use motor_vendor_hexfellow::HexfellowController;
 use motor_vendor_myactuator::MyActuatorController;
@@ -125,6 +126,29 @@ impl SessionCtx {
                 self.controller = Some(ControllerHandle::Robstride(ctrl));
                 self.motor = Some(MotorHandle::Robstride(motor));
             }
+            Vendor::CyberBeast => {
+                let ctrl = match self.target.transport {
+                    Transport::Auto | Transport::SocketCan => {
+                        CyberBeastController::new_socketcan(&self.target.channel)
+                    }
+                    Transport::SocketCanFd => {
+                        CyberBeastController::new_socketcan(&self.target.channel)
+                    }
+                    _ => Err(motor_core::error::MotorError::InvalidArgument(
+                        "unsupported transport for cyberbeast".to_string(),
+                    )),
+                }
+                .map_err(|e| format!("open bus failed: {e}"))?;
+                let motor = ctrl
+                    .add_motor(
+                        self.target.motor_id,
+                        self.target.feedback_id,
+                        &self.target.model,
+                    )
+                    .map_err(|e| format!("add motor failed: {e}"))?;
+                self.controller = Some(ControllerHandle::CyberBeast(ctrl));
+                self.motor = Some(MotorHandle::CyberBeast(motor));
+            }
         }
         Ok(())
     }
@@ -159,6 +183,13 @@ impl SessionCtx {
                     let _ = bus.shutdown();
                 }
                 ControllerHandle::Myactuator(c) => {
+                    if shutdown {
+                        let _ = c.shutdown();
+                    } else {
+                        let _ = c.close_bus();
+                    }
+                }
+                ControllerHandle::CyberBeast(c) => {
                     if shutdown {
                         let _ = c.shutdown();
                     } else {

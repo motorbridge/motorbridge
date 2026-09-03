@@ -20,3 +20,5 @@ motor_vendor_robstride_cia402 = { path = "../motor_vendors/robstride_cia402" }
 motor_vendor_robstride_mit = { path = "../motor_vendors/robstride_mit" }
 motor_vendor_myactuator = { path = "../motor_vendors/myactuator" }
 motor_vendor_hexfellow = { path = "../motor_vendors/hexfellow" }
+motor_vendor_hightorque = { path = "../motor_vendors/hightorque" }
+motor_vendor_cyberbeast = { path = "../motor_vendors/cyberbeast" }

@@ -118,6 +118,7 @@ macro_rules! define_param_write_ffis_5 {
 }
 
 mod common;
+mod cyberbeast;
 mod damiao;
 mod hexfellow;
 mod hightorque;

@@ -128,6 +128,7 @@ fn handle_ping(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         Vendor::Hexfellow => Ok(json!({"pong": true, "vendor":"hexfellow"})),
         Vendor::Myactuator => Ok(json!({"pong": true, "vendor":"myactuator"})),
         Vendor::Hightorque => Ok(json!({"pong": true, "vendor":"hightorque"})),
+        Vendor::CyberBeast => Ok(json!({"pong": true, "vendor":"cyberbeast"})),
     }
 }
 
@@ -232,6 +233,7 @@ fn handle_enable(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         Some(MotorHandle::Hightorque(_)) => {}
         Some(MotorHandle::Myactuator(m)) => m.enable().map_err(|e| e.to_string())?,
         Some(MotorHandle::Robstride(m)) => m.enable().map_err(|e| e.to_string())?,
+        Some(MotorHandle::CyberBeast(m)) => m.enable().map_err(|e| e.to_string())?,
         None => return Err("motor not connected".to_string()),
     }
     ctx.active = None;
@@ -257,6 +259,7 @@ fn handle_disable(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         Some(MotorHandle::Hightorque(_)) => {}
         Some(MotorHandle::Myactuator(m)) => m.disable().map_err(|e| e.to_string())?,
         Some(MotorHandle::Robstride(m)) => m.disable().map_err(|e| e.to_string())?,
+        Some(MotorHandle::CyberBeast(m)) => m.disable().map_err(|e| e.to_string())?,
         None => return Err("motor not connected".to_string()),
     }
     ctx.active = None;
@@ -314,6 +317,7 @@ fn handle_stop(ctx: &mut SessionCtx) -> Result<Value, String> {
                     "strategy": strategy
                 }));
             }
+            MotorHandle::CyberBeast(mm) => mm.send_stop_motor().map_err(|e| e.to_string())?,
         }
     }
     Ok(json!({"stopped": true}))
@@ -524,7 +528,8 @@ fn handle_status(ctx: &mut SessionCtx) -> Result<Value, String> {
         (Some(ControllerHandle::Hexfellow(_)), Some(MotorHandle::Hexfellow(_)))
         | (Some(ControllerHandle::Damiao(_)), Some(MotorHandle::Damiao(_)))
         | (Some(ControllerHandle::Robstride(_)), Some(MotorHandle::Robstride(_)))
-        | (Some(ControllerHandle::Hightorque(_)), Some(MotorHandle::Hightorque(_))) => {}
+        | (Some(ControllerHandle::Hightorque(_)), Some(MotorHandle::Hightorque(_)))
+        | (Some(ControllerHandle::CyberBeast(_)), Some(MotorHandle::CyberBeast(_))) => {}
         _ => return Err("motor not connected".to_string()),
     }
     Ok(json!({"state": ctx.build_state_snapshot()?}))
@@ -544,6 +549,9 @@ fn handle_poll_feedback_once(ctx: &mut SessionCtx) -> Result<Value, String> {
             ControllerHandle::Myactuator(ctrl) => {
                 ctrl.poll_feedback_once().map_err(|e| e.to_string())?
             }
+            ControllerHandle::CyberBeast(ctrl) => {
+                ctrl.poll_feedback_once().map_err(|e| e.to_string())?
+            }
             ControllerHandle::Robstride(ctrl) => {
                 ctrl.poll_feedback_once().map_err(|e| e.to_string())?
             }
@@ -559,6 +567,7 @@ fn handle_shutdown(ctx: &mut SessionCtx) -> Result<Value, String> {
             ControllerHandle::Hexfellow(ctrl) => ctrl.shutdown().map_err(|e| e.to_string())?,
             ControllerHandle::Hightorque(bus) => bus.shutdown().map_err(|e| e.to_string())?,
             ControllerHandle::Myactuator(ctrl) => ctrl.shutdown().map_err(|e| e.to_string())?,
+            ControllerHandle::CyberBeast(ctrl) => ctrl.shutdown().map_err(|e| e.to_string())?,
             ControllerHandle::Robstride(ctrl) => ctrl.shutdown().map_err(|e| e.to_string())?,
         }
     }

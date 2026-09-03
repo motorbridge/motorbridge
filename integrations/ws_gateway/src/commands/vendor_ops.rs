@@ -174,6 +174,7 @@ pub(crate) fn cmd_verify(v: &Value, base: &Target) -> Result<Value, String> {
                 "state": status.map(|s| json!({"pos_raw": s.pos_raw, "vel_raw": s.vel_raw, "tqe_raw": s.tqe_raw})),
             }))
         }
+        Vendor::CyberBeast => Err("verify is not supported for cyberbeast".to_string()),
     }
 }
 
@@ -295,7 +296,7 @@ pub(crate) fn cmd_set_id(v: &Value, base: &Target) -> Result<Value, String> {
             }
             Ok(out)
         }
-        Vendor::Hexfellow | Vendor::Myactuator | Vendor::Hightorque => {
+        Vendor::Hexfellow | Vendor::Myactuator | Vendor::Hightorque | Vendor::CyberBeast => {
             Err(format!("set_id is not supported for {}", vendor.as_str()))
         }
     }

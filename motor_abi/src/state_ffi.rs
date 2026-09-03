@@ -101,6 +101,23 @@ pub extern "C" fn motor_handle_get_state(
                 *out = MotorState::default();
             }
         }
+        MotorHandleInner::CyberBeast(m) => {
+            if let Some(state) = m.latest_state() {
+                *out = MotorState {
+                    has_value: 1,
+                    can_id: state.can_id_parts.source,
+                    arbitration_id: state.arbitration_id,
+                    status_code: state.error_code,
+                    pos: state.pos,
+                    vel: state.vel,
+                    torq: state.current,
+                    t_mos: state.mos_temp,
+                    t_rotor: state.motor_temp,
+                };
+            } else {
+                *out = MotorState::default();
+            }
+        }
         MotorHandleInner::Hightorque(m) => {
             if let Some(state) = m.latest_state() {
                 *out = MotorState {

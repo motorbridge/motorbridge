@@ -1,5 +1,9 @@
 use super::*;
 
+fn cyberbeast_not_supported() -> Result<(), String> {
+    Err("register operations are not supported for CyberBeast; use param_f32 endpoints".to_string())
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn motor_handle_set_can_timeout_ms(motor: *mut MotorHandle, timeout_ms: u32) -> i32 {
     if motor.is_null() {
@@ -21,6 +25,7 @@ pub extern "C" fn motor_handle_set_can_timeout_ms(motor: *mut MotorHandle, timeo
         MotorHandleInner::Robstride(m) => m
             .write_parameter(0x7028, ParameterValue::U32(timeout_ms))
             .map_err(|e| e.to_string()),
+        MotorHandleInner::CyberBeast(_) => cyberbeast_not_supported(),
         MotorHandleInner::Hightorque(_) => {
             Err("set_can_timeout_ms is not supported for HighTorque".to_string())
         }
@@ -128,6 +133,7 @@ pub extern "C" fn motor_handle_robstride_ping(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
+        | MotorHandleInner::CyberBeast(_)
         | MotorHandleInner::Hightorque(_) => {
             Err("robstride_ping requires a RobStride motor".to_string())
         }
@@ -167,6 +173,7 @@ pub extern "C" fn motor_handle_robstride_ping_host_id(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
+        | MotorHandleInner::CyberBeast(_)
         | MotorHandleInner::Hightorque(_) => {
             Err("robstride_ping_host_id requires a RobStride motor".to_string())
         }
@@ -214,6 +221,7 @@ pub extern "C" fn motor_handle_robstride_get_param_f32_host_id(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
+        | MotorHandleInner::CyberBeast(_)
         | MotorHandleInner::Hightorque(_) => {
             Err("robstride_get_param_f32_host_id requires a RobStride motor".to_string())
         }
@@ -244,6 +252,7 @@ pub extern "C" fn motor_handle_robstride_get_fault_report(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
+        | MotorHandleInner::CyberBeast(_)
         | MotorHandleInner::Hightorque(_) => {
             set_last_error("robstride_get_fault_report requires a RobStride motor");
             -1
@@ -266,6 +275,7 @@ pub extern "C" fn motor_handle_robstride_set_device_id(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
+        | MotorHandleInner::CyberBeast(_)
         | MotorHandleInner::Hightorque(_) => {
             Err("robstride_set_device_id requires a RobStride motor".to_string())
         }
@@ -290,6 +300,7 @@ pub extern "C" fn motor_handle_robstride_set_active_report(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
+        | MotorHandleInner::CyberBeast(_)
         | MotorHandleInner::Hightorque(_) => {
             Err("robstride_set_active_report requires a RobStride motor".to_string())
         }
