@@ -61,6 +61,7 @@ MotorController* motor_controller_new_socketcan(const char* channel);
 MotorController* motor_controller_new_socketcanfd(const char* channel);
 MotorController* motor_controller_new_dm_serial(const char* serial_port, uint32_t baud);
 MotorController* motor_controller_new_dm_device(const char* dm_device_type, const char* dm_channel);
+MotorController* motor_controller_new_mcu_serial(const char* serial_port, uint32_t baud);
 void motor_controller_free(MotorController* controller);
 int32_t motor_controller_poll_feedback_once(MotorController* controller);
 int32_t motor_controller_enable_all(MotorController* controller);

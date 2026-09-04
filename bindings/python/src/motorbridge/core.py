@@ -45,6 +45,15 @@ class Controller:
         return self
 
     @classmethod
+    def from_mcu_serial(cls, serial_port: str = "/dev/ttyUSB0", baud: int = 921600) -> "Controller":
+        self = cls.__new__(cls)
+        self._abi = get_abi()
+        self._ptr = self._abi.lib.motor_controller_new_mcu_serial(serial_port.encode(), int(baud))
+        if not self._ptr:
+            raise CallError(f"new_mcu_serial failed: {_err_text()}")
+        return self
+
+    @classmethod
     def from_dm_device(
         cls,
         dm_device_type: str = "usb2canfd-dual",

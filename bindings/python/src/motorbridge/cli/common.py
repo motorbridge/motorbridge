@@ -32,8 +32,8 @@ def _add_common_args(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--transport",
         default="auto",
-        choices=["auto", "socketcan", "socketcanfd", "dm-serial", "dm-device"],
-        help="transport backend; dm-serial/dm-device are Damiao-only",
+        choices=["auto", "socketcan", "socketcanfd", "dm-serial", "dm-device", "mcu-serial"],
+        help="transport backend; dm-serial/dm-device are Damiao-only; mcu-serial is a vendor-agnostic UART-to-CAN MCU bridge (classic CAN only)",
     )
     p.add_argument("--serial-port", default="/dev/ttyACM0", help="serial port for dm-serial")
     p.add_argument("--serial-baud", type=int, default=921600, help="baud rate for dm-serial")
@@ -166,6 +166,10 @@ def _open_controller(args: argparse.Namespace, vendor: str) -> Controller:
         if vendor != "damiao":
             raise ValueError("transport=dm-device is supported only for --vendor damiao")
         return Controller.from_dm_device(args.dm_device_type, args.dm_channel)
+    if transport == "mcu-serial":
+        if vendor == "hexfellow":
+            raise ValueError("transport=mcu-serial is classic-CAN only; hexfellow needs CAN-FD")
+        return Controller.from_mcu_serial(args.serial_port, int(args.serial_baud))
     if vendor == "hexfellow":
         if transport == "socketcan":
             raise ValueError("vendor=hexfellow requires --transport socketcanfd (or auto)")

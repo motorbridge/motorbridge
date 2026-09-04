@@ -11,6 +11,9 @@ macro_rules! dispatch_controller {
             ControllerInner::Unbound(_) => Err(
                 "controller has no motor; add a motor before calling this operation".to_string(),
             ),
+            ControllerInner::UnboundMcuSerial { .. } => Err(
+                "controller has no motor; add a motor before calling this operation".to_string(),
+            ),
         }
     };
 }
@@ -39,6 +42,8 @@ pub extern "C" fn motor_controller_new_socketcan(channel: *const c_char) -> *mut
             return ptr::null_mut();
         }
     };
+    // Lazy: store the channel name; the SocketCAN bus is opened on first
+    // `add_*_motor` (legacy timing). No hardware contact here.
     Box::into_raw(Box::new(MotorController {
         inner: Mutex::new(ControllerInner::Unbound(channel)),
     }))
@@ -115,6 +120,30 @@ pub extern "C" fn motor_controller_new_dm_device(
     };
     Box::into_raw(Box::new(MotorController {
         inner: Mutex::new(ControllerInner::Damiao(controller)),
+    }))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn motor_controller_new_mcu_serial(
+    serial_port: *const c_char,
+    baud: u32,
+) -> *mut MotorController {
+    let serial_port = match parse_cstr(serial_port, "serial_port") {
+        Ok(v) => v,
+        Err(e) => {
+            set_last_error(e);
+            return ptr::null_mut();
+        }
+    };
+    // mcu-serial is a sibling of socketcan: store the port spec and defer
+    // opening the bus until a motor is added (legacy lazy timing). Left
+    // UnboundMcuSerial so any classic-CAN vendor (damiao/robstride/myactuator/
+    // hightorque) can bind later; hexfellow (CAN-FD) is not supported on this link.
+    Box::into_raw(Box::new(MotorController {
+        inner: Mutex::new(ControllerInner::UnboundMcuSerial {
+            port: serial_port,
+            baud,
+        }),
     }))
 }
 

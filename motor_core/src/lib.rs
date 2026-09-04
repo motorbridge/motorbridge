@@ -4,6 +4,7 @@ pub mod device;
 pub mod dm_device;
 pub mod dm_serial;
 pub mod error;
+pub mod mcu_serial;
 pub mod model;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 pub mod pcan;

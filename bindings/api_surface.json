@@ -14,6 +14,7 @@
       "motor_controller_new_socketcanfd",
       "motor_controller_new_dm_serial",
       "motor_controller_new_dm_device",
+      "motor_controller_new_mcu_serial",
       "motor_controller_free",
       "motor_controller_poll_feedback_once",
       "motor_controller_enable_all",
@@ -83,6 +84,7 @@
       "Controller.from_socketcanfd(channel)",
       "Controller.from_dm_serial(serial_port, baud)",
       "Controller.from_dm_device(dm_device_type, dm_channel)",
+      "Controller.from_mcu_serial(serial_port, baud)",
       "Controller.close()",
       "Controller.shutdown()",
       "Controller.close_bus()",
@@ -157,7 +159,8 @@
     "socketcan",
     "socketcanfd",
     "dm-serial",
-    "dm-device"
+    "dm-device",
+    "mcu-serial"
   ],
   "vendors": [
     "damiao",

@@ -1,4 +1,6 @@
+use motor_core::bus::CanBus;
 use motor_core::dm_device::DmDeviceType;
+use motor_core::mcu_serial::McuSerialBus;
 use motor_vendor_damiao::{ControlMode as DamiaoControlMode, DamiaoController, DamiaoMotor};
 use motor_vendor_hexfellow::{
     HexfellowController, HexfellowMotor, MitTarget as HexfellowMitTarget,
@@ -30,7 +32,7 @@ const ABI_CAPABILITIES: &str = r#"{
     "name": "motor_abi",
     "version": "__MOTORBRIDGE_VERSION__"
   },
-  "transports": ["socketcan", "socketcanfd", "dm-serial", "dm-device"],
+  "transports": ["socketcan", "socketcanfd", "dm-serial", "dm-device", "mcu-serial"],
   "vendors": ["damiao", "robstride", "myactuator", "hexfellow", "hightorque"],
   "features": {
     "state_cache": true,
@@ -92,7 +94,15 @@ fn to_myactuator_mode(mode: u32) -> Result<MyActuatorControlMode, &'static str> 
 }
 
 enum ControllerInner {
+    // SocketCAN path — UNCHANGED: stores the channel name; the per-vendor
+    // closure re-opens the bus on first `add_*_motor` (legacy lazy timing), and
+    // the vendor closure decides classic CAN vs CAN-FD (so damiao+new_socketcanfd
+    // still opens classic, hexfellow+new_socketcan still auto-upgrades to FD).
     Unbound(String),
+    // mcu-serial path — a vendor-agnostic UART-to-CAN MCU bridge, a sibling of
+    // socketcan: store the port spec, open McuSerialBus lazily on first
+    // `add_*_motor`. Classic 8-byte CAN only (no CAN-FD → hexfellow unsupported).
+    UnboundMcuSerial { port: String, baud: u32 },
     Damiao(DamiaoController),
     Hexfellow(HexfellowController),
     MyActuator(MyActuatorController),
@@ -199,18 +209,30 @@ fn controller_vendor_name(inner: &ControllerInner) -> &'static str {
         ControllerInner::Robstride(_) => "RobStride",
         ControllerInner::Hightorque(_) => "HighTorque",
         ControllerInner::Unbound(_) => "Unbound",
+        ControllerInner::UnboundMcuSerial { .. } => "Unbound",
     }
 }
 
 macro_rules! ensure_controller {
     ($fn_name:ident, $variant:ident, $ty:ty, $bind_expr:expr) => {
         fn $fn_name(inner: &mut ControllerInner) -> Result<&mut $ty, String> {
-            if let ControllerInner::Unbound(channel) = inner {
+            // mcu-serial sibling: open the UART-to-CAN bridge lazily on first
+            // bind, then hand the bus to the vendor's generic constructor. The
+            // port/baud borrows end at `open()`, so overwriting `*inner` is safe.
+            if let ControllerInner::UnboundMcuSerial { port, baud } = inner {
+                let bus: Arc<dyn CanBus> =
+                    Arc::new(McuSerialBus::open(port, *baud).map_err(|e| e.to_string())?);
+                *inner = ControllerInner::$variant(<$ty>::new(bus));
+            } else if let ControllerInner::Unbound(channel) = inner {
+                // SocketCAN path (legacy): the per-vendor closure re-opens the bus
+                // from the channel name and decides classic vs CAN-FD.
                 *inner = ControllerInner::$variant($bind_expr(channel).map_err(|e| e.to_string())?);
             }
             match inner {
                 ControllerInner::$variant(ctrl) => Ok(ctrl),
-                ControllerInner::Unbound(_) => Err("controller binding failed".to_string()),
+                ControllerInner::Unbound(_) | ControllerInner::UnboundMcuSerial { .. } => {
+                    Err("controller binding failed".to_string())
+                }
                 current => Err(format!(
                     "controller already bound to {}; use a separate controller",
                     controller_vendor_name(current)
