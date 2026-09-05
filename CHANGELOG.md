@@ -7,6 +7,21 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-09-05
+
+### Changed
+
+- Added a pre-enable zero-point safety gate on `enable_all` for
+  `RobstrideController` and `DamiaoController`. When motor `id == 7` is
+  registered, its current position is read before energizing; the whole
+  `enable_all` is refused (no motor energized) if the position is outside
+  tolerance. Robstride reads `0x7019` (mechPos, ±5°); Damiao reads `0x50`
+  (`p_m`, ±3°). Skipped when no motor 7 is registered; NaN/Inf and
+  lock-poisoned errors are treated as failures. Hotfix to mitigate the
+  gripper running into and damaging its travel ends. Gate is enforced only
+  at the `enable_all` layer; single-motor `enable()` paths bypass by design.
+
+
 ## [0.5.2] - 2026-08-31
 
 ### Fixed

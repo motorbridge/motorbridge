@@ -41,7 +41,7 @@ cargo test --workspace --all-targets
 Every release should add a repeatable release test note that records core, Rust CLI, Python binding/CLI,
 hardware-in-the-loop commands, and dangerous command boundaries.
 
-- Current version: [`release_test_notes/0.4.1.md`](../../release_test_notes/0.4.1.md)
+- Current version: [`release_test_notes/0.5.3.md`](../../release_test_notes/0.5.3.md)
 
 ## Recommended Local Quality Gate
 

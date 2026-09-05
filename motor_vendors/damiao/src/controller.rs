@@ -2,9 +2,10 @@ use crate::motor::DamiaoMotor;
 use motor_core::bus::{open_can_bus, open_socketcanfd, CanBus};
 use motor_core::dm_device::{DmDeviceBus, DmDeviceType};
 use motor_core::dm_serial::DmSerialBus;
-use motor_core::error::Result;
+use motor_core::error::{MotorError, Result};
 use motor_core::vendor_controller::VendorController;
 use std::sync::Arc;
+use std::time::Duration;
 
 pub struct DamiaoController {
     controller: VendorController<DamiaoMotor>,
@@ -55,6 +56,25 @@ impl DamiaoController {
     }
 
     pub fn enable_all(&self) -> Result<()> {
+        // Zero-point gate: motor 7 must be within ±3° before energizing.
+        // Reuses get_register_f32 on p_m (0x50); skips if no motor 7.
+        const ZERO_CHECK_MOTOR_ID: u16 = 7;
+        const ZERO_CHECK_TOLERANCE_DEG: f32 = 3.0;
+        match self.get_motor(ZERO_CHECK_MOTOR_ID) {
+            Ok(motor) => {
+                let pos = motor.get_register_f32(80, Duration::from_millis(240))?;
+                let deg = pos.to_degrees();
+                if !deg.is_finite() || deg.abs() > ZERO_CHECK_TOLERANCE_DEG {
+                    return Err(MotorError::InvalidArgument(format!(
+                        "motor id {} not at zero position: {deg:.2}° exceeds ±{:.0}° tolerance, enable refused",
+                        ZERO_CHECK_MOTOR_ID,
+                        ZERO_CHECK_TOLERANCE_DEG,
+                    )));
+                }
+            }
+            Err(MotorError::InvalidArgument(_)) => {}
+            Err(e) => return Err(e),
+        }
         self.controller.enable_all()
     }
 

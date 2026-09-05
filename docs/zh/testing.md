@@ -41,7 +41,7 @@ cargo test --workspace --all-targets
 
 每次准备发版时，都应该新增一份可重复执行的 release test note，记录 core、Rust CLI、Python binding/CLI、硬件在环命令和危险命令边界。
 
-- 当前版本：[`release_test_notes/0.4.1.md`](../../release_test_notes/0.4.1.md)
+- 当前版本：[`release_test_notes/0.5.3.md`](../../release_test_notes/0.5.3.md)
 
 ## 本地建议质量门禁
 
