@@ -7,6 +7,19 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-09-09
+
+### Changed
+
+- Removed the controller-level zero-point gate from the generic `enable_all`
+  implementation for RobStride and Damiao. `enable_all` no longer assumes
+  that motor ID 7 identifies a gripper or performs an extra position read
+  before enabling the bus.
+- Gripper identity, safe position, and pre-enable safety policy are left to
+  the application layer, which has the necessary mechanical and calibration
+  context.
+
+
 ## [0.5.3] - 2026-09-05
 
 ### Changed
