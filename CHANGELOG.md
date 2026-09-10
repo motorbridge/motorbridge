@@ -7,6 +7,30 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-09-10
+
+### Fixed
+
+- Released the active WebSocket gateway session bus before `set_id` and `verify`
+  stateless ops open their own bus on the same `ctx.target.channel`. PCAN
+  (Windows/macOS) allows only one initialized handle per channel, so when a
+  session held the channel — the common case after `set_target` followed by
+  stream-enable commands that lazily reconnect via `ensure_connected` — the op's
+  `CAN_Initialize` failed with `PCAN_ERROR_INITIALIZE`. The new
+  `release_session_before_stateless` helper stops the state/param streams,
+  disconnects the session, and adds a short Windows release gap, mirroring the
+  existing scan release path without vendor matching.
+
+### Changed
+
+- Rust workspace package version advanced to `0.5.5`.
+- Python package version advanced to `0.5.5`.
+- C++ package metadata advanced to `0.5.5`.
+- ABI surface metadata advanced to `0.5.5`.
+- Release test note pointer advanced from `0.5.4` to `0.5.5` in the EN/ZH
+  testing guides.
+
+
 ## [0.5.4] - 2026-09-09
 
 ### Changed

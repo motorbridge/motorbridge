@@ -38,8 +38,14 @@ pub(crate) fn dispatch_op(
             release_session_before_scan(v, ctx, state_stream_enabled, param_stream);
             cmd_scan(v, &ctx.target)
         }
-        "set_id" => cmd_set_id(v, &ctx.target),
-        "verify" => cmd_verify(v, &ctx.target),
+        "set_id" => {
+            release_session_before_stateless(ctx, state_stream_enabled, param_stream);
+            cmd_set_id(v, &ctx.target)
+        }
+        "verify" => {
+            release_session_before_stateless(ctx, state_stream_enabled, param_stream);
+            cmd_verify(v, &ctx.target)
+        }
         _ => Err(format!("unsupported op: {op}")),
     }
 }
@@ -69,6 +75,33 @@ pub(crate) fn release_session_before_scan(
     {
         let gap_ms = if may_scan_damiao { 50 } else { 20 };
         std::thread::sleep(std::time::Duration::from_millis(gap_ms));
+    }
+}
+
+/// `set_id`/`verify` are stateless ops that open their own bus on
+/// `ctx.target.channel`. PCAN (Windows/macOS) allows only one initialized
+/// handle per channel, so if the session currently holds that channel — which
+/// is the common case, since `set_target` is typically followed by stream
+/// enable commands that lazily reconnect via `ensure_connected` — the
+/// stateless op's `CAN_Initialize` would fail with `PCAN_ERROR_INITIALIZE`.
+/// Release the session bus first so the channel is free for the op to use.
+/// Unlike scan, no vendor matching is needed: these ops always target
+/// `ctx.target.channel`, the same channel a connected session occupies.
+pub(crate) fn release_session_before_stateless(
+    ctx: &mut SessionCtx,
+    state_stream_enabled: &mut bool,
+    param_stream: &mut ParamStream,
+) {
+    if ctx.controller.is_none() {
+        return;
+    }
+    *state_stream_enabled = false;
+    param_stream.enabled = false;
+    ctx.disconnect(false);
+
+    #[cfg(target_os = "windows")]
+    {
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
 }
 
