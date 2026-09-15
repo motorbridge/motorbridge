@@ -799,7 +799,11 @@ impl RobstrideMotor {
                 ps.values.insert(param_id, value);
                 Ok(())
             }
-            CommunicationType::OPERATION_STATUS => {
+            // RobStride's autonomous active-report broadcasts arrive tagged with comm_type
+            // ACTIVE_REPORT (24), not OPERATION_STATUS (2) -- confirmed against real hardware
+            // via candump -- but carry the identical position/velocity/torque/temperature
+            // payload, so they decode the same way.
+            CommunicationType::OPERATION_STATUS | CommunicationType::ACTIVE_REPORT => {
                 let status = decode_status_frame(
                     extra_data,
                     frame.data,
@@ -877,11 +881,13 @@ impl MotorDevice for RobstrideMotor {
             CommunicationType::GET_DEVICE_ID => device_id == self.motor_id,
             CommunicationType::READ_PARAMETER => device_id == self.motor_id,
             CommunicationType::SET_PROTOCOL => device_id == self.motor_id,
-            // Status/fault frames must belong to this motor. Accepting only by responder_id
-            // can pollute state with frames from other motors on the same bus.
-            CommunicationType::OPERATION_STATUS | CommunicationType::FAULT_REPORT => {
-                device_id == self.motor_id
-            }
+            // Status/active-report/fault frames must belong to this motor. Accepting only
+            // by responder_id can pollute state with frames from other motors on the same
+            // bus. Active-report broadcasts use comm_type ACTIVE_REPORT, not
+            // OPERATION_STATUS -- see process_feedback_frame_impl.
+            CommunicationType::OPERATION_STATUS
+            | CommunicationType::ACTIVE_REPORT
+            | CommunicationType::FAULT_REPORT => device_id == self.motor_id,
             _ => false,
         }
     }
@@ -1019,6 +1025,35 @@ mod tests {
         assert_eq!(fault.fault_raw, 0);
         assert_eq!(fault.warning_raw, 1);
         assert!(fault.warnings.overtemperature_warning);
+    }
+
+    #[test]
+    fn active_report_broadcast_is_accepted_and_updates_state() {
+        // Real hardware capture (candump) of an autonomous active-report broadcast from
+        // motor 2, host 0xFD: id=0x180002FD data=80037fc77fff0122. This comm_type
+        // (ACTIVE_REPORT) previously fell through accepts_frame's `_ => false`, so
+        // get_state() never reflected active-report telemetry, only direct command
+        // replies (comm_type OPERATION_STATUS).
+        let bus: Arc<dyn CanBus> = Arc::new(MockBus::new());
+        let motor = RobstrideMotor::new(2, 0xFD, "rs-06", bus).expect("create motor");
+        let frame = CanFrame {
+            arbitration_id: build_ext_id(CommunicationType::ACTIVE_REPORT, 0x0002, 0xFD),
+            data: [0x80, 0x03, 0x7f, 0xc7, 0x7f, 0xff, 0x01, 0x22],
+            dlc: 8,
+            is_extended: true,
+            is_rx: true,
+        };
+
+        assert!(motor.accepts_frame(&frame));
+        motor
+            .process_feedback_frame(frame)
+            .expect("active-report frame");
+
+        let state = motor.latest_state().expect("state from active-report");
+        assert_eq!(state.device_id, 2);
+        // Zero-torque MIT commands to the other joints leave torque at the encoder
+        // midpoint (0x7fff): (0x7fff/0x7fff - 1.0) * t_max == 0.0.
+        assert_eq!(state.torque, 0.0);
     }
 
     #[test]
