@@ -1,6 +1,5 @@
 use motor_core::bus::CanBus;
 use motor_core::dm_device::DmDeviceType;
-use motor_core::mcu_serial::McuSerialBus;
 use motor_vendor_damiao::{ControlMode as DamiaoControlMode, DamiaoController, DamiaoMotor};
 use motor_vendor_hexfellow::{
     HexfellowController, HexfellowMotor, MitTarget as HexfellowMitTarget,
@@ -94,10 +93,11 @@ fn to_myactuator_mode(mode: u32) -> Result<MyActuatorControlMode, &'static str> 
 }
 
 enum ControllerInner {
-    // SocketCAN path — UNCHANGED: stores the channel name; the per-vendor
-    // closure re-opens the bus on first `add_*_motor` (legacy lazy timing), and
-    // the vendor closure decides classic CAN vs CAN-FD (so damiao+new_socketcanfd
-    // still opens classic, hexfellow+new_socketcan still auto-upgrades to FD).
+    // SocketCAN path — UNCHANGED timing: stores the channel name; the bus is
+    // re-opened on first `add_*_motor` (legacy lazy timing). But the driver
+    // constructor is no longer a per-vendor closure: `ensure_controller!`
+    // routes through `open_transport` with the vendor's own classic-vs-FD
+    // `Transport`, so the driver lives in core's one `open_transport`.
     Unbound(String),
     // mcu-serial path — a vendor-agnostic UART-to-CAN MCU bridge, a sibling of
     // socketcan: store the port spec, open McuSerialBus lazily on first
@@ -214,19 +214,37 @@ fn controller_vendor_name(inner: &ControllerInner) -> &'static str {
 }
 
 macro_rules! ensure_controller {
-    ($fn_name:ident, $variant:ident, $ty:ty, $bind_expr:expr) => {
+    ($fn_name:ident, $variant:ident, $ty:ty, $transport:expr) => {
         fn $fn_name(inner: &mut ControllerInner) -> Result<&mut $ty, String> {
-            // mcu-serial sibling: open the UART-to-CAN bridge lazily on first
-            // bind, then hand the bus to the vendor's generic constructor. The
-            // port/baud borrows end at `open()`, so overwriting `*inner` is safe.
+            // Lazy bind: both the SocketCAN family and the UART-to-CAN bridge
+            // defer bus construction to first `add_*_motor`, and both route
+            // through core's `open_transport` so the driver constructor lives
+            // in one place. The port/baud/channel borrows end at `open()`,
+            // so overwriting `*inner` afterward is safe.
             if let ControllerInner::UnboundMcuSerial { port, baud } = inner {
+                let p = motor_core::bus::TransportParams {
+                    channel: "",
+                    serial_port: port,
+                    serial_baud: *baud,
+                };
                 let bus: Arc<dyn CanBus> =
-                    Arc::new(McuSerialBus::open(port, *baud).map_err(|e| e.to_string())?);
+                    motor_core::bus::open_transport(motor_core::bus::Transport::McuSerial, &p)
+                        .map_err(|e| e.to_string())?;
                 *inner = ControllerInner::$variant(<$ty>::new(bus));
             } else if let ControllerInner::Unbound(channel) = inner {
-                // SocketCAN path (legacy): the per-vendor closure re-opens the bus
-                // from the channel name and decides classic vs CAN-FD.
-                *inner = ControllerInner::$variant($bind_expr(channel).map_err(|e| e.to_string())?);
+                // SocketCAN path: each vendor carries its own classic-vs-FD
+                // `Transport` here (Damiao→SocketCan, Hexfellow→SocketCanFd),
+                // mirroring the per-vendor capability the old closures encoded.
+                let p = motor_core::bus::TransportParams {
+                    channel,
+                    serial_port: "",
+                    serial_baud: 0,
+                };
+                *inner = ControllerInner::$variant(
+                    motor_core::bus::open_transport($transport, &p)
+                        .map(<$ty>::new)
+                        .map_err(|e| e.to_string())?,
+                );
             }
             match inner {
                 ControllerInner::$variant(ctrl) => Ok(ctrl),
@@ -246,31 +264,31 @@ ensure_controller!(
     ensure_damiao_controller,
     Damiao,
     DamiaoController,
-    DamiaoController::new_socketcan
+    motor_core::bus::Transport::SocketCan
 );
 ensure_controller!(
     ensure_hexfellow_controller,
     Hexfellow,
     HexfellowController,
-    HexfellowController::new_socketcanfd
+    motor_core::bus::Transport::SocketCanFd
 );
 ensure_controller!(
     ensure_myactuator_controller,
     MyActuator,
     MyActuatorController,
-    MyActuatorController::new_socketcan
+    motor_core::bus::Transport::SocketCan
 );
 ensure_controller!(
     ensure_robstride_controller,
     Robstride,
     RobstrideController,
-    RobstrideController::new_socketcan
+    motor_core::bus::Transport::SocketCan
 );
 ensure_controller!(
     ensure_hightorque_controller,
     Hightorque,
     HightorqueController,
-    HightorqueController::new_socketcan
+    motor_core::bus::Transport::SocketCan
 );
 
 mod controller_add_motor_ffi;

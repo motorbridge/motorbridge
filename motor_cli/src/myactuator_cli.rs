@@ -1,10 +1,47 @@
 use crate::args::{get_f32, get_str, get_u16_hex_or_dec, get_u64};
+use motor_core::bus::{open_transport, CanBus, Transport, TransportParams};
 use motor_vendor_myactuator::MyActuatorController;
 use std::collections::HashMap;
+use std::convert::TryFrom;
+use std::sync::Arc;
 use std::time::Duration;
 
 fn myactuator_feedback_default(motor_id: u16) -> u16 {
     0x240u16.saturating_add(motor_id)
+}
+
+/// Open a MyActuator controller for the requested transport. Universal
+/// transports route through `open_transport` (core); damiao-only transports
+/// are rejected. MyActuator is classic+FD CAN, so mcu-serial is allowed.
+fn open_myactuator_controller(
+    transport: &str,
+    channel: &str,
+    serial_port: &str,
+    serial_baud: u32,
+) -> Result<MyActuatorController, Box<dyn std::error::Error>> {
+    let p = TransportParams {
+        channel,
+        serial_port,
+        serial_baud,
+    };
+    let bus: Arc<dyn CanBus> = match transport {
+        "auto" | "socketcan" => open_transport(Transport::SocketCan, &p)?,
+        "socketcanfd" => open_transport(Transport::SocketCanFd, &p)?,
+        "mcu-serial" => open_transport(Transport::McuSerial, &p)?,
+        "dm-serial" | "dm-device" => {
+            return Err(format!(
+                "transport {transport} is damiao-only (myactuator supports auto|socketcan|socketcanfd|mcu-serial)"
+            )
+            .into());
+        }
+        _ => {
+            return Err(format!(
+                "unknown MyActuator transport: {transport} (expected auto|socketcan|socketcanfd|mcu-serial)"
+            )
+            .into());
+        }
+    };
+    Ok(MyActuatorController::new(bus))
 }
 
 pub fn run_myactuator(
@@ -18,7 +55,12 @@ pub fn run_myactuator(
     let loop_n = get_u64(args, "loop", 1)?;
     let dt_ms = get_u64(args, "dt-ms", 20)?;
 
-    let controller = MyActuatorController::new_socketcan(channel)?;
+    let transport = get_str(args, "transport", "auto");
+    let serial_port = get_str(args, "serial-port", "/dev/ttyACM0");
+    let serial_baud_u64 = get_u64(args, "serial-baud", 921600)?;
+    let serial_baud = u32::try_from(serial_baud_u64)
+        .map_err(|_| format!("invalid --serial-baud (too large): {serial_baud_u64}"))?;
+    let controller = open_myactuator_controller(&transport, channel, &serial_port, serial_baud)?;
 
     if mode == "scan" {
         let start_id = get_u16_hex_or_dec(args, "start-id", 1)?;

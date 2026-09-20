@@ -1,11 +1,56 @@
 use crate::args::{get_f32, get_str, get_u16_hex_or_dec, get_u64};
+use motor_core::bus::{open_transport, CanBus, Transport, TransportParams};
 use motor_vendor_hexfellow::{HexfellowController, MitTarget, PosVelTarget};
 use std::collections::HashMap;
 use std::f32::consts::PI;
+use std::sync::Arc;
 use std::time::Duration;
 
 fn to_rev(rad: f32) -> f32 {
     rad / (2.0 * PI)
+}
+
+/// Open a Hexfellow controller for the requested transport. Hexfellow is
+/// CAN-FD only, so the sole supported transport is socketcanfd (and `auto`
+/// resolves to it); classic-CAN and serial transports are rejected.
+fn open_hexfellow_controller(
+    transport: &str,
+    channel: &str,
+    serial_port: &str,
+    serial_baud: u32,
+) -> Result<HexfellowController, Box<dyn std::error::Error>> {
+    let p = TransportParams {
+        channel,
+        serial_port,
+        serial_baud,
+    };
+    let bus: Arc<dyn CanBus> = match transport {
+        "auto" | "socketcanfd" => open_transport(Transport::SocketCanFd, &p)?,
+        "socketcan" => {
+            return Err(
+                "transport socketcan unsupported (hexfellow is CAN-FD only, use socketcanfd)".into(),
+            )
+        }
+        "mcu-serial" => {
+            return Err(
+                "transport mcu-serial unsupported (hexfellow is CAN-FD only; mcu-serial is classic CAN)"
+                    .into(),
+            )
+        }
+        "dm-serial" | "dm-device" => {
+            return Err(format!(
+                "transport {transport} is damiao-only (hexfellow supports auto|socketcanfd)"
+            )
+            .into());
+        }
+        _ => {
+            return Err(format!(
+                "unknown Hexfellow transport: {transport} (expected auto|socketcanfd)"
+            )
+            .into());
+        }
+    };
+    Ok(HexfellowController::new(bus))
 }
 
 pub fn run_hexfellow(
@@ -17,13 +62,14 @@ pub fn run_hexfellow(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mode = get_str(args, "mode", "status");
     let transport = get_str(args, "transport", "auto");
-    if transport != "auto" && transport != "socketcanfd" {
-        return Err("hexfellow only supports --transport auto|socketcanfd".into());
-    }
+    let serial_port = get_str(args, "serial-port", "/dev/ttyACM0");
+    let serial_baud_u64 = get_u64(args, "serial-baud", 921600)?;
+    let serial_baud = u32::try_from(serial_baud_u64)
+        .map_err(|_| format!("invalid --serial-baud (too large): {serial_baud_u64}"))?;
 
     let timeout_ms = get_u64(args, "timeout-ms", 200)?;
     let timeout = Duration::from_millis(timeout_ms);
-    let controller = HexfellowController::new_socketcanfd(channel)?;
+    let controller = open_hexfellow_controller(&transport, channel, &serial_port, serial_baud)?;
 
     if mode == "scan" {
         let start_id = get_u16_hex_or_dec(args, "start-id", 1)?;

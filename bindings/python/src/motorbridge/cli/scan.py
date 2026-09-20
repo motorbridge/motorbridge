@@ -8,6 +8,15 @@ from ..core import Controller
 from .common import _open_controller, _parse_id, _parse_rids, _vendor_defaults
 from .robstride import _robstride_host_id
 
+
+def _bus_hint(args: argparse.Namespace) -> str:
+    """Bus locator for scan headers: serial_port for UART links, channel for CAN."""
+    t = getattr(args, "transport", "auto")
+    if t in ("mcu-serial", "dm-serial"):
+        return f"serial_port={args.serial_port} serial_baud={args.serial_baud}"
+    return f"channel={args.channel}"
+
+
 def _dm_device_scan_channels(args: argparse.Namespace) -> list[str]:
     explicit = getattr(args, "dm_channel", None)
     if explicit:
@@ -77,7 +86,7 @@ def _scan_damiao(args: argparse.Namespace, start_id: int, end_id: int) -> list[t
     feedback_base = _parse_id(args.feedback_base)
     found: list[tuple[int, str]] = []
     print(
-        f"[scan:damiao] channel={args.channel} model={args.model} "
+        f"[scan:damiao] {_bus_hint(args)} model={args.model} "
         f"id_range=[0x{start_id:X},0x{end_id:X}] timeout_ms={args.timeout_ms}"
     )
     if getattr(args, "transport", "auto") == "dm-device":
@@ -115,7 +124,7 @@ def _scan_robstride(args: argparse.Namespace, start_id: int, end_id: int) -> lis
     param_id = _parse_id(args.param_id)
     found_by_mid: dict[int, str] = {}
     print(
-        f"[scan:robstride] channel={args.channel} model={args.model} "
+        f"[scan:robstride] {_bus_hint(args)} model={args.model} "
         f"id_range=[0x{start_id:X},0x{end_id:X}] timeout_ms={args.timeout_ms} "
         f"feedback_ids={','.join(f'0x{x:X}' for x in feedback_ids)} param_id=0x{param_id:X}"
     )
@@ -124,7 +133,7 @@ def _scan_robstride(args: argparse.Namespace, start_id: int, end_id: int) -> lis
         "feedback_id/host_id is the host-side ID"
     )
     for fid in feedback_ids:
-        ctrl = Controller(args.channel)
+        ctrl = _open_controller(args, "robstride")
         bound = False
         try:
             for mid in range(start_id, end_id + 1):
@@ -179,10 +188,10 @@ def _scan_myactuator(args: argparse.Namespace, start_id: int, end_id: int) -> li
     lo = max(1, start_id)
     hi = min(32, end_id)
     print(
-        f"[scan:myactuator] channel={args.channel} model={args.model} "
+        f"[scan:myactuator] {_bus_hint(args)} model={args.model} "
         f"id_range=[0x{lo:X},0x{hi:X}] timeout_ms={args.timeout_ms}"
     )
-    ctrl = Controller(args.channel)
+    ctrl = _open_controller(args, "myactuator")
     try:
         for mid in range(lo, hi + 1):
             fid = 0x240 + mid
@@ -215,10 +224,10 @@ def _scan_hightorque(args: argparse.Namespace, start_id: int, end_id: int) -> li
     lo = max(1, start_id)
     hi = min(127, end_id)
     print(
-        f"[scan:hightorque] channel={args.channel} model={args.model} "
+        f"[scan:hightorque] {_bus_hint(args)} model={args.model} "
         f"id_range=[0x{lo:X},0x{hi:X}] timeout_ms={args.timeout_ms}"
     )
-    ctrl = Controller(args.channel)
+    ctrl = _open_controller(args, "hightorque")
     try:
         for mid in range(lo, hi + 1):
             motor = ctrl.add_hightorque_motor(mid, 0x01, args.model)
@@ -253,7 +262,7 @@ def _scan_command(args: argparse.Namespace) -> None:
     resolved_model, _ = _vendor_defaults(args.vendor if args.vendor != "all" else "damiao", args.model, "0x11")
     args.model = resolved_model
     print(
-        f"command=scan vendor={args.vendor} transport={args.transport} channel={args.channel} model={args.model} "
+        f"command=scan vendor={args.vendor} transport={args.transport} {_bus_hint(args)} model={args.model} "
         f"id_range=[0x{start_id:X},0x{end_id:X}] timeout_ms={args.timeout_ms}"
     )
 

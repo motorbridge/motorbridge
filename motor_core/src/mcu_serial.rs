@@ -22,6 +22,140 @@ const TAIL: u8 = 0x5A;
 const MAX_DLC: usize = 8;
 const MAX_FRAME: usize = 1 + 1 + 4 + MAX_DLC + 1 + 1;
 
+/// Reserved 29-bit can_id the MCU uses to push a structured link-status
+/// snapshot back to the host — the mcu-serial analogue of a CAN error frame.
+/// Sent as an extended frame (bit31 set on the wire), DLC=8. Sits next to the
+/// pure-USB ping id (`0x1FFFFFEE`) at the top of the extended-id space so it
+/// never collides with a real motor arbitration id. The host never TXes this
+/// id; only the MCU emits it on anomaly (non-ERROR_ACTIVE state or any
+/// error/drop counter > 0), so a bus-off / TX-ACK-failure / RX-drop /
+/// stream-corruption event surfaces as a `MotorError::BusStatus` instead of
+/// every fault collapsing to a recv timeout.
+const STATUS_ID: u32 = 0x1FFF_FFEF;
+
+/// Flag bits in a STATUS frame's `flags` byte (bit position). Mirrors the
+/// firmware `build_status_payload` flag assignments exactly.
+mod status_flag {
+    pub const BUS_OFF: u8 = 0x01;
+    pub const TX_FAILED: u8 = 0x02;
+    pub const RX_DROPPED: u8 = 0x04;
+    pub const RX_CRC_BAD: u8 = 0x08;
+    pub const RX_OVERSIZE: u8 = 0x10;
+    pub const APP_TX_DROPPED: u8 = 0x20;
+    pub const BUS_ERROR: u8 = 0x40;
+}
+
+/// Decoded MCU link-status snapshot carried in a STATUS frame. Fields map 1:1
+/// to the firmware's `can_console_can_status_t` + app drop counters.
+#[derive(Clone, Debug)]
+pub struct McuSerialStatus {
+    /// TWAI state: 0=STOPPED,1=ERROR_ACTIVE,2=ERROR_WARNING,3=ERROR_PASSIVE,
+    /// 4=BUS_OFF (see `can_console_can_state_t` on the firmware side).
+    pub state: u8,
+    /// Bitmask of `status_flag::*` — which counters are non-zero.
+    pub flags: u8,
+    /// TX error counter (TEC), saturated to u8.
+    pub tx_error_count: u8,
+    /// RX error counter (REC), saturated to u8.
+    pub rx_error_count: u8,
+    /// CAN TX attempts that failed (no ACK / tx_failed), saturated to u16.
+    pub tx_failed: u16,
+    /// Frames the MCU received but dropped before reaching the host (driver
+    /// RX-queue overflow + USB write timeout + app-level drops), saturated to
+    /// u16.
+    pub rx_dropped: u16,
+}
+
+impl McuSerialStatus {
+    pub fn state_name(&self) -> &'static str {
+        match self.state {
+            0 => "STOPPED",
+            1 => "ERROR_ACTIVE",
+            2 => "ERROR_WARNING",
+            3 => "ERROR_PASSIVE",
+            4 => "BUS_OFF",
+            _ => "UNKNOWN",
+        }
+    }
+    pub fn bus_off(&self) -> bool {
+        self.flags & status_flag::BUS_OFF != 0
+    }
+    pub fn tx_failed(&self) -> bool {
+        self.flags & status_flag::TX_FAILED != 0
+    }
+    pub fn rx_dropped(&self) -> bool {
+        self.flags & status_flag::RX_DROPPED != 0
+    }
+    pub fn crc_bad(&self) -> bool {
+        self.flags & status_flag::RX_CRC_BAD != 0
+    }
+    pub fn oversize(&self) -> bool {
+        self.flags & status_flag::RX_OVERSIZE != 0
+    }
+    pub fn app_tx_dropped(&self) -> bool {
+        self.flags & status_flag::APP_TX_DROPPED != 0
+    }
+    pub fn bus_error(&self) -> bool {
+        self.flags & status_flag::BUS_ERROR != 0
+    }
+
+    /// Comma-separated list of the fault flags that are set, for the Display
+    /// impl and for log lines. Empty when no flag is set (which shouldn't
+    /// happen in practice — the MCU only sends STATUS on anomaly).
+    fn flag_names(&self) -> String {
+        let mut names: Vec<&str> = Vec::new();
+        if self.bus_off() {
+            names.push("bus_off");
+        }
+        if self.tx_failed() {
+            names.push("tx_failed");
+        }
+        if self.rx_dropped() {
+            names.push("rx_dropped");
+        }
+        if self.crc_bad() {
+            names.push("rx_crc_bad");
+        }
+        if self.oversize() {
+            names.push("rx_oversize");
+        }
+        if self.app_tx_dropped() {
+            names.push("app_tx_dropped");
+        }
+        if self.bus_error() {
+            names.push("bus_error");
+        }
+        names.join(",")
+    }
+}
+
+impl std::fmt::Display for McuSerialStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "state={} flags={} TEC={} REC={} tx_failed={} rx_dropped={}",
+            self.state_name(),
+            self.flag_names(),
+            self.tx_error_count,
+            self.rx_error_count,
+            self.tx_failed,
+            self.rx_dropped,
+        )
+    }
+}
+
+/// Decode the 8-byte STATUS payload. Caller ensures `data.len() == 8`.
+fn decode_status(data: &[u8]) -> McuSerialStatus {
+    McuSerialStatus {
+        state: data[0],
+        flags: data[1],
+        tx_error_count: data[2],
+        rx_error_count: data[3],
+        tx_failed: u16::from_le_bytes([data[4], data[5]]),
+        rx_dropped: u16::from_le_bytes([data[6], data[7]]),
+    }
+}
+
 fn crc8(data: &[u8]) -> u8 {
     let mut crc: u8 = 0x00;
     for &b in data {
@@ -183,6 +317,18 @@ impl CanBus for McuSerialBus {
 
         loop {
             if let Some(frame) = Self::try_parse_rx(&mut inner.rx_buf) {
+                // MCU-pushed link-status frame: decode and surface as a
+                // structured BusStatus error so a CAN-layer fault is
+                // distinguishable from a plain recv timeout. Only intercept
+                // the full 8-byte payload; a short/malformed STATUS frame
+                // falls through as an ordinary data frame (no vendor matches
+                // this id, so it is harmlessly ignored downstream).
+                if frame.is_extended && frame.arbitration_id == STATUS_ID && frame.dlc == 8 {
+                    let status = decode_status(&frame.data);
+                    return Err(MotorError::BusStatus(format!(
+                        "mcu-serial link status: {status}"
+                    )));
+                }
                 return Ok(Some(frame));
             }
             let read_any = Self::read_available(&mut inner, wait_for_data)?;
@@ -324,5 +470,70 @@ mod tests {
             is_rx: false,
         };
         assert!(McuSerialBus::encode_tx(f).is_err());
+    }
+
+    /// The MCU-pushed STATUS frame must round-trip through the data-frame
+    /// codec so `recv` can see `arbitration_id == STATUS_ID` and intercept it.
+    /// This locks the wire contract between the firmware `push_status_frame`
+    /// and the host decode path.
+    #[test]
+    fn status_frame_roundtrips_as_extended_data() {
+        // state=BUS_OFF(4), flags=0x07 (bus_off|tx_failed|rx_dropped),
+        // TEC=208, REC=192, tx_failed=300 (>255, exercises u16 path),
+        // rx_dropped=7.
+        let payload = [0x04u8, 0x07, 0xD0, 0xC0, 0x2C, 0x01, 0x07, 0x00];
+        let f = CanFrame {
+            arbitration_id: STATUS_ID,
+            data: payload,
+            dlc: 8,
+            is_extended: true,
+            is_rx: true,
+        };
+        let raw = McuSerialBus::encode_tx(f).unwrap();
+        assert_eq!(raw[0], HEADER);
+        assert_eq!(raw[1], 8);
+        assert_eq!(*raw.last().unwrap(), TAIL);
+        let mut buf = VecDeque::new();
+        buf.extend(raw);
+        let out = McuSerialBus::try_parse_rx(&mut buf).unwrap();
+        assert!(out.is_extended);
+        assert_eq!(out.arbitration_id, STATUS_ID);
+        assert_eq!(out.dlc, 8);
+        assert_eq!(out.data, payload);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn decode_status_maps_payload_fields() {
+        // flags=0x7F sets every fault bit (bus_off|tx_failed|rx_dropped|
+        // crc_bad|oversize|app_tx_dropped|bus_error); bit7 reserved stays 0.
+        let payload = [0x04u8, 0x7F, 0xD0, 0xC0, 0x2C, 0x01, 0x07, 0x00];
+        let s = decode_status(&payload);
+        assert_eq!(s.state, 4);
+        assert_eq!(s.state_name(), "BUS_OFF");
+        assert_eq!(s.flags, 0x7F);
+        assert!(s.bus_off());
+        assert!(s.tx_failed());
+        assert!(s.rx_dropped());
+        assert!(s.crc_bad());
+        assert!(s.oversize());
+        assert!(s.app_tx_dropped());
+        assert!(s.bus_error());
+        assert_eq!(s.tx_error_count, 0xD0);
+        assert_eq!(s.rx_error_count, 0xC0);
+        assert_eq!(s.tx_failed, 0x012C); // 300
+        assert_eq!(s.rx_dropped, 0x0007);
+        let msg = format!("{s}");
+        assert!(msg.contains("state=BUS_OFF"));
+        assert!(msg.contains("TEC=208"));
+        assert!(msg.contains("tx_failed=300"));
+    }
+
+    #[test]
+    fn decode_status_healthy_state_name() {
+        let s = decode_status(&[1u8, 0x00, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(s.state_name(), "ERROR_ACTIVE");
+        assert!(!s.bus_off());
+        assert_eq!(s.flag_names(), "");
     }
 }

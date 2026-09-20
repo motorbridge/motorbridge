@@ -1,9 +1,6 @@
 use crate::model::{Target, Transport};
 use motor_core::bus::{CanBus, CanFrame};
-#[cfg(target_os = "windows")]
-use motor_core::pcan::PcanBus;
-#[cfg(target_os = "linux")]
-use motor_core::socketcan::SocketCanBus;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub(crate) const TWO_PI: f32 = std::f32::consts::PI * 2.0;
@@ -108,31 +105,25 @@ fn round_to_i16_saturated(v: f32) -> i16 {
     (v.round() as i32).clamp(i16::MIN as i32, i16::MAX as i32) as i16
 }
 
-pub(crate) fn open_hightorque_bus(target: &Target) -> Result<Box<dyn CanBus>, String> {
+pub(crate) fn open_hightorque_bus(target: &Target) -> Result<Arc<dyn CanBus>, String> {
+    let p = motor_core::bus::TransportParams {
+        channel: &target.channel,
+        serial_port: &target.serial_port,
+        serial_baud: target.serial_baud,
+    };
     match target.transport {
         Transport::Auto | Transport::SocketCan => {
-            #[cfg(target_os = "linux")]
-            {
-                Ok(Box::new(
-                    SocketCanBus::open(&target.channel)
-                        .map_err(|e| format!("open bus failed: {e}"))?,
-                ))
-            }
-            #[cfg(target_os = "windows")]
-            {
-                return Ok(Box::new(
-                    PcanBus::open(&target.channel).map_err(|e| format!("open bus failed: {e}"))?,
-                ));
-            }
-            #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-            {
-                Err("No CAN backend for current platform".to_string())
-            }
+            motor_core::bus::open_transport(motor_core::bus::Transport::SocketCan, &p)
+                .map_err(|e| format!("open bus failed: {e}"))
         }
         Transport::SocketCanFd => {
             Err("hightorque currently uses standard CAN transport only".to_string())
         }
         Transport::DmSerial => Err("dm-serial transport is damiao-only".to_string()),
         Transport::DmDevice => Err("dm-device transport is damiao-only".to_string()),
+        Transport::McuSerial => {
+            motor_core::bus::open_transport(motor_core::bus::Transport::McuSerial, &p)
+                .map_err(|e| format!("open bus failed: {e}"))
+        }
     }
 }

@@ -1,9 +1,11 @@
 use crate::args::{get_f32, get_str, get_u16_hex_or_dec, get_u64};
+use motor_core::bus::{open_transport, CanBus, Transport, TransportParams};
 use motor_vendor_robstride_mit::{
     model_limits as robstride_mit_model_limits, RobstrideMitController, MODE_MIT, MODE_POSITION,
     MODE_VELOCITY, PROTOCOL_CANOPEN, PROTOCOL_MIT, PROTOCOL_PRIVATE,
 };
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 fn parse_protocol_cmd(raw: &str) -> Result<u8, String> {
@@ -92,6 +94,40 @@ fn print_feedback(prefix: &str, feedback: motor_vendor_robstride_mit::MitFeedbac
     );
 }
 
+/// Open a RobstrideMit controller for the requested transport. Universal
+/// transports route through `open_transport` (core); damiao-only transports
+/// are rejected. Robstride-MIT is classic+FD CAN, so mcu-serial is allowed.
+fn open_robstride_mit_controller(
+    transport: &str,
+    channel: &str,
+    serial_port: &str,
+    serial_baud: u32,
+) -> Result<RobstrideMitController, Box<dyn std::error::Error>> {
+    let p = TransportParams {
+        channel,
+        serial_port,
+        serial_baud,
+    };
+    let bus: Arc<dyn CanBus> = match transport {
+        "auto" | "socketcan" => open_transport(Transport::SocketCan, &p)?,
+        "socketcanfd" => open_transport(Transport::SocketCanFd, &p)?,
+        "mcu-serial" => open_transport(Transport::McuSerial, &p)?,
+        "dm-serial" | "dm-device" => {
+            return Err(format!(
+                "transport {transport} is damiao-only (robstride-mit supports auto|socketcan|socketcanfd|mcu-serial)"
+            )
+            .into());
+        }
+        _ => {
+            return Err(format!(
+                "unknown Robstride-MIT transport: {transport} (expected auto|socketcan|socketcanfd|mcu-serial)"
+            )
+            .into());
+        }
+    };
+    Ok(RobstrideMitController::new(bus))
+}
+
 pub fn run_robstride_mit(
     args: &HashMap<String, String>,
     channel: &str,
@@ -104,6 +140,11 @@ pub fn run_robstride_mit(
     let dt_ms = get_u64(args, "dt-ms", 20)?;
     let timeout_ms = get_u64(args, "timeout-ms", 300)?;
     let timeout = Duration::from_millis(timeout_ms);
+    let transport = get_str(args, "transport", "auto");
+    let serial_port = get_str(args, "serial-port", "/dev/ttyACM0");
+    let serial_baud_u64 = get_u64(args, "serial-baud", 921600)?;
+    let serial_baud = u32::try_from(serial_baud_u64)
+        .map_err(|_| format!("invalid --serial-baud (too large): {serial_baud_u64}"))?;
 
     if let Some((pmax, vmax, tmax)) = robstride_mit_model_limits(model) {
         println!(
@@ -114,7 +155,8 @@ pub fn run_robstride_mit(
     if mode == "scan" {
         let start_id = get_u16_hex_or_dec(args, "start-id", 1)?;
         let end_id = get_u16_hex_or_dec(args, "end-id", 127)?;
-        let controller = RobstrideMitController::new_socketcan(channel)?;
+        let controller =
+            open_robstride_mit_controller(&transport, channel, &serial_port, serial_baud)?;
         println!(
             "[scan:robstride_mit] channel={channel} model={model} host_id=0x{feedback_id:X} id_range=[0x{start_id:X},0x{end_id:X}] timeout_ms={timeout_ms}"
         );
@@ -130,7 +172,7 @@ pub fn run_robstride_mit(
         return Ok(());
     }
 
-    let controller = RobstrideMitController::new_socketcan(channel)?;
+    let controller = open_robstride_mit_controller(&transport, channel, &serial_port, serial_baud)?;
     let motor = controller.add_motor(motor_id, feedback_id, model)?;
 
     match mode.as_str() {

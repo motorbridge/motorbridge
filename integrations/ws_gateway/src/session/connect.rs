@@ -13,17 +13,28 @@ impl SessionCtx {
         self.disconnect(false);
         match self.target.vendor {
             Vendor::Damiao => {
+                let p = motor_core::bus::TransportParams {
+                    channel: &self.target.channel,
+                    serial_port: &self.target.serial_port,
+                    serial_baud: self.target.serial_baud,
+                };
                 let ctrl = match self.target.transport {
                     Transport::Auto | Transport::SocketCan => {
-                        DamiaoController::new_socketcan(&self.target.channel)
+                        motor_core::bus::open_transport(motor_core::bus::Transport::SocketCan, &p)
+                            .map(DamiaoController::new)
                     }
                     Transport::SocketCanFd => {
-                        DamiaoController::new_socketcanfd(&self.target.channel)
+                        motor_core::bus::open_transport(motor_core::bus::Transport::SocketCanFd, &p)
+                            .map(DamiaoController::new)
                     }
-                    Transport::DmSerial => DamiaoController::new_dm_serial(
-                        &self.target.serial_port,
-                        self.target.serial_baud,
-                    ),
+                    Transport::DmSerial => {
+                        motor_core::bus::open_transport(motor_core::bus::Transport::DmSerial, &p)
+                            .map(DamiaoController::new)
+                    }
+                    Transport::McuSerial => {
+                        motor_core::bus::open_transport(motor_core::bus::Transport::McuSerial, &p)
+                            .map(DamiaoController::new)
+                    }
                     Transport::DmDevice => DamiaoController::new_dm_device(
                         DmDeviceType::parse(&self.target.dm_device_type)
                             .map_err(|e| e.to_string())?,
@@ -49,14 +60,31 @@ impl SessionCtx {
                 }
             }
             Vendor::Hexfellow => {
-                if !matches!(
-                    self.target.transport,
-                    Transport::Auto | Transport::SocketCanFd
-                ) {
-                    return Err("hexfellow requires transport socketcanfd (or auto)".to_string());
+                let p = motor_core::bus::TransportParams {
+                    channel: &self.target.channel,
+                    serial_port: &self.target.serial_port,
+                    serial_baud: self.target.serial_baud,
+                };
+                let ctrl = match self.target.transport {
+                    Transport::Auto | Transport::SocketCanFd => {
+                        motor_core::bus::open_transport(motor_core::bus::Transport::SocketCanFd, &p)
+                            .map(HexfellowController::new)
+                    }
+                    Transport::SocketCan => Err(motor_core::error::MotorError::InvalidArgument(
+                        "hexfellow is CAN-FD only, use socketcanfd".to_string(),
+                    )),
+                    Transport::McuSerial => Err(motor_core::error::MotorError::InvalidArgument(
+                        "transport mcu-serial is classic CAN only; hexfellow requires CAN-FD"
+                            .to_string(),
+                    )),
+                    Transport::DmSerial => Err(motor_core::error::MotorError::InvalidArgument(
+                        "dm-serial transport is damiao-only".to_string(),
+                    )),
+                    Transport::DmDevice => Err(motor_core::error::MotorError::InvalidArgument(
+                        "dm-device transport is damiao-only".to_string(),
+                    )),
                 }
-                let ctrl = HexfellowController::new_socketcanfd(&self.target.channel)
-                    .map_err(|e| format!("open bus failed: {e}"))?;
+                .map_err(|e| format!("open bus failed: {e}"))?;
                 let motor = ctrl
                     .add_motor(
                         self.target.motor_id,
@@ -73,12 +101,23 @@ impl SessionCtx {
                 self.motor = Some(MotorHandle::Hightorque(self.target.motor_id));
             }
             Vendor::Myactuator => {
+                let p = motor_core::bus::TransportParams {
+                    channel: &self.target.channel,
+                    serial_port: &self.target.serial_port,
+                    serial_baud: self.target.serial_baud,
+                };
                 let ctrl = match self.target.transport {
                     Transport::Auto | Transport::SocketCan => {
-                        MyActuatorController::new_socketcan(&self.target.channel)
+                        motor_core::bus::open_transport(motor_core::bus::Transport::SocketCan, &p)
+                            .map(MyActuatorController::new)
                     }
                     Transport::SocketCanFd => {
-                        MyActuatorController::new_socketcanfd(&self.target.channel)
+                        motor_core::bus::open_transport(motor_core::bus::Transport::SocketCanFd, &p)
+                            .map(MyActuatorController::new)
+                    }
+                    Transport::McuSerial => {
+                        motor_core::bus::open_transport(motor_core::bus::Transport::McuSerial, &p)
+                            .map(MyActuatorController::new)
                     }
                     Transport::DmSerial => Err(motor_core::error::MotorError::InvalidArgument(
                         "dm-serial transport is damiao-only".to_string(),
@@ -100,12 +139,23 @@ impl SessionCtx {
                 self.motor = Some(MotorHandle::Myactuator(motor));
             }
             Vendor::Robstride => {
+                let p = motor_core::bus::TransportParams {
+                    channel: &self.target.channel,
+                    serial_port: &self.target.serial_port,
+                    serial_baud: self.target.serial_baud,
+                };
                 let ctrl = match self.target.transport {
                     Transport::Auto | Transport::SocketCan => {
-                        RobstrideController::new_socketcan(&self.target.channel)
+                        motor_core::bus::open_transport(motor_core::bus::Transport::SocketCan, &p)
+                            .map(RobstrideController::new)
                     }
                     Transport::SocketCanFd => {
-                        RobstrideController::new_socketcanfd(&self.target.channel)
+                        motor_core::bus::open_transport(motor_core::bus::Transport::SocketCanFd, &p)
+                            .map(RobstrideController::new)
+                    }
+                    Transport::McuSerial => {
+                        motor_core::bus::open_transport(motor_core::bus::Transport::McuSerial, &p)
+                            .map(RobstrideController::new)
                     }
                     Transport::DmSerial => Err(motor_core::error::MotorError::InvalidArgument(
                         "dm-serial transport is damiao-only".to_string(),

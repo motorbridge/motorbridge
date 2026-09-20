@@ -1,9 +1,11 @@
 use crate::args::{get_f32, get_str, get_u16_hex_or_dec, get_u64};
+use motor_core::bus::{open_transport, CanBus, Transport, TransportParams};
 use motor_vendor_robstride_cia402::{
     model_limits as robstride_cia402_model_limits, watchdog_seconds_to_raw,
     RobstrideCia402Controller, PROTOCOL_CANOPEN, PROTOCOL_MIT, PROTOCOL_PRIVATE,
 };
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 fn parse_protocol_cmd(raw: &str) -> Result<u8, String> {
@@ -15,6 +17,40 @@ fn parse_protocol_cmd(raw: &str) -> Result<u8, String> {
             "invalid --protocol {raw}, expected private|canopen|mit or 0|1|2"
         )),
     }
+}
+
+/// Open a RobstrideCia402 controller for the requested transport. Universal
+/// transports route through `open_transport` (core); damiao-only transports
+/// are rejected. Robstride-CiA402 is classic+FD CAN, so mcu-serial is allowed.
+fn open_robstride_cia402_controller(
+    transport: &str,
+    channel: &str,
+    serial_port: &str,
+    serial_baud: u32,
+) -> Result<RobstrideCia402Controller, Box<dyn std::error::Error>> {
+    let p = TransportParams {
+        channel,
+        serial_port,
+        serial_baud,
+    };
+    let bus: Arc<dyn CanBus> = match transport {
+        "auto" | "socketcan" => open_transport(Transport::SocketCan, &p)?,
+        "socketcanfd" => open_transport(Transport::SocketCanFd, &p)?,
+        "mcu-serial" => open_transport(Transport::McuSerial, &p)?,
+        "dm-serial" | "dm-device" => {
+            return Err(format!(
+                "transport {transport} is damiao-only (robstride-cia402 supports auto|socketcan|socketcanfd|mcu-serial)"
+            )
+            .into());
+        }
+        _ => {
+            return Err(format!(
+                "unknown Robstride-CiA402 transport: {transport} (expected auto|socketcan|socketcanfd|mcu-serial)"
+            )
+            .into());
+        }
+    };
+    Ok(RobstrideCia402Controller::new(bus))
 }
 
 pub fn run_robstride_cia402(
@@ -29,6 +65,11 @@ pub fn run_robstride_cia402(
     let dt_ms = get_u64(args, "dt-ms", 20)?;
     let timeout_ms = get_u64(args, "timeout-ms", 300)?;
     let timeout = Duration::from_millis(timeout_ms);
+    let transport = get_str(args, "transport", "auto");
+    let serial_port = get_str(args, "serial-port", "/dev/ttyACM0");
+    let serial_baud_u64 = get_u64(args, "serial-baud", 921600)?;
+    let serial_baud = u32::try_from(serial_baud_u64)
+        .map_err(|_| format!("invalid --serial-baud (too large): {serial_baud_u64}"))?;
 
     if feedback_id != 0 {
         println!(
@@ -44,7 +85,8 @@ pub fn run_robstride_cia402(
     if mode == "scan" {
         let start_id = get_u16_hex_or_dec(args, "start-id", 1)?;
         let end_id = get_u16_hex_or_dec(args, "end-id", 127)?;
-        let controller = RobstrideCia402Controller::new_socketcan(channel)?;
+        let controller =
+            open_robstride_cia402_controller(&transport, channel, &serial_port, serial_baud)?;
         println!(
             "[scan:robstride_cia402] channel={channel} model={model} id_range=[0x{start_id:X},0x{end_id:X}] timeout_ms={timeout_ms}"
         );
@@ -60,7 +102,8 @@ pub fn run_robstride_cia402(
         return Ok(());
     }
 
-    let controller = RobstrideCia402Controller::new_socketcan(channel)?;
+    let controller =
+        open_robstride_cia402_controller(&transport, channel, &serial_port, serial_baud)?;
 
     if mode == "set-protocol" || mode == "protocol-switch" {
         let protocol = parse_protocol_cmd(&get_str(args, "protocol", "canopen"))?;

@@ -15,6 +15,8 @@ pub(crate) enum Vendor {
 }
 
 impl Vendor {
+    // Deliberate inherent from_str/as_str pair; not a std::str::FromStr impl.
+    #[allow(clippy::should_implement_trait)]
     pub(crate) fn from_str(s: &str) -> Result<Self, String> {
         match s.to_lowercase().as_str() {
             "damiao" => Ok(Self::Damiao),
@@ -44,9 +46,12 @@ pub(crate) enum Transport {
     SocketCanFd,
     DmSerial,
     DmDevice,
+    McuSerial,
 }
 
 impl Transport {
+    // Deliberate inherent from_str/as_str pair; not a std::str::FromStr impl.
+    #[allow(clippy::should_implement_trait)]
     pub(crate) fn from_str(s: &str) -> Result<Self, String> {
         match s.to_lowercase().as_str() {
             "auto" => Ok(Self::Auto),
@@ -54,6 +59,7 @@ impl Transport {
             "socketcanfd" => Ok(Self::SocketCanFd),
             "dm-serial" => Ok(Self::DmSerial),
             "dm-device" => Ok(Self::DmDevice),
+            "mcu-serial" => Ok(Self::McuSerial),
             _ => Err(format!("unsupported transport: {s}")),
         }
     }
@@ -65,6 +71,7 @@ impl Transport {
             Self::SocketCanFd => "socketcanfd",
             Self::DmSerial => "dm-serial",
             Self::DmDevice => "dm-device",
+            Self::McuSerial => "mcu-serial",
         }
     }
 }
@@ -116,7 +123,7 @@ pub(crate) enum ActiveCommand {
 pub(crate) enum ControllerHandle {
     Damiao(DamiaoController),
     Hexfellow(HexfellowController),
-    Hightorque(Box<dyn CanBus>),
+    Hightorque(Arc<dyn CanBus>),
     Myactuator(MyActuatorController),
     Robstride(RobstrideController),
 }

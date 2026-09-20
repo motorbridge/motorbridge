@@ -1,10 +1,9 @@
 use crate::args::{get_f32, get_i16, get_str, get_u16_hex_or_dec, get_u64};
-#[cfg(any(target_os = "windows", target_os = "macos"))]
-use motor_core::pcan::PcanBus;
-#[cfg(target_os = "linux")]
-use motor_core::socketcan::SocketCanBus;
-use motor_core::{CanBus, CanFrame};
+use motor_core::bus::{open_transport, CanBus, Transport, TransportParams};
+use motor_core::CanFrame;
 use std::collections::HashMap;
+use std::convert::TryFrom;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const TWO_PI: f32 = std::f32::consts::PI * 2.0;
@@ -158,22 +157,46 @@ fn tqe_raw_from_args(args: &HashMap<String, String>) -> Result<i16, String> {
     Ok(0)
 }
 
-fn open_can_bus(channel: &str) -> Result<Box<dyn CanBus>, Box<dyn std::error::Error>> {
-    #[cfg(target_os = "linux")]
-    {
-        Ok(Box::new(SocketCanBus::open(channel)?))
-    }
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    {
-        Ok(Box::new(PcanBus::open(channel)?))
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-    {
-        let _ = channel;
-        Err(Box::new(motor_core::error::MotorError::InvalidArgument(
-            "No CAN backend for current platform".to_string(),
-        )))
-    }
+/// Open the CAN bus for the requested transport. Routes universal transports
+/// (socketcan / mcu-serial) through `open_transport` so the platform driver
+/// construction lives in one place (core). HighTorque uses standard CAN only,
+/// so socketcanfd is rejected (it is not a CAN-FD device here); damiao-only
+/// transports are rejected. Returns `Arc` because `open_transport` returns
+/// `Arc<dyn CanBus>`; the raw send/recv helpers take `&dyn CanBus`, which both
+/// `Arc` and `Box` deref to identically.
+fn open_hightorque_bus(
+    transport: &str,
+    channel: &str,
+    serial_port: &str,
+    serial_baud: u32,
+) -> Result<Arc<dyn CanBus>, Box<dyn std::error::Error>> {
+    let p = TransportParams {
+        channel,
+        serial_port,
+        serial_baud,
+    };
+    let bus: Arc<dyn CanBus> = match transport {
+        "auto" | "socketcan" => open_transport(Transport::SocketCan, &p)?,
+        "mcu-serial" => open_transport(Transport::McuSerial, &p)?,
+        "socketcanfd" => {
+            return Err(
+                "transport socketcanfd unsupported (hightorque uses standard CAN only)".into(),
+            )
+        }
+        "dm-serial" | "dm-device" => {
+            return Err(format!(
+                "transport {transport} is damiao-only (hightorque supports auto|socketcan|mcu-serial)"
+            )
+            .into());
+        }
+        _ => {
+            return Err(format!(
+                "unknown HighTorque transport: {transport} (expected auto|socketcan|mcu-serial)"
+            )
+            .into());
+        }
+    };
+    Ok(bus)
 }
 
 pub fn run_hightorque(
@@ -184,7 +207,12 @@ pub fn run_hightorque(
     let mode = get_str(args, "mode", "ping");
     let loop_n = get_u64(args, "loop", 1)?;
     let dt_ms = get_u64(args, "dt-ms", 20)?;
-    let bus = open_can_bus(channel)?;
+    let transport = get_str(args, "transport", "auto");
+    let serial_port = get_str(args, "serial-port", "/dev/ttyACM0");
+    let serial_baud_u64 = get_u64(args, "serial-baud", 921600)?;
+    let serial_baud = u32::try_from(serial_baud_u64)
+        .map_err(|_| format!("invalid --serial-baud (too large): {serial_baud_u64}"))?;
+    let bus = open_hightorque_bus(&transport, channel, &serial_port, serial_baud)?;
 
     if mode == "scan" {
         let start_id = get_u16_hex_or_dec(args, "start-id", 1)?.clamp(1, 127);

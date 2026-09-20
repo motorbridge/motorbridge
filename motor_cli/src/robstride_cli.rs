@@ -9,7 +9,45 @@ use motor_vendor_robstride::{
 };
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::sync::Arc;
 use std::time::Duration;
+
+use motor_core::bus::{open_transport, CanBus, Transport, TransportParams};
+
+/// Open a RobStride controller for the requested transport. Universal transports
+/// (socketcan / socketcanfd / mcu-serial) route through `open_transport` so the
+/// bus-driver construction lives in one place (core); damiao-only transports
+/// are rejected here. RobStride is classic+FD CAN, so mcu-serial is allowed.
+fn open_robstride_controller(
+    transport: &str,
+    channel: &str,
+    serial_port: &str,
+    serial_baud: u32,
+) -> Result<RobstrideController, Box<dyn std::error::Error>> {
+    let p = TransportParams {
+        channel,
+        serial_port,
+        serial_baud,
+    };
+    let bus: Arc<dyn CanBus> = match transport {
+        "auto" | "socketcan" => open_transport(Transport::SocketCan, &p)?,
+        "socketcanfd" => open_transport(Transport::SocketCanFd, &p)?,
+        "mcu-serial" => open_transport(Transport::McuSerial, &p)?,
+        "dm-serial" | "dm-device" => {
+            return Err(format!(
+                "transport {transport} is damiao-only (robstride supports auto|socketcan|socketcanfd|mcu-serial)"
+            )
+            .into());
+        }
+        _ => {
+            return Err(format!(
+                "unknown RobStride transport: {transport} (expected auto|socketcan|socketcanfd|mcu-serial)"
+            )
+            .into());
+        }
+    };
+    Ok(RobstrideController::new(bus))
+}
 
 fn parse_robstride_param_value(param_id: u16, raw: &str) -> Result<ParameterValue, String> {
     let info = motor_vendor_robstride::parameter_info(param_id)
@@ -105,6 +143,11 @@ pub fn run_robstride(
     feedback_id: u16,
     vendor_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let transport = get_str(args, "transport", "auto");
+    let serial_port = get_str(args, "serial-port", "/dev/ttyACM0");
+    let serial_baud_u64 = get_u64(args, "serial-baud", 921600)?;
+    let serial_baud = u32::try_from(serial_baud_u64)
+        .map_err(|_| format!("invalid --serial-baud (too large): {serial_baud_u64}"))?;
     let model_input = model;
     let model = if vendor_name == "hightorque" {
         let m = model_input.trim().to_ascii_lowercase();
@@ -248,7 +291,8 @@ pub fn run_robstride(
         for id in start_id..=end_id {
             let mut hit = false;
             for fid in &scan_feedback_ids {
-                let probe_ctrl = RobstrideController::new_socketcan(channel)?;
+                let probe_ctrl =
+                    open_robstride_controller(&transport, channel, &serial_port, serial_baud)?;
                 let candidate = probe_ctrl.add_motor(id, *fid, model)?;
                 if let Ok(reply) =
                     candidate.ping_with_host_id(*fid, Duration::from_millis(timeout_ms))
@@ -308,7 +352,8 @@ pub fn run_robstride(
             std::thread::sleep(Duration::from_millis(2));
         }
         if hits == 0 {
-            let fallback = RobstrideController::new_socketcan(channel)?;
+            let fallback =
+                open_robstride_controller(&transport, channel, &serial_port, serial_baud)?;
             let manual_vel = get_f32(args, "manual-vel", 0.2)?;
             let manual_ms = get_u64(args, "manual-ms", 200)?;
             let manual_gap_ms = get_u64(args, "manual-gap-ms", 200)?;
@@ -366,7 +411,7 @@ pub fn run_robstride(
         println!("[scan] done vendor={} hits={hits}", vendor_name);
         return Ok(());
     }
-    let controller = RobstrideController::new_socketcan(channel)?;
+    let controller = open_robstride_controller(&transport, channel, &serial_port, serial_baud)?;
     let motor = controller.add_motor(motor_id, feedback_id, model)?;
 
     if let Some(new_motor_id_u8) = validated_set_motor_id {
@@ -395,7 +440,8 @@ pub fn run_robstride(
             );
         }
         controller.close_bus()?;
-        let verify_ctrl = RobstrideController::new_socketcan(channel)?;
+        let verify_ctrl =
+            open_robstride_controller(&transport, channel, &serial_port, serial_baud)?;
         let verify_motor = verify_ctrl.add_motor(new_motor_id, feedback_id, model)?;
         match verify_motor.ping(Duration::from_millis(260)) {
             Ok(reply) => {
