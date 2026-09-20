@@ -44,6 +44,7 @@ pub(crate) enum Transport {
     SocketCanFd,
     DmSerial,
     DmDevice,
+    McuSerial,
 }
 
 impl Transport {
@@ -54,6 +55,7 @@ impl Transport {
             "socketcanfd" => Ok(Self::SocketCanFd),
             "dm-serial" => Ok(Self::DmSerial),
             "dm-device" => Ok(Self::DmDevice),
+            "mcu-serial" => Ok(Self::McuSerial),
             _ => Err(format!("unsupported transport: {s}")),
         }
     }
@@ -65,6 +67,7 @@ impl Transport {
             Self::SocketCanFd => "socketcanfd",
             Self::DmSerial => "dm-serial",
             Self::DmDevice => "dm-device",
+            Self::McuSerial => "mcu-serial",
         }
     }
 }
@@ -116,7 +119,7 @@ pub(crate) enum ActiveCommand {
 pub(crate) enum ControllerHandle {
     Damiao(DamiaoController),
     Hexfellow(HexfellowController),
-    Hightorque(Box<dyn CanBus>),
+    Hightorque(Arc<dyn CanBus>),
     Myactuator(MyActuatorController),
     Robstride(RobstrideController),
 }

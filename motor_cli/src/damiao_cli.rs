@@ -84,16 +84,42 @@ fn open_damiao_controller(
     dm_device_type: &str,
     dm_channel: &str,
 ) -> Result<DamiaoController, Box<dyn std::error::Error>> {
+    let p = motor_core::bus::TransportParams {
+        channel,
+        serial_port,
+        serial_baud,
+    };
     match transport {
-        "auto" | "socketcan" => Ok(DamiaoController::new_socketcan(channel)?),
-        "socketcanfd" => Ok(DamiaoController::new_socketcanfd(channel)?),
-        "dm-serial" => Ok(DamiaoController::new_dm_serial(serial_port, serial_baud)?),
+        "auto" | "socketcan" => {
+            Ok(DamiaoController::new(motor_core::bus::open_transport(
+                motor_core::bus::Transport::SocketCan,
+                &p,
+            )?))
+        }
+        "socketcanfd" => {
+            Ok(DamiaoController::new(motor_core::bus::open_transport(
+                motor_core::bus::Transport::SocketCanFd,
+                &p,
+            )?))
+        }
+        "dm-serial" => {
+            Ok(DamiaoController::new(motor_core::bus::open_transport(
+                motor_core::bus::Transport::DmSerial,
+                &p,
+            )?))
+        }
+        "mcu-serial" => {
+            Ok(DamiaoController::new(motor_core::bus::open_transport(
+                motor_core::bus::Transport::McuSerial,
+                &p,
+            )?))
+        }
         "dm-device" => Ok(DamiaoController::new_dm_device(
             DmDeviceType::parse(dm_device_type)?,
             dm_channel,
         )?),
         _ => Err(format!(
-            "unknown Damiao transport: {} (expected auto|socketcan|socketcanfd|dm-serial|dm-device)",
+            "unknown Damiao transport: {} (expected auto|socketcan|socketcanfd|dm-serial|mcu-serial|dm-device)",
             transport
         )
         .into()),

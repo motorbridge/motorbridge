@@ -7,6 +7,44 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-09-20
+
+### Added
+
+- mcu-serial transport now works end-to-end across all four frontends
+  (motor_abi, Python CLI, Rust motor_cli, ws_gateway) for damiao, robstride,
+  myactuator, and hightorque. hexfellow is correctly rejected (classic-CAN
+  only; it requires CAN-FD).
+- `Transport` enum + `open_transport(transport, &params)` + `TransportParams`
+  in `motor_core::bus`: the single dispatch point for every platform `CanBus`
+  driver. All frontends route through it instead of re-implementing the
+  per-vendor constructor, so adding a transport is one edit here, not three.
+- mcu-serial link-status monitoring: the MCU pushes a structured STATUS frame
+  (extended id `0x1FFFFFEF`, DLC=8) on bus-off / TX-ACK-failure / RX-drop /
+  USB-stream-corruption; `McuSerialBus::recv` decodes it and surfaces
+  `MotorError::BusStatus` with a state/flag/counter summary, so CAN-layer
+  faults are distinguishable from a plain recv timeout.
+
+### Changed
+
+- `scan.py`: `_scan_robstride`/`_scan_myactuator`/`_scan_hightorque` now use
+  `_open_controller(args, vendor)` (was `Controller(args.channel)`), so
+  `--transport mcu-serial`/`--serial-port`/`--serial-baud` take effect for
+  these vendors — aligning them with `_scan_damiao`. Scan headers print the
+  actual bus locator via `_bus_hint` (serial_port for UART, channel for CAN)
+  instead of a stale `channel=can0`.
+- `motor_abi::ensure_controller!` now takes a `Transport` value instead of a
+  per-vendor closure; both Unbound and UnboundMcuSerial arms route through
+  `open_transport`. `motor_controller_new_dm_serial` routes through
+  `open_transport(DmSerial)` instead of `DamiaoController::new_dm_serial`.
+- ws_gateway and motor_cli per-vendor `open_*` helpers route through
+  `open_transport`; the outer `#[cfg(target_os = ...)]` platform blocks are
+  removed — the SocketCanBus/PcanBus selection now lives once inside
+  `open_can_bus` (PCAN path preserved on Windows/macOS).
+- Rust workspace / Python / C++ / ABI metadata advanced to `0.5.6`; EN/ZH
+  testing guides repoint to `release_test_notes/0.5.6.md`.
+
+
 ## [0.5.5] - 2026-09-10
 
 ### Fixed

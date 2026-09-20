@@ -73,7 +73,17 @@ pub extern "C" fn motor_controller_new_dm_serial(
             return ptr::null_mut();
         }
     };
-    let controller = match DamiaoController::new_dm_serial(&serial_port, baud) {
+    // dm-serial is damiao-only and eager (no Unbound variant): open the bus
+    // through core's `open_transport` so the driver constructor lives in one
+    // place, then hand it to the generic `DamiaoController::new`.
+    let p = motor_core::bus::TransportParams {
+        channel: "",
+        serial_port: &serial_port,
+        serial_baud: baud,
+    };
+    let controller = match motor_core::bus::open_transport(motor_core::bus::Transport::DmSerial, &p)
+        .map(DamiaoController::new)
+    {
         Ok(c) => c,
         Err(e) => {
             set_last_error(e.to_string());
