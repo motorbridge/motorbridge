@@ -187,7 +187,7 @@ with Controller("can0") as ctrl:
     motor = ctrl.add_robstride_motor(1, 0xFD, "rs-00")
 
     # CSP 高频写法：初始化一次
-    motor.robstride_write_param_u8(0x7005, 5)      # run_mode = CSP
+    motor.robstride_write_param_i8(0x7005, 5)       # run_mode = CSP
     motor.enable()
     motor.robstride_write_param_f32(0x7017, 1.0)   # limit_spd
 
@@ -202,7 +202,7 @@ PP 高频写法类似：
 with Controller("can0") as ctrl:
     motor = ctrl.add_robstride_motor(1, 0xFD, "rs-00")
 
-    motor.robstride_write_param_u8(0x7005, 1)       # run_mode = PP
+    motor.robstride_write_param_i8(0x7005, 1)        # run_mode = PP
     motor.enable()
     motor.robstride_write_param_f32(0x7024, 1.0)    # vel_max
     motor.robstride_write_param_f32(0x7025, 10.0)   # acc_set
