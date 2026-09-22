@@ -213,7 +213,7 @@ def main() -> None:
                             _run_timed_loop("pp-full", args.loop, dt_s, send_pp_full, args.print_every)
                         else:
                             print("[pp-prepared] setup once: run_mode=1 -> enable -> vel_max -> acc_set; loop: loc_ref")
-                            motor.robstride_write_param_u8(0x7005, 1)
+                            motor.robstride_write_param_i8(0x7005, 1)
                             motor.enable()
                             motor.robstride_write_param_f32(0x7024, abs(float(args.vlim)))
                             motor.robstride_write_param_f32(0x7025, abs(float(args.acc)))
@@ -234,7 +234,7 @@ def main() -> None:
                             _run_timed_loop("csp-full", args.loop, dt_s, send_csp_full, args.print_every)
                         else:
                             print("[csp-prepared] setup once: run_mode=5 -> enable -> limit_spd; loop: loc_ref")
-                            motor.robstride_write_param_u8(0x7005, 5)
+                            motor.robstride_write_param_i8(0x7005, 5)
                             motor.enable()
                             motor.robstride_write_param_f32(0x7017, abs(float(args.vlim)))
 
