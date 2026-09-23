@@ -99,6 +99,24 @@ impl McuSerialStatus {
         self.flags & status_flag::BUS_ERROR != 0
     }
 
+    /// Whether this status is a hard CAN-bus fault that makes further
+    /// communication impossible or unreliable, so `recv` should surface it as
+    /// a `BusStatus` error instead of draining and continuing.
+    ///
+    /// Only `ERROR_PASSIVE` / `BUS_OFF` (or the `BUS_OFF` flag set before
+    /// `state` catches up) are hard. Everything else — `ERROR_ACTIVE` /
+    /// `ERROR_WARNING` with soft counters like `rx_dropped` / `tx_failed` /
+    /// `app_tx_dropped`, or a transient `RX_CRC_BAD` / `RX_OVERSIZE` /
+    /// `BUS_ERROR` while the controller is still `ERROR_ACTIVE` — is a benign
+    /// anomaly the host drains through. The MCU emits STATUS continuously
+    /// once a sticky counter (e.g. `rx_dropped` from a single FIFO overflow)
+    /// is non-zero; aborting on it would block every recv-based op until a
+    /// power cycle resets the MCU. Draining mirrors the Python demo's poll
+    /// loop, which catches `BusStatus` and keeps looping.
+    pub fn is_hard_fault(&self) -> bool {
+        self.bus_off() || self.state == 3 || self.state == 4
+    }
+
     /// Comma-separated list of the fault flags that are set, for the Display
     /// impl and for log lines. Empty when no flag is set (which shouldn't
     /// happen in practice — the MCU only sends STATUS on anomaly).
@@ -317,17 +335,25 @@ impl CanBus for McuSerialBus {
 
         loop {
             if let Some(frame) = Self::try_parse_rx(&mut inner.rx_buf) {
-                // MCU-pushed link-status frame: decode and surface as a
-                // structured BusStatus error so a CAN-layer fault is
-                // distinguishable from a plain recv timeout. Only intercept
-                // the full 8-byte payload; a short/malformed STATUS frame
-                // falls through as an ordinary data frame (no vendor matches
-                // this id, so it is harmlessly ignored downstream).
+                // MCU-pushed link-status frame. Only intercept the full
+                // 8-byte payload; a short/malformed STATUS frame falls through
+                // as an ordinary data frame (no vendor matches this id, so it
+                // is harmlessly ignored downstream). A hard fault (BUS_OFF /
+                // ERROR_PASSIVE) surfaces as a structured BusStatus error so a
+                // CAN-layer fault is distinguishable from a plain recv
+                // timeout; a benign anomaly (rx_dropped while ERROR_ACTIVE,
+                // etc.) is drained and recv keeps looking for a data frame.
                 if frame.is_extended && frame.arbitration_id == STATUS_ID && frame.dlc == 8 {
                     let status = decode_status(&frame.data);
-                    return Err(MotorError::BusStatus(format!(
-                        "mcu-serial link status: {status}"
-                    )));
+                    if status.is_hard_fault() {
+                        return Err(MotorError::BusStatus(format!(
+                            "mcu-serial link status: {status}"
+                        )));
+                    }
+                    // Benign anomaly (e.g. rx_dropped while ERROR_ACTIVE):
+                    // drain this STATUS frame and keep looking for a real
+                    // data frame. See `McuSerialStatus::is_hard_fault`.
+                    continue;
                 }
                 return Ok(Some(frame));
             }
@@ -535,5 +561,41 @@ mod tests {
         assert_eq!(s.state_name(), "ERROR_ACTIVE");
         assert!(!s.bus_off());
         assert_eq!(s.flag_names(), "");
+    }
+
+    /// `is_hard_fault` is the recv drain/abort hinge: only ERROR_PASSIVE /
+    /// BUS_OFF abort; everything else (including the user's `rx_dropped=1`
+    /// while ERROR_ACTIVE) drains through so scan/read/ping survive a sticky
+    /// counter without a power cycle.
+    #[test]
+    fn is_hard_fault_classifies_by_controller_state() {
+        // ERROR_ACTIVE + rx_dropped=1 — the exact case that used to abort scan:
+        // benign, must drain.
+        let benign = decode_status(&[0x01u8, status_flag::RX_DROPPED, 0, 0, 0, 0, 0x01, 0x00]);
+        assert_eq!(benign.state_name(), "ERROR_ACTIVE");
+        assert!(benign.rx_dropped());
+        assert!(!benign.is_hard_fault());
+
+        // ERROR_WARNING — still communicating, benign.
+        let warn = decode_status(&[0x02u8, 0x00, 0, 0, 0, 0, 0, 0]);
+        assert!(!warn.is_hard_fault());
+
+        // ERROR_ACTIVE with every soft fault flag set (incl. BUS_ERROR, which
+        // is transient while still ERROR_ACTIVE) — benign: drain & continue.
+        let soft_all = decode_status(&[0x01u8, 0x7E, 0, 0, 0, 0, 0, 0]);
+        assert!(soft_all.bus_error());
+        assert!(soft_all.crc_bad());
+        assert!(soft_all.oversize());
+        assert!(soft_all.rx_dropped());
+        assert!(!soft_all.is_hard_fault());
+
+        // ERROR_PASSIVE — hard (controller can't TX reliably).
+        let passive = decode_status(&[0x03u8, 0x00, 0, 0, 0, 0, 0, 0]);
+        assert!(passive.is_hard_fault());
+
+        // BUS_OFF — hard, both via state and the flag.
+        let busoff = decode_status(&[0x04u8, status_flag::BUS_OFF, 0, 0, 0, 0, 0, 0]);
+        assert!(busoff.bus_off());
+        assert!(busoff.is_hard_fault());
     }
 }

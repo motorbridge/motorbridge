@@ -1,5 +1,6 @@
-use motor_core::bus::CanBus;
+use motor_core::bus::{open_transport, CanBus, Transport, TransportParams};
 use motor_core::dm_device::DmDeviceType;
+use motor_core::CoreController;
 use motor_vendor_damiao::{ControlMode as DamiaoControlMode, DamiaoController, DamiaoMotor};
 use motor_vendor_hexfellow::{
     HexfellowController, HexfellowMotor, MitTarget as HexfellowMitTarget,
@@ -93,21 +94,225 @@ fn to_myactuator_mode(mode: u32) -> Result<MyActuatorControlMode, &'static str> 
 }
 
 enum ControllerInner {
-    // SocketCAN path — UNCHANGED timing: stores the channel name; the bus is
-    // re-opened on first `add_*_motor` (legacy lazy timing). But the driver
-    // constructor is no longer a per-vendor closure: `ensure_controller!`
-    // routes through `open_transport` with the vendor's own classic-vs-FD
-    // `Transport`, so the driver lives in core's one `open_transport`.
+    // SocketCAN path — lazy: stores the channel name; the bus is re-opened on
+    // first `add_*_motor`. Binding picks the vendor's own classic-vs-FD
+    // `Transport` (hexfellow → CAN-FD, the rest → classic CAN) and routes
+    // through core's `open_transport` so the driver constructor lives in one
+    // place.
     Unbound(String),
-    // mcu-serial path — a vendor-agnostic UART-to-CAN MCU bridge, a sibling of
-    // socketcan: store the port spec, open McuSerialBus lazily on first
-    // `add_*_motor`. Classic 8-byte CAN only (no CAN-FD → hexfellow unsupported).
+    // mcu-serial path — a vendor-agnostic UART-to-CAN MCU bridge; store the
+    // port spec, open lazily on first `add_*_motor`. Classic 8-byte CAN only:
+    // hexfellow (CAN-FD) is rejected with a clear error rather than silently
+    // broken; the other classic-CAN vendors share one bus.
     UnboundMcuSerial { port: String, baud: u32 },
+    // Eager dm-serial / dm-device: Damiao-only USB dongle transports, opened at
+    // `motor_controller_new_dm_serial` / `new_dm_device` time. These dongles
+    // speak a Damiao-specific protocol, so only Damiao motors may be added.
     Damiao(DamiaoController),
-    Hexfellow(HexfellowController),
-    MyActuator(MyActuatorController),
-    Robstride(RobstrideController),
-    Hightorque(HightorqueController),
+    // Shared-core multi-vendor: ONE `CoreController` (one bus fd, one background
+    // receive thread, one device table), with every vendor's motors added to it
+    // and dispatched by CAN arbitration id (`accepts_frame`). Per-vendor
+    // controllers are created lazily on first `add_*_motor` of that vendor, all
+    // sharing this `Arc<CoreController>`. Used by the socketcan & mcu-serial
+    // paths so mixed-vendor control (e.g. HighTorque + Damiao + RobStride on
+    // one /dev/ttyACM0) works on a single controller instead of N fds stealing
+    // bytes from one tty input buffer.
+    Bound(BoundController),
+}
+
+/// One shared `CoreController` plus lazily-created per-vendor controllers, all
+/// referencing that shared core. Created the first time any `add_*_motor` binds
+/// an `Unbound`/`UnboundMcuSerial` controller. The eager dm-serial/dm-device
+/// path keeps its own `DamiaoController` (own core) and never reaches here.
+struct BoundController {
+    core: Arc<CoreController>,
+    transport: Transport,
+    damiao: Option<DamiaoController>,
+    hexfellow: Option<HexfellowController>,
+    myactuator: Option<MyActuatorController>,
+    robstride: Option<RobstrideController>,
+    hightorque: Option<HightorqueController>,
+}
+
+impl BoundController {
+    fn new(bus: Arc<dyn CanBus>, transport: Transport) -> Self {
+        Self {
+            core: Arc::new(CoreController::new(bus)),
+            transport,
+            damiao: None,
+            hexfellow: None,
+            myactuator: None,
+            robstride: None,
+            hightorque: None,
+        }
+    }
+}
+
+/// The vendor a motor belongs to, used for the transport-compatibility guard
+/// and to name the lazily-created per-vendor controller field on `BoundController`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Vendor {
+    Damiao,
+    Hexfellow,
+    MyActuator,
+    Robstride,
+    Hightorque,
+}
+
+impl Vendor {
+    fn name(self) -> &'static str {
+        match self {
+            Vendor::Damiao => "Damiao",
+            Vendor::Hexfellow => "Hexfellow",
+            Vendor::MyActuator => "MyActuator",
+            Vendor::Robstride => "RobStride",
+            Vendor::Hightorque => "HighTorque",
+        }
+    }
+
+    /// SocketCAN-family transport this vendor uses: hexfellow is CAN-FD, the
+    /// rest are classic CAN. Determines what an `Unbound` socketcan controller
+    /// opens on first bind, and what later same-class vendors may share.
+    fn socketcan_transport(self) -> Transport {
+        match self {
+            Vendor::Hexfellow => Transport::SocketCanFd,
+            _ => Transport::SocketCan,
+        }
+    }
+}
+
+/// Whether a motor of `vendor` may be added to a bus already opened as
+/// `transport`. mcu-serial & socketcan accept any classic-CAN vendor (hexfellow
+/// is CAN-FD); SocketCanFd is hexfellow-only; DmSerial is Damiao-only. (dm-device
+/// has no `Transport` variant — it stays on the eager `Damiao` path, which
+/// rejects every other vendor in `ensure_bound`.)
+fn transport_supports_vendor(transport: Transport, vendor: Vendor) -> bool {
+    match transport {
+        Transport::McuSerial | Transport::SocketCan => vendor != Vendor::Hexfellow,
+        Transport::SocketCanFd => vendor == Vendor::Hexfellow,
+        Transport::DmSerial => vendor == Vendor::Damiao,
+    }
+}
+
+/// Lazy-bind an `Unbound`/`UnboundMcuSerial` controller to a shared-core
+/// `Bound` (opening the bus via `open_transport`), or return the existing
+/// `Bound`. Errors when the requested `vendor` is incompatible with an
+/// already-opened bus (mixed classic/FD, a non-Damiao on a Damiao dongle, or
+/// any vendor on the eager `Damiao` variant).
+fn ensure_bound(
+    inner: &mut ControllerInner,
+    vendor: Vendor,
+) -> Result<&mut BoundController, String> {
+    match inner {
+        ControllerInner::Bound(b) => {
+            if !transport_supports_vendor(b.transport, vendor) {
+                return Err(format!(
+                    "controller bus already opened as {:?}; {} is not supported on this transport — use a separate controller",
+                    b.transport,
+                    vendor.name()
+                ));
+            }
+            Ok(b)
+        }
+        ControllerInner::Damiao(_) => Err(
+            "controller already bound to Damiao (dm-serial/dm-device is damiao-only) — use a separate controller"
+                .to_string(),
+        ),
+        ControllerInner::UnboundMcuSerial { port, baud } => {
+            if vendor == Vendor::Hexfellow {
+                return Err(
+                    "hexfellow requires CAN-FD; mcu-serial is classic CAN only — use a separate socketcanfd controller"
+                        .to_string(),
+                );
+            }
+            let p = TransportParams {
+                channel: "",
+                serial_port: port,
+                serial_baud: *baud,
+            };
+            let bus =
+                open_transport(Transport::McuSerial, &p).map_err(|e| e.to_string())?;
+            *inner = ControllerInner::Bound(BoundController::new(bus, Transport::McuSerial));
+            match inner {
+                ControllerInner::Bound(b) => Ok(b),
+                _ => unreachable!("just set Bound"),
+            }
+        }
+        ControllerInner::Unbound(channel) => {
+            let t = vendor.socketcan_transport();
+            let p = TransportParams {
+                channel,
+                serial_port: "",
+                serial_baud: 0,
+            };
+            let bus = open_transport(t, &p).map_err(|e| e.to_string())?;
+            *inner = ControllerInner::Bound(BoundController::new(bus, t));
+            match inner {
+                ControllerInner::Bound(b) => Ok(b),
+                _ => unreachable!("just set Bound"),
+            }
+        }
+    }
+}
+
+// Lazily fetch (or create) the per-vendor controller on a shared-core `Bound`,
+// opening the bus first if still `Unbound`/`UnboundMcuSerial`. Each vendor
+// controller wraps the SAME `Arc<CoreController>`, so all motors share one fd
+// and one background receive thread. Damiao is special-cased below because the
+// eager dm-serial/dm-device path keeps its own `DamiaoController` (own core).
+macro_rules! ensure_vendor_controller {
+    ($fn_name:ident, $vendor:expr, $ty:ty, $field:ident) => {
+        fn $fn_name(inner: &mut ControllerInner) -> Result<&mut $ty, String> {
+            let bound = ensure_bound(inner, $vendor)?;
+            // Clone the Arc before the mutable borrow of the Option field so
+            // the borrow checker sees no overlap between the shared borrow of
+            // `bound.core` (captured by the closure) and `&mut bound.$field`.
+            let core = Arc::clone(&bound.core);
+            Ok(bound.$field.get_or_insert_with(move || <$ty>::new_shared(core)))
+        }
+    };
+}
+
+ensure_vendor_controller!(
+    ensure_hexfellow_controller,
+    Vendor::Hexfellow,
+    HexfellowController,
+    hexfellow
+);
+ensure_vendor_controller!(
+    ensure_myactuator_controller,
+    Vendor::MyActuator,
+    MyActuatorController,
+    myactuator
+);
+ensure_vendor_controller!(
+    ensure_robstride_controller,
+    Vendor::Robstride,
+    RobstrideController,
+    robstride
+);
+ensure_vendor_controller!(
+    ensure_hightorque_controller,
+    Vendor::Hightorque,
+    HightorqueController,
+    hightorque
+);
+
+// Damiao: the eager dm-serial/dm-device path keeps its own `DamiaoController`
+// (own core) and must short-circuit before `ensure_bound` (which only handles
+// Unbound/UnboundMcuSerial/Bound). On the shared-core path it lazily creates a
+// damiao controller like the other vendors.
+fn ensure_damiao_controller(inner: &mut ControllerInner) -> Result<&mut DamiaoController, String> {
+    match inner {
+        ControllerInner::Damiao(ctrl) => Ok(ctrl),
+        _ => {
+            let bound = ensure_bound(inner, Vendor::Damiao)?;
+            let core = Arc::clone(&bound.core);
+            Ok(bound
+                .damiao
+                .get_or_insert_with(move || DamiaoController::new_shared(core)))
+        }
+    }
 }
 
 enum MotorHandleInner {
@@ -201,96 +406,6 @@ fn parse_cstr(ptr: *const c_char, name: &str) -> Result<String, String> {
         .map_err(|_| format!("{name} must be valid UTF-8"))
 }
 
-fn controller_vendor_name(inner: &ControllerInner) -> &'static str {
-    match inner {
-        ControllerInner::Damiao(_) => "Damiao",
-        ControllerInner::Hexfellow(_) => "Hexfellow",
-        ControllerInner::MyActuator(_) => "MyActuator",
-        ControllerInner::Robstride(_) => "RobStride",
-        ControllerInner::Hightorque(_) => "HighTorque",
-        ControllerInner::Unbound(_) => "Unbound",
-        ControllerInner::UnboundMcuSerial { .. } => "Unbound",
-    }
-}
-
-macro_rules! ensure_controller {
-    ($fn_name:ident, $variant:ident, $ty:ty, $transport:expr) => {
-        fn $fn_name(inner: &mut ControllerInner) -> Result<&mut $ty, String> {
-            // Lazy bind: both the SocketCAN family and the UART-to-CAN bridge
-            // defer bus construction to first `add_*_motor`, and both route
-            // through core's `open_transport` so the driver constructor lives
-            // in one place. The port/baud/channel borrows end at `open()`,
-            // so overwriting `*inner` afterward is safe.
-            if let ControllerInner::UnboundMcuSerial { port, baud } = inner {
-                let p = motor_core::bus::TransportParams {
-                    channel: "",
-                    serial_port: port,
-                    serial_baud: *baud,
-                };
-                let bus: Arc<dyn CanBus> =
-                    motor_core::bus::open_transport(motor_core::bus::Transport::McuSerial, &p)
-                        .map_err(|e| e.to_string())?;
-                *inner = ControllerInner::$variant(<$ty>::new(bus));
-            } else if let ControllerInner::Unbound(channel) = inner {
-                // SocketCAN path: each vendor carries its own classic-vs-FD
-                // `Transport` here (Damiao→SocketCan, Hexfellow→SocketCanFd),
-                // mirroring the per-vendor capability the old closures encoded.
-                let p = motor_core::bus::TransportParams {
-                    channel,
-                    serial_port: "",
-                    serial_baud: 0,
-                };
-                *inner = ControllerInner::$variant(
-                    motor_core::bus::open_transport($transport, &p)
-                        .map(<$ty>::new)
-                        .map_err(|e| e.to_string())?,
-                );
-            }
-            match inner {
-                ControllerInner::$variant(ctrl) => Ok(ctrl),
-                ControllerInner::Unbound(_) | ControllerInner::UnboundMcuSerial { .. } => {
-                    Err("controller binding failed".to_string())
-                }
-                current => Err(format!(
-                    "controller already bound to {}; use a separate controller",
-                    controller_vendor_name(current)
-                )),
-            }
-        }
-    };
-}
-
-ensure_controller!(
-    ensure_damiao_controller,
-    Damiao,
-    DamiaoController,
-    motor_core::bus::Transport::SocketCan
-);
-ensure_controller!(
-    ensure_hexfellow_controller,
-    Hexfellow,
-    HexfellowController,
-    motor_core::bus::Transport::SocketCanFd
-);
-ensure_controller!(
-    ensure_myactuator_controller,
-    MyActuator,
-    MyActuatorController,
-    motor_core::bus::Transport::SocketCan
-);
-ensure_controller!(
-    ensure_robstride_controller,
-    Robstride,
-    RobstrideController,
-    motor_core::bus::Transport::SocketCan
-);
-ensure_controller!(
-    ensure_hightorque_controller,
-    Hightorque,
-    HightorqueController,
-    motor_core::bus::Transport::SocketCan
-);
-
 mod controller_add_motor_ffi;
 mod controller_lifecycle_ffi;
 mod motor_control_ffi;
@@ -299,3 +414,87 @@ mod motor_register_ffi;
 mod param_ffi;
 mod state_ffi;
 mod vendor_params;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The whole point of the shared-core refactor: a classic-CAN bus
+    // (mcu-serial or socketcan) accepts EVERY classic-CAN vendor on one
+    // controller — HighTorque + Damiao + RobStride + MyActuator all share one
+    // fd / one receive thread. Hexfellow is CAN-FD and is rejected so it does
+    // not silently break on a classic-only link.
+    #[test]
+    fn classic_can_transports_accept_all_classic_vendors_reject_hexfellow() {
+        let classics = [
+            Vendor::Damiao,
+            Vendor::MyActuator,
+            Vendor::Robstride,
+            Vendor::Hightorque,
+        ];
+        for t in [Transport::McuSerial, Transport::SocketCan] {
+            for v in classics {
+                assert!(
+                    transport_supports_vendor(t, v),
+                    "{t:?} should accept {v:?}"
+                );
+            }
+            assert!(
+                !transport_supports_vendor(t, Vendor::Hexfellow),
+                "{t:?} must reject Hexfellow (CAN-FD)"
+            );
+        }
+    }
+
+    #[test]
+    fn socketcanfd_is_hexfellow_only() {
+        assert!(transport_supports_vendor(
+            Transport::SocketCanFd,
+            Vendor::Hexfellow
+        ));
+        for v in [
+            Vendor::Damiao,
+            Vendor::MyActuator,
+            Vendor::Robstride,
+            Vendor::Hightorque,
+        ] {
+            assert!(
+                !transport_supports_vendor(Transport::SocketCanFd, v),
+                "SocketCanFd must reject {v:?} (classic-CAN vendor)"
+            );
+        }
+    }
+
+    #[test]
+    fn dmserial_is_damiao_only() {
+        assert!(transport_supports_vendor(Transport::DmSerial, Vendor::Damiao));
+        for v in [
+            Vendor::Hexfellow,
+            Vendor::MyActuator,
+            Vendor::Robstride,
+            Vendor::Hightorque,
+        ] {
+            assert!(
+                !transport_supports_vendor(Transport::DmSerial, v),
+                "DmSerial (Damiao dongle) must reject {v:?}"
+            );
+        }
+    }
+
+    // SocketCAN first-bind picks classic for the classic vendors, FD only for
+    // hexfellow — so a same-class mix shares one core, a classic/FD mix is
+    // rejected by the guard above.
+    #[test]
+    fn socketcan_transport_picks_classic_for_all_but_hexfellow() {
+        assert_eq!(Vendor::Hexfellow.socketcan_transport(), Transport::SocketCanFd);
+        for v in [
+            Vendor::Damiao,
+            Vendor::MyActuator,
+            Vendor::Robstride,
+            Vendor::Hightorque,
+        ] {
+            assert_eq!(v.socketcan_transport(), Transport::SocketCan);
+        }
+    }
+}
+

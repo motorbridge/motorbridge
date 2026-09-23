@@ -40,7 +40,7 @@ motor_cli -h
 ## HighTorque Notes
 
 - Protocol analysis (Chinese): `../docs/zh/hightorque_protocol_analysis.md`
-- Current `vendor=hightorque` is a native ht_can v1.5.5 direct-CAN mode, not the official serial-CANboard transport.
+- Current `vendor=hightorque` is a native ht_can v1.5.5-compat (v2.0.0 migration in progress) direct-CAN mode, not the official serial-CANboard transport.
 
 ## CAN Debugging Entry
 
@@ -538,9 +538,9 @@ motor_cli \
   --vendor all --channel can0 --mode scan --start-id 1 --end-id 255
 ```
 
-## 8. Vendor = `hightorque` (native `ht_can` v1.5.5)
+## 8. Vendor = `hightorque` (native `ht_can` v1.5.5-compat (v2.0.0 migration in progress))
 
-- This path uses native HighTorque `ht_can` v1.5.5 direct-CAN protocol.
+- This path uses native HighTorque `ht_can` v1.5.5-compat (v2.0.0 migration in progress) direct-CAN protocol.
 - It is intended for setups where motors are exposed directly on SocketCAN (`can0` etc.).
 - Official Panthera/HighTorque SDK serial chain (`USB serial -> CANboard -> motors`) is separate from this CLI direct-CAN path.
 - Supported modes: `scan | read | ping | mit | pos | vel | tqe | pos-vel-tqe | volt | cur | stop | brake | rezero | conf-write | timed-read`.

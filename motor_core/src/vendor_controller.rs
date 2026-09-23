@@ -6,14 +6,28 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 pub struct VendorController<M: MotorDevice + 'static> {
-    core: CoreController,
+    core: Arc<CoreController>,
     motors: Mutex<HashMap<u16, Arc<M>>>,
 }
 
 impl<M: MotorDevice + 'static> VendorController<M> {
     pub fn new(bus: Arc<dyn CanBus>) -> Self {
         Self {
-            core: CoreController::new(bus),
+            core: Arc::new(CoreController::new(bus)),
+            motors: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Wrap an existing shared `CoreController` so multiple vendors can share
+    /// one bus fd and one background receive thread (mixed-vendor bus).
+    /// The caller keeps the `CoreController` alive through this `Arc`; motors
+    /// added here go into that shared core's device table, and `enable_all` /
+    /// `disable_all` / `poll_feedback_once` / `shutdown` / `close_bus` operate
+    /// on every device in the shared core regardless of vendor. The vendor's
+    /// own `motors` map is kept only for `get_motor` lookups.
+    pub fn new_shared(core: Arc<CoreController>) -> Self {
+        Self {
+            core,
             motors: Mutex::new(HashMap::new()),
         }
     }

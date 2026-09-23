@@ -200,7 +200,7 @@ CLI form:\n\
 Vendors:\n\
   --vendor damiao    default\n\
   --vendor robstride\n\
-  --vendor hightorque (native ht_can v1.5.5 direct-CAN mode)\n\
+  --vendor hightorque (native ht_can v1.5.5-compat (v2.0.0 migration in progress) direct-CAN mode)\n\
   --vendor hexfellow (CANopen over dedicated CAN-FD path)\n\
   --vendor robstride_cia402 (RobStride CANopen/CiA402 over classic CAN; experimental/incomplete)\n\
   --vendor robstride_mit (RobStride F_CMD=2 MIT protocol over classic CAN standard frames; experimental/incomplete)\n\
@@ -294,7 +294,7 @@ Run-mode effective arguments:\n\
   RobStride MIT mit:        --pos --vel --kp --kd --tau\n\
   RobStride MIT pos-vel:    --pos --vlim\n\
   RobStride MIT vel:        --vel --current(or --ilim)\n\
-  HighTorque mit:    --pos --vel --tau; --kp/--kd are ignored by ht_can v1.5.5\n\
+  HighTorque mit:    --pos --vel --tau; --kp/--kd are ignored by ht_can v1.5.5-compat (v2.0.0 migration in progress)\n\
   Hexfellow mit:     --pos --vel --kp --kd --tau\n\
   Hexfellow pos-vel: --pos --vlim\n\
 \n\
@@ -309,7 +309,7 @@ HighTorque extras:\n\
   unified args: --pos(rad) --vel(rad/s) --tau(Nm)\n\
   alt args: --pos-deg --vel-deg-s\n\
   raw args: --raw-pos --raw-vel --raw-tqe (--mode pos/vel/tqe/mit)\n\
-  --kp/--kd are accepted for unified MIT signature but ignored by ht_can v1.5.5\n\
+  --kp/--kd are accepted for unified MIT signature but ignored by ht_can v1.5.5-compat (v2.0.0 migration in progress)\n\
   --loop/--dt-ms are supported for repeated send cadence\n\
 \n\
 All-vendor scan:\n\

@@ -40,7 +40,7 @@ motor_cli -h
 ## HighTorque 补充说明
 
 - 协议深度分析文档：`../docs/zh/hightorque_protocol_analysis.md`
-- 当前 `vendor=hightorque` 为 原生 ht_can v1.5.5 的“直连 CAN”模式，不是官方的“串口->CANboard”传输链路。
+- 当前 `vendor=hightorque` 为 原生 ht_can v1.5.5 兼容(v2.0.0 迁移中) 的“直连 CAN”模式，不是官方的“串口->CANboard”传输链路。
 
 ## CAN 调试入口
 
@@ -608,9 +608,9 @@ motor_cli \
   --vendor all --channel can0 --mode scan --start-id 1 --end-id 255
 ```
 
-## 8. vendor=`hightorque`（原生 `ht_can` v1.5.5）
+## 8. vendor=`hightorque`（原生 `ht_can` v1.5.5 兼容(v2.0.0 迁移中)）
 
-- 当前实现走 HighTorque 原生 `ht_can` v1.5.5 直连 CAN 协议路径。
+- 当前实现走 HighTorque 原生 `ht_can` v1.5.5 兼容(v2.0.0 迁移中) 直连 CAN 协议路径。
 - 用于 SocketCAN（`can0` 等）直连电机场景。
 - HighTorque 官方 Panthera SDK 的“USB 串口 -> CANboard -> 电机”链路与当前 CLI 直连 CAN 路径相互独立。
 - 支持模式：`scan | read | ping | mit | pos | vel | tqe | pos-vel-tqe | volt | cur | stop | brake | rezero | conf-write | timed-read`。

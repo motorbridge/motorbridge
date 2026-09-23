@@ -65,11 +65,14 @@ fn decode_read_reply(frame: CanFrame) -> Option<HighTorqueStatus> {
     if frame.data[0] != 0x27 || frame.data[1] != 0x01 {
         return None;
     }
-    let motor_id = if !frame.is_extended && (frame.arbitration_id & 0x00FF) == 0 {
-        ((frame.arbitration_id >> 8) & 0x7F) as u16
-    } else {
-        (frame.arbitration_id & 0x7FF) as u16
-    };
+    // Motor puts its id in the high byte of the reply ID for both standard and
+    // extended frames (v2.0.0 firmware motor.c::motor_process_state_all:
+    // `id = fdcan_rx_header.Identifier >> 8`); replies carry dest=0. The previous
+    // extended branch read the low byte (`& 0x7FF`), which only matched id 0.
+    if (frame.arbitration_id & 0x00FF) != 0 {
+        return None;
+    }
+    let motor_id = ((frame.arbitration_id >> 8) & 0x7F) as u16;
     Some(HighTorqueStatus {
         motor_id,
         pos_raw: i16::from_le_bytes([frame.data[2], frame.data[3]]),
@@ -247,7 +250,7 @@ pub fn run_hightorque(
         let kp = get_f32(args, "kp", 0.0)?;
         let kd = get_f32(args, "kd", 0.0)?;
         println!(
-            "[info] vendor=hightorque mode=mit ignores --kp/--kd in ht_can v1.5.5 (received kp={:.3}, kd={:.3})",
+            "[info] vendor=hightorque mode=mit ignores --kp/--kd in ht_can v1.5.5-compat (v2.0.0 migration in progress) (received kp={:.3}, kd={:.3})",
             kp, kd
         );
     }
