@@ -120,7 +120,7 @@ DM_Device_SDK 是用于控制 CAN/CAN FD 设备的软件开发工具包。motorb
   - 型号: `3507`, `4310`, `4310P`, `4340`, `4340P`, `6006`, `8006`, `8009`, `10010L`, `10010`, `H3510`, `G6215`, `H6220`, `JH11`, `6248P`
   - 模式: `scan`, `MIT`, `POS_VEL`, `VEL`, `FORCE_POS`
 - RobStride:
-  - 型号: `rs-00`, `rs-01`, `rs-02`, `rs-03`, `rs-04`, `rs-05`, `rs-06`
+  - 型号: `rs-00`, `rs-01`, `rs-02`, `rs-03`, `rs-04`, `rs-05`, `rs-05el`, `rs-06`
   - 模式: `scan`, `ping`, `MIT`, `POS_VEL`, `POS_VEL_PP`, `POS_VEL_CSP`, `VEL`, 参数读写
   - 说明: 力矩/电流当前仅支持参数级写入（如 `iq_ref`/限幅参数），尚未开放为统一高层模式
 - MyActuator:

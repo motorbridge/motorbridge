@@ -176,7 +176,7 @@ files there when new hardware photos become available.
   - models: `3507`, `4310`, `4310P`, `4340`, `4340P`, `6006`, `8006`, `8009`, `10010L`, `10010`, `H3510`, `G6215`, `H6220`, `JH11`, `6248P`
   - modes: `scan`, `enable`, `disable`, `MIT`, `POS_VEL`, `VEL`, `FORCE_POS`, `set-id`, `set-zero`
 - RobStride:
-  - models: `rs-00`, `rs-01`, `rs-02`, `rs-03`, `rs-04`, `rs-05`, `rs-06`
+  - models: `rs-00`, `rs-01`, `rs-02`, `rs-03`, `rs-04`, `rs-05`, `rs-05el`, `rs-06`
   - modes: `scan`, `ping`, `enable`, `disable`, `MIT`, `POS_VEL`, `POS_VEL_PP`, `POS_VEL_CSP`, `VEL`, parameter read/write, `set-id`, `zero`
   - host/feedback default: `0xFD` (with `0xFF/0xFE` fallback probing)
   - note: torque/current control is currently parameter-level only (`write-param` on `iq_ref`/limits), not a first-class unified mode

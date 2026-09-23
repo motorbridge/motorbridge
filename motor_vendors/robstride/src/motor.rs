@@ -57,6 +57,15 @@ const ROBSTRIDE_MODELS: &[MotorModelSpec] = &[
         vmax: 50.0,
         tmax: 5.5,
     },
+    // EDULITE 05 (EL05): peak 6 N·m, 9:1 gear, 20-pole. Manual private-protocol
+    // ranges P_MAX=12.57 (4π), V_MAX=50, T_MAX=6, KP_MAX=500, KD_MAX=5.
+    MotorModelSpec {
+        vendor: "robstride",
+        model: "rs-05el",
+        pmax: 4.0 * std::f32::consts::PI,
+        vmax: 50.0,
+        tmax: 6.0,
+    },
     MotorModelSpec {
         vendor: "robstride",
         model: "rs-06",
@@ -165,7 +174,7 @@ impl RobstrideMotor {
             MotorError::InvalidArgument(format!("unknown RobStride model: {model}"))
         })?;
         let (kp_max, kd_max) = match model {
-            "rs-00" | "rs-01" | "rs-02" | "rs-05" => (500.0, 5.0),
+            "rs-00" | "rs-01" | "rs-02" | "rs-05" | "rs-05el" => (500.0, 5.0),
             "rs-03" | "rs-04" | "rs-06" => (5000.0, 100.0),
             _ => (500.0, 5.0),
         };

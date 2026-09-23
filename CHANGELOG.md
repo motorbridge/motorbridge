@@ -7,6 +7,12 @@ Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- RobStride: `rs-05el` (EDULITE 05) model — peak 6 N·m, 9:1 gear, 20-pole,
+  on the private extended-CAN `robstride` path. Limit ranges: P_MAX=4π (12.57),
+  V_MAX=50, T_MAX=6, KP_MAX=500, KD_MAX=5.
+
 ## [0.5.6] - 2026-09-20
 
 ### Added
