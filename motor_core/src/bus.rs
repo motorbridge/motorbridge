@@ -1,6 +1,7 @@
 use crate::error::Result;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use crate::pcan::PcanBus;
+use crate::slcan::{SlcanBus, DEFAULT_BITRATE, DEFAULT_SERIAL_BAUD};
 #[cfg(target_os = "linux")]
 use crate::socketcan::SocketCanBus;
 #[cfg(target_os = "linux")]
@@ -28,7 +29,38 @@ pub trait CanBus: Send + Sync {
     fn shutdown(&self) -> Result<()>;
 }
 
+/// Prefix that selects the slcan (LAWICEL ASCII) serial transport.
+pub const SLCAN_PREFIX: &str = "slcan:";
+
+/// Parse `slcan:<port>[@<bitrate>]`, for example
+/// `slcan:/dev/ttyACM0`, `slcan:/dev/cu.usbmodem1234@1000000` or `slcan:COM5@500000`.
+fn open_slcan(spec: &str) -> Result<Arc<dyn CanBus>> {
+    let spec = spec.trim();
+    let (port, bitrate) = match spec.rsplit_once('@') {
+        Some((port, rate)) => {
+            let parsed = rate.parse::<u32>().map_err(|_| {
+                crate::error::MotorError::InvalidArgument(format!(
+                    "invalid slcan bitrate '{rate}', expected bit/s such as 1000000"
+                ))
+            })?;
+            (port, parsed)
+        }
+        None => (spec, DEFAULT_BITRATE),
+    };
+    if port.is_empty() {
+        return Err(crate::error::MotorError::InvalidArgument(
+            "empty slcan port, expected slcan:<port>[@<bitrate>]".to_string(),
+        ));
+    }
+    let bus: Arc<dyn CanBus> = Arc::new(SlcanBus::open(port, DEFAULT_SERIAL_BAUD, bitrate)?);
+    Ok(bus)
+}
+
 pub fn open_can_bus(channel: &str) -> Result<Arc<dyn CanBus>> {
+    // Platform independent: an slcan adapter is a plain serial device everywhere.
+    if let Some(spec) = channel.strip_prefix(SLCAN_PREFIX) {
+        return open_slcan(spec);
+    }
     #[cfg(target_os = "linux")]
     {
         let bus: Arc<dyn CanBus> = Arc::new(SocketCanBus::open(channel)?);

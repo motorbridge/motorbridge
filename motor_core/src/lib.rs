@@ -8,6 +8,7 @@ pub mod mcu_serial;
 pub mod model;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 pub mod pcan;
+pub mod slcan;
 pub mod socketcan;
 #[cfg(target_os = "linux")]
 pub mod socketcanfd;
