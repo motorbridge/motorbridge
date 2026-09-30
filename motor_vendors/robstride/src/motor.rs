@@ -760,6 +760,13 @@ impl RobstrideMotor {
         }
     }
 
+    /// Count of status frames processed so far. `latest_state` keeps the last
+    /// value forever, so compare this across polls to tell fresh feedback
+    /// from a motor that has gone quiet.
+    pub fn status_seq(&self) -> u64 {
+        self.status_seq.load(Ordering::Acquire)
+    }
+
     pub fn latest_state(&self) -> Option<MotorFeedbackState> {
         self.state.lock().ok().and_then(|s| *s)
     }
@@ -992,6 +999,35 @@ mod tests {
         assert_eq!(sent[0].dlc, 8);
         assert!(sent[0].is_extended);
         assert!(!sent[0].is_rx);
+    }
+
+    #[test]
+    fn status_seq_counts_status_frames_only() {
+        let bus: Arc<dyn CanBus> = Arc::new(MockBus::new());
+        let motor = RobstrideMotor::new(2, 0xFD, "rs-00", bus).expect("create motor");
+        assert_eq!(motor.status_seq(), 0);
+
+        let status = CanFrame {
+            arbitration_id: build_ext_id(CommunicationType::OPERATION_STATUS, 0x0002, 0xFD),
+            data: [0x90, 0x00, 0x80, 0x00, 0x7F, 0xFF, 0x05, 0x78],
+            dlc: 8,
+            is_extended: true,
+            is_rx: true,
+        };
+        motor.process_feedback_frame(status).expect("status frame");
+        motor.process_feedback_frame(status).expect("status frame");
+        assert_eq!(motor.status_seq(), 2);
+
+        motor
+            .process_feedback_frame(CanFrame {
+                arbitration_id: build_ext_id(CommunicationType::FAULT_REPORT, 0x0002, 0xFD),
+                data: [0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00],
+                dlc: 8,
+                is_extended: true,
+                is_rx: true,
+            })
+            .expect("fault frame");
+        assert_eq!(motor.status_seq(), 2);
     }
 
     #[test]
