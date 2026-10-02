@@ -357,6 +357,14 @@ class Motor {
     check_rc(motor_handle_damiao_write_param_u32(ptr_, param_id, value), "damiao_write_param_u32");
   }
 
+  // Read before get_state(): identical status/active-report frames still advance this count.
+  uint64_t robstride_feedback_sequence() const {
+    require_open();
+    uint64_t out = 0;
+    check_rc(motor_handle_robstride_feedback_sequence(ptr_, &out), "robstride_feedback_sequence");
+    return out;
+  }
+
   std::optional<State> get_state() const {
     require_open();
     MotorState st{};

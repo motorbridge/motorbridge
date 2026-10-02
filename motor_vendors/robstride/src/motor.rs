@@ -760,6 +760,12 @@ impl RobstrideMotor {
         }
     }
 
+    /// Number of accepted operation-status/active-report frames, including bit-identical samples.
+    /// Read this before latest_state() when using it to detect a stale cache.
+    pub fn feedback_sequence(&self) -> u64 {
+        self.status_seq.load(Ordering::Acquire)
+    }
+
     pub fn latest_state(&self) -> Option<MotorFeedbackState> {
         self.state.lock().ok().and_then(|s| *s)
     }

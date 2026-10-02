@@ -3,7 +3,7 @@ import ctypes.util
 import json
 import os
 import sys
-from ctypes import POINTER, Structure, c_char_p, c_float, c_int8, c_int32, c_uint8, c_uint16, c_uint32, c_void_p
+from ctypes import POINTER, Structure, c_char_p, c_float, c_int8, c_int32, c_uint8, c_uint16, c_uint32, c_uint64, c_void_p
 from pathlib import Path
 
 from .errors import AbiLoadError
@@ -221,6 +221,8 @@ class Abi:
 
         lib.motor_handle_get_state.argtypes = [c_void_p, POINTER(CState)]
         lib.motor_handle_get_state.restype = c_int32
+        lib.motor_handle_robstride_feedback_sequence.argtypes = [c_void_p, POINTER(c_uint64)]
+        lib.motor_handle_robstride_feedback_sequence.restype = c_int32
 
         lib.motor_handle_damiao_get_param_f32.argtypes = [c_void_p, c_uint16, c_uint32, POINTER(c_float)]
         lib.motor_handle_damiao_get_param_f32.restype = c_int32

@@ -145,6 +145,12 @@ Packaging note:
   - HighTorque: `add_hightorque_motor(...)`
 - Unified state-query pattern:
   - Recommended flow: `request_feedback() -> poll_feedback_once() -> get_state()`.
+  - `robstride_feedback_sequence()` counts received operation-status and
+    active-report frames, including identical values. Read the counter before
+    `get_state()`; an unchanged counter means the cache has not received another
+    state frame. It starts at zero and does not count ping, fault, or parameter
+    replies. The loaded ABI advertises `feedback_sequence` in its RobStride
+    capabilities.
   - RobStride has no single-shot private-protocol status request; `request_feedback()` is a non-blocking no-op for RobStride. Use `robstride_ping()` for connectivity, active report for streaming state, or typed parameter reads for fresh position/velocity values.
 
 ## Unified Mode Mapping Summary (Top-Level -> Vendor Native)

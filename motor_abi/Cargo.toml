@@ -18,3 +18,6 @@ motor_vendor_hexfellow = { path = "../motor_vendors/hexfellow" }
 motor_vendor_hightorque = { path = "../motor_vendors/hightorque" }
 motor_vendor_myactuator = { path = "../motor_vendors/myactuator" }
 motor_vendor_robstride = { path = "../motor_vendors/robstride" }
+
+[dev-dependencies]
+motor_core = { path = "../motor_core", features = ["test-support"] }

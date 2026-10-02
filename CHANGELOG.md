@@ -9,6 +9,10 @@ Versioning.
 
 ### Added
 
+- RobStride `feedback_sequence()` in Rust and `robstride_feedback_sequence()` in
+  Python/C++ count received operation-status and active-report frames, including
+  identical samples. Cached state reads, ping, fault, and parameter replies do
+  not advance the counter. The existing `MotorState` ABI layout is unchanged.
 - RobStride: `rs-05el` (EDULITE 05) model — peak 6 N·m, 9:1 gear, 20-pole,
   on the private extended-CAN `robstride` path. Limit ranges: P_MAX=4π (12.57),
   V_MAX=50, T_MAX=6, KP_MAX=500, KD_MAX=5.
