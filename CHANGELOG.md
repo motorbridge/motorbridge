@@ -13,6 +13,12 @@ Versioning.
   on the private extended-CAN `robstride` path. Limit ranges: P_MAX=4π (12.57),
   V_MAX=50, T_MAX=6, KP_MAX=500, KD_MAX=5.
 
+### Fixed
+
+- RobStride parameter replies use their echoed index, so interleaved replies
+  cannot satisfy a read of a different parameter. Replies marked as failed are
+  rejected instead of caching their payload as a successful value.
+
 ## [0.5.6] - 2026-09-20
 
 ### Added
