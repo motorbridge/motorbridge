@@ -490,5 +490,7 @@ mod tests {
         assert!(parse_channel_and_bitrate("canX@1000000").is_err());
         assert!(parse_channel_and_bitrate("PCAN_USBBUS0@1000000").is_err());
         assert!(parse_channel_and_bitrate("can0@123456").is_err());
+        assert!(parse_channel_and_bitrate("peakusb:can0@1000000").is_err());
+        assert!(parse_channel_and_bitrate("peakusb:can1").is_err());
     }
 }

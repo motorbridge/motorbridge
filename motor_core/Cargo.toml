@@ -10,6 +10,8 @@ workspace = true
 
 [features]
 test-support = []
+# Native libusb backend for PEAK uCAN adapters (PCAN-USB FD / Pro FD / X6), all channels.
+pcan-usb-fd = ["dep:rusb"]
 
 [lib]
 name = "motor_core"
@@ -18,6 +20,7 @@ path = "src/lib.rs"
 [dependencies]
 libloading = "0.8"
 serialport = { version = "4.6", default-features = false }
+rusb = { version = "0.9", features = ["vendored"], optional = true }
 
 [build-dependencies]
 cc = "1"

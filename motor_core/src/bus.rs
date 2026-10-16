@@ -28,7 +28,34 @@ pub trait CanBus: Send + Sync {
     fn shutdown(&self) -> Result<()>;
 }
 
+/// Prefix that selects the native libusb driver for PEAK uCAN adapters
+/// (PCAN-USB FD / Pro FD / X6), e.g. `peakusb:can1@1000000`, or
+/// `peakusb:can0@1000000/5000000` for CAN FD.
+pub const PEAKUSB_PREFIX: &str = "peakusb:";
+
+fn open_peakusb(spec: &str, fd: bool) -> Result<Arc<dyn CanBus>> {
+    #[cfg(feature = "pcan-usb-fd")]
+    {
+        let bus: Arc<dyn CanBus> = Arc::new(if fd {
+            crate::pcan_usb_fd::PcanUsbFdBus::open_fd(spec)?
+        } else {
+            crate::pcan_usb_fd::PcanUsbFdBus::open(spec)?
+        });
+        Ok(bus)
+    }
+    #[cfg(not(feature = "pcan-usb-fd"))]
+    {
+        let _ = (spec, fd);
+        Err(crate::error::MotorError::Unsupported(
+            "peakusb: channels need motor_core built with the `pcan-usb-fd` feature".to_string(),
+        ))
+    }
+}
+
 pub fn open_can_bus(channel: &str) -> Result<Arc<dyn CanBus>> {
+    if let Some(spec) = channel.strip_prefix(PEAKUSB_PREFIX) {
+        return open_peakusb(spec, false);
+    }
     #[cfg(target_os = "linux")]
     {
         let bus: Arc<dyn CanBus> = Arc::new(SocketCanBus::open(channel)?);
@@ -57,6 +84,9 @@ pub fn open_socketcan(channel: &str) -> Result<Arc<dyn CanBus>> {
 }
 
 pub fn open_socketcanfd(channel: &str) -> Result<Arc<dyn CanBus>> {
+    if let Some(spec) = channel.strip_prefix(PEAKUSB_PREFIX) {
+        return open_peakusb(spec, true);
+    }
     #[cfg(target_os = "linux")]
     {
         let bus: Arc<dyn CanBus> = Arc::new(SocketCanFdBus::open(channel)?);
@@ -145,5 +175,21 @@ pub fn open_transport(t: Transport, p: &TransportParams<'_>) -> Result<Arc<dyn C
             p.serial_port,
             p.serial_baud,
         )?)),
+    }
+}
+
+#[cfg(all(test, not(feature = "pcan-usb-fd")))]
+mod tests {
+    use super::*;
+    use crate::error::MotorError;
+
+    #[test]
+    fn peakusb_prefix_without_feature_is_unsupported() {
+        for result in [
+            open_can_bus("peakusb:can0@1000000"),
+            open_socketcanfd("peakusb:can1"),
+        ] {
+            assert!(matches!(result, Err(MotorError::Unsupported(_))));
+        }
     }
 }
