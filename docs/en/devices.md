@@ -8,6 +8,7 @@
 - Damiao-only adapter transports are available in CLI: serial bridge (`--transport dm-serial --serial-port /dev/ttyACM0 --serial-baud 921600`) and DM_Device SDK (`--transport dm-device --dm-device-type usb2canfd|usb2canfd-dual|linkx4c --dm-channel 0|1|2|3`; Damiao motors only; adapter must be in USB mode).
 - On Linux SocketCAN, do not append bitrate in `--channel` (for example `can0@1000000` is invalid).
 - On Windows (PCAN backend), `can0/can1` map to `PCAN_USBBUS1/2`; optional `@bitrate` suffix is supported.
+- Native PEAK uCAN backend (optional, build with `--features motor_core/pcan-usb-fd`): drives every channel of PCAN-USB FD / Pro FD / X6 adapters directly over libusb, without PCBUSB. Opt-in per channel with the `peakusb:` prefix: `peakusb:can1@1000000` (classic), `peakusb:can1@1000000/5000000` (CAN FD, nominal/data). Channels without the prefix are unchanged. CAN FD frames are limited to 8 bytes.
 
 
 ## Support Landscape
