@@ -158,17 +158,17 @@ pub(crate) fn cmd_verify(v: &Value, base: &Target) -> Result<Value, String> {
             }))
         }
         Vendor::Hightorque => {
-            // 收敛(2026-09-29):17 01 查询、等待、解码、物理量换算全部走
-            // vendor crate,输出物理量(旧手写路径输出 raw 字段)。
+            // Converged (2026-09-29): the 17 01 query, wait, decode, and
+            // physical-value conversion all go through the vendor crate,
+            // outputting physical values (the old hand-written path output
+            // raw fields).
             let bus = open_hightorque_bus(base, transport)?;
             let ctrl = HightorqueController::new(bus);
             let model = v
                 .get("model")
                 .and_then(Value::as_str)
                 .unwrap_or(&base.model);
-            let motor = ctrl
-                .add_motor(mid, fid, model)
-                .map_err(|e| e.to_string())?;
+            let motor = ctrl.add_motor(mid, fid, model).map_err(|e| e.to_string())?;
             let _ = motor.request_fresh_state(Duration::from_millis(timeout_ms));
             let state = motor
                 .latest_state()

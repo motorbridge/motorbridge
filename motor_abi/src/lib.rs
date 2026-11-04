@@ -94,6 +94,10 @@ fn to_myactuator_mode(mode: u32) -> Result<MyActuatorControlMode, &'static str> 
     }
 }
 
+// Size difference is accepted: this enum lives behind the opaque C handle
+// (one instance per controller, never in arrays or hot loops), and boxing
+// Bound would churn every construction/match site for no practical gain.
+#[allow(clippy::large_enum_variant)]
 enum ControllerInner {
     // SocketCAN path — lazy: stores the channel name; the bus is re-opened on
     // first `add_*_motor`. Binding picks the vendor's own classic-vs-FD
@@ -269,7 +273,9 @@ macro_rules! ensure_vendor_controller {
             // the borrow checker sees no overlap between the shared borrow of
             // `bound.core` (captured by the closure) and `&mut bound.$field`.
             let core = Arc::clone(&bound.core);
-            Ok(bound.$field.get_or_insert_with(move || <$ty>::new_shared(core)))
+            Ok(bound
+                .$field
+                .get_or_insert_with(move || <$ty>::new_shared(core)))
         }
     };
 }
@@ -345,8 +351,10 @@ pub struct MotorState {
     pub torq: f32,
     pub t_mos: f32,
     pub t_rotor: f32,
-    /// 故障码:HighTorque 为表3 原始故障码(0=无故障),其余厂商当前恒 0
-    /// (各自故障语义不同,见 capabilities)。末尾追加字段,不改变既有布局。
+    /// Fault code: raw table-3 fault code for HighTorque (0 = no fault);
+    /// always 0 for the other vendors for now (their fault semantics
+    /// differ, see capabilities). Appended field; existing layout
+    /// unchanged.
     pub fault_code: u8,
 }
 
@@ -446,10 +454,7 @@ mod tests {
         ];
         for t in [Transport::McuSerial, Transport::SocketCan] {
             for v in classics {
-                assert!(
-                    transport_supports_vendor(t, v),
-                    "{t:?} should accept {v:?}"
-                );
+                assert!(transport_supports_vendor(t, v), "{t:?} should accept {v:?}");
             }
             assert!(
                 !transport_supports_vendor(t, Vendor::Hexfellow),
@@ -479,7 +484,10 @@ mod tests {
 
     #[test]
     fn dmserial_is_damiao_only() {
-        assert!(transport_supports_vendor(Transport::DmSerial, Vendor::Damiao));
+        assert!(transport_supports_vendor(
+            Transport::DmSerial,
+            Vendor::Damiao
+        ));
         for v in [
             Vendor::Hexfellow,
             Vendor::MyActuator,
@@ -498,7 +506,10 @@ mod tests {
     // rejected by the guard above.
     #[test]
     fn socketcan_transport_picks_classic_for_all_but_hexfellow() {
-        assert_eq!(Vendor::Hexfellow.socketcan_transport(), Transport::SocketCanFd);
+        assert_eq!(
+            Vendor::Hexfellow.socketcan_transport(),
+            Transport::SocketCanFd
+        );
         for v in [
             Vendor::Damiao,
             Vendor::MyActuator,
@@ -509,4 +520,3 @@ mod tests {
         }
     }
 }
-

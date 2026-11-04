@@ -345,9 +345,11 @@ fn cmd_scan_hexfellow(v: &Value, base: &Target) -> Result<Value, String> {
     }))
 }
 
-/// 高创(HT)广播发现:vendor crate 无 scan API,广播查询必须裸总线手写
-/// 17 01 帧 + 收 27 01 回帧(收敛 2026-09-29 后,这是 gateway 里仅存的
-/// HT 裸总线代码,仅用于发现,不参与控制/状态链路)。
+/// HighTorque broadcast discovery: the vendor crate has no scan API, so the
+/// broadcast query hand-writes the 17 01 frame on the raw bus and listens for
+/// the 27 01 reply (after the 2026-09-29 convergence this is the only
+/// remaining hand-written HT raw-bus code in the gateway — discovery only,
+/// not part of the control/state chain).
 #[derive(Debug, Clone, Copy)]
 struct HtScanHit {
     motor_id: u16,
@@ -356,10 +358,7 @@ struct HtScanHit {
     tqe_raw: i16,
 }
 
-fn send_ht_scan_query(
-    bus: &dyn motor_core::bus::CanBus,
-    motor_id: u16,
-) -> Result<(), String> {
+fn send_ht_scan_query(bus: &dyn motor_core::bus::CanBus, motor_id: u16) -> Result<(), String> {
     let payload = [0x17u8, 0x01, 0, 0, 0, 0, 0, 0];
     bus.send(CanFrame {
         arbitration_id: u32::from(0x8000u16 | motor_id),

@@ -49,9 +49,11 @@ fn handle_clear_error(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> 
             return Err("clear_error is not supported for hexfellow".to_string())
         }
         Some(MotorHandle::Hightorque(m)) => {
-            // 表2 模式 0 名称即"停止，清除错误":`0x01 0x00 0x00` 一帧同时
-            // 停止与清错,与 stop op 同帧(G3:协议层 clear_error ≡ stop;
-            // 收敛后经 vendor,帧型随全局默认为扩展 29 位带 bit15)。
+            // Table 2 mode 0 is literally "stop, clear error": the single
+            // `0x01 0x00 0x00` frame both stops and clears, same frame as
+            // the stop op (G3: protocol-level clear_error ≡ stop; converged
+            // through the vendor, frame type follows the global default of
+            // extended 29-bit with bit15).
             m.clear_error().map_err(|e| e.to_string())?;
         }
         Some(MotorHandle::Myactuator(_)) => {
@@ -85,8 +87,9 @@ fn handle_set_zero_position(v: &Value, ctx: &mut SessionCtx) -> Result<Value, St
             return Err("set_zero_position is not supported for hexfellow".to_string())
         }
         Some(MotorHandle::Hightorque(m)) => {
-            // 收敛(2026-09-29):此前 gateway 直接拒绝,但 vendor 一直支持
-            // 0x40 零位帧(内部自动落盘)——与 ABI/Python 能力对齐。
+            // Converged (2026-09-29): the gateway used to reject this, but
+            // the vendor has always supported the 0x40 zero-position frame
+            // (auto-persists internally) — aligned with ABI/Python.
             m.set_zero_position().map_err(|e| e.to_string())?;
         }
         None => return Err("motor not connected".to_string()),
@@ -165,13 +168,17 @@ fn handle_request_feedback(v: &Value, ctx: &mut SessionCtx) -> Result<Value, Str
             c.poll_feedback_once().map_err(|e| e.to_string())?;
         }
         (Some(ControllerHandle::Hightorque(_)), Some(MotorHandle::Hightorque(m))) => {
-            // 收敛(2026-10-12):命令 8(读状态)是命令 7(通用寄存器读)的
-            // 特例——17 01 状态查询 = 读 0x01 起 3 个 int16。非阻塞"发完即走"
-            // 走 vendor 同名方法(2026-10-24 起连发两帧:17 01 + 16 0E
-            // 温度/错误码;真机实测固件一帧一对),回帧由 vendor 后台收帧
-            // 线程解码,同时写入状态与寄存器两个缓存,26 0E 回帧就地补丁
-            // t_mos/fault_code(不推进状态计数),state_once/poll 与
-            // cached_register 均可读回。
+            // Converged (2026-10-12): command 8 (read state) is a special
+            // case of command 7 (generic register read) — the 17 01 state
+            // query = reading 3 int16s starting at 0x01. Non-blocking
+            // "send and return" goes through the vendor method of the same
+            // name (since 2026-10-24 it sends two frames: 17 01 + 16 0E
+            // temperature/error code; real-bus testing showed the firmware
+            // parses one pair per frame). Replies are decoded by the vendor
+            // background receive thread and written into both the state and
+            // register caches; the 26 0E reply patches t_mos/fault_code in
+            // place (without bumping the state count); state_once/poll and
+            // cached_register can all read it back.
             m.request_motor_feedback().map_err(|e| e.to_string())?;
         }
         _ => return Err("motor not connected".to_string()),
@@ -237,8 +244,9 @@ fn handle_store_parameters(v: &Value, ctx: &mut SessionCtx) -> Result<Value, Str
             return Err("store_parameters is not supported for hexfellow".to_string())
         }
         Some(MotorHandle::Hightorque(m)) => {
-            // 收敛(2026-09-29):此前 gateway 直接拒绝,但 vendor 一直支持
-            // `05 B3` conf_write 落盘——与 ABI/Python 能力对齐。
+            // Converged (2026-09-29): the gateway used to reject this, but
+            // the vendor has always supported the `05 B3` conf_write
+            // persist — aligned with ABI/Python.
             m.store_parameters().map_err(|e| e.to_string())?;
         }
         Some(MotorHandle::Myactuator(_)) => {

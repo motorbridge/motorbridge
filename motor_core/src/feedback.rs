@@ -50,12 +50,16 @@ impl<T> FeedbackCache<T> {
         Ok(())
     }
 
-    /// 就地修改最新快照的状态字段:**不推进序号、不刷新 received_at**。
-    /// 供"补丁式"字段桥接使用(HT 2026-10-24:`26 0E` 寄存器回帧把
-    /// 温度/错误码补进状态缓存,与锚定帧 `27 01` 合为一次状态计数,
-    /// 计数/新鲜度语义完全由锚定帧定义)。无快照时返回 `Ok(false)`
-    /// (首帧未到,补丁无处落,静默丢弃)。序号与时间戳保持锚定帧
-    /// 的值,`request_fresh_state` 的新鲜度判定不受补丁影响。
+    /// Mutate state fields of the latest snapshot in place: **does not bump
+    /// the sequence and does not refresh received_at**. Meant for "patch-style"
+    /// field bridging (HT 2026-10-24: the `26 0E` register reply patches
+    /// temperature/fault code into the state cache and merges with the anchor
+    /// frame `27 01` into one state count; count/freshness semantics are
+    /// defined entirely by the anchor frame). Returns `Ok(false)` when no
+    /// snapshot exists (first frame not yet received — the patch has nowhere
+    /// to land and is silently dropped). Sequence and timestamp keep the
+    /// anchor frame's values, so `request_fresh_state` freshness checks are
+    /// unaffected by patches.
     pub fn patch_latest(&self, f: impl FnOnce(&mut T)) -> Result<bool> {
         let mut inner = self
             .inner
@@ -122,8 +126,9 @@ mod tests {
         assert!(second.age() < first.age());
     }
 
-    /// 2026-10-24(HT 两帧状态计数):patch_latest 只改字段,
-    /// 序号与 received_at 保持锚定帧的值;无快照时 Ok(false)。
+    /// 2026-10-24 (HT two-frame state count): patch_latest only mutates
+    /// fields; sequence and received_at keep the anchor frame's values;
+    /// returns Ok(false) with no snapshot.
     #[test]
     fn patch_latest_mutates_state_without_bumping_sequence() {
         let cache = FeedbackCache::new();
@@ -140,7 +145,8 @@ mod tests {
         assert_eq!(after.sequence, before.sequence, "序号不推进");
         assert_eq!(after.received_at, before.received_at, "时间戳不刷新");
 
-        // 锚定帧到达前:补丁无处落,返回 false 而非报错
+        // Before the anchor frame arrives: the patch has nowhere to land,
+        // so it returns false instead of erroring.
         let empty = FeedbackCache::<u32>::new();
         assert!(!empty.patch_latest(|_| {}).expect("empty patch"));
     }

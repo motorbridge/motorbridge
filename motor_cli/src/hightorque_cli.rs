@@ -11,9 +11,11 @@ use std::time::{Duration, Instant};
 
 const TWO_PI: f32 = std::f32::consts::PI * 2.0;
 
-/// 高创(HT)广播发现:vendor crate 无 scan API,广播查询必须裸总线手写
-/// 17 01 帧 + 收 27 01 回帧(收敛 2026-09-29 后,这里是 CLI 仅存的 HT
-/// 裸总线代码,仅用于发现;控制/状态/参数全部走 vendor)。
+/// HighTorque (HT) broadcast discovery: the vendor crate has no scan API,
+/// so broadcast queries must hand-write the 17 01 frame on the raw bus and
+/// collect the 27 01 reply (since the 2026-09-29 convergence this is the
+/// only remaining raw-bus HT code in the CLI, discovery only; control/
+/// status/parameters all go through the vendor).
 #[derive(Debug, Clone, Copy)]
 struct HtScanHit {
     motor_id: u16,
@@ -38,8 +40,9 @@ fn decode_ht_scan_reply(frame: CanFrame) -> Option<HtScanHit> {
     if frame.dlc < 8 || frame.data[0] != 0x27 || frame.data[1] != 0x01 {
         return None;
     }
-    // 电机把自身 id 放在回复 ID 高字节(标准/扩展帧皆然,v2.0.0 固件
-    // motor.c::motor_process_state_all:`id = Identifier >> 8`),回复 dest=0。
+    // The motor puts its own id in the high byte of the reply ID (both
+    // standard and extended frames; v2.0.0 firmware motor.c::
+    // motor_process_state_all: `id = Identifier >> 8`), reply dest=0.
     if (frame.arbitration_id & 0x00FF) != 0 {
         return None;
     }
@@ -84,8 +87,9 @@ fn print_scan_hit(prefix: &str, s: HtScanHit) {
     );
 }
 
-/// 收敛(2026-09-29):read/ping 打印 vendor 解码后的物理量(带力矩系数
-/// 补偿与 status/fault/温度),取代旧手写 raw + 自行换算。
+/// Convergence (2026-09-29): read/ping print vendor-decoded physical values
+/// (with torque coeff compensation and status/fault/temperature), replacing
+/// the old hand-written raw + self-computed conversion.
 fn print_state(prefix: &str, s: &HightorqueFeedbackState) {
     println!(
         "{} id={} arb_id=0x{:X} status={} fault={} pos={:+.4}rad vel={:+.4}rad/s torq={:+.3}Nm t_mos={:.1}C t_rotor={:.1}C",
@@ -102,7 +106,7 @@ fn print_state(prefix: &str, s: &HightorqueFeedbackState) {
     );
 }
 
-/// raw int16 刻度 → 物理量(pos: 1 raw = 0.0001 圈;vel: 1 raw = 0.00025 圈/s)。
+/// raw int16 scale → physical value (pos: 1 raw = 0.0001 turn; vel: 1 raw = 0.00025 turn/s).
 fn pos_rad_from_args(args: &HashMap<String, String>) -> Result<f32, String> {
     if args.contains_key("raw-pos") {
         let raw = get_i16(args, "raw-pos", 0)?;
@@ -139,21 +143,19 @@ fn tau_nm_from_args(args: &HashMap<String, String>) -> Result<Option<f32>, Strin
     Ok(None)
 }
 
-/// 寄存器地址参数解析(B2 修复,2026-10-21):解析为 u8 并**拒绝越界**
-/// (> 0xFF)。旧实现 `get_u16_hex_or_dec(...)? as u8` 会把 0x145 静默
-/// 截成 0x45——读/写错误寄存器还把结果当请求的那个返回。合法域
-/// 0x00-0xFF(单个地址;连续读的地址推进回绕是 vendor 侧地址算术,
-/// 不在入参校验范围)。`mode_label` 用于报错定位(read-reg/write-reg)。
-fn reg_addr_from_args(
-    args: &HashMap<String, String>,
-    mode_label: &str,
-) -> Result<u8, String> {
+/// Register address argument parsing (B2 fix, 2026-10-21): parse to u8 and
+/// **reject out-of-range** (> 0xFF). The old `get_u16_hex_or_dec(...)? as u8`
+/// silently truncated 0x145 to 0x45 — reading/writing the wrong register and
+/// reporting the result as the requested one. Valid domain 0x00-0xFF (single
+/// address; the address-advance wrap of consecutive reads is vendor-side
+/// address arithmetic, outside argument validation). `mode_label` locates
+/// the error (read-reg/write-reg).
+fn reg_addr_from_args(args: &HashMap<String, String>, mode_label: &str) -> Result<u8, String> {
     match args.get("addr") {
         Some(_) => {
             let raw = get_u16_hex_or_dec(args, "addr", 0).map_err(|e| e.to_string())?;
-            u8::try_from(raw).map_err(|_| {
-                format!("{mode_label} --addr out of range 0x00-0xFF, got 0x{raw:X}")
-            })
+            u8::try_from(raw)
+                .map_err(|_| format!("{mode_label} --addr out of range 0x00-0xFF, got 0x{raw:X}"))
         }
         None => Err(format!(
             "{mode_label} requires --addr (hex or decimal, 0x00-0xFF)"
@@ -201,10 +203,11 @@ fn open_hightorque_bus(
     Ok(bus)
 }
 
-/// vendor 无对应命令的裸诊断帧已全部消灭(2026-09-30):tqe/volt/cur/brake/
-/// 周期上报配置五类命令全部走 vendor 原语,CLI 的 HT 裸总线代码只剩 scan
-/// (vendor 无 scan API,广播发现必须手写 17 01 帧 + 收 27 01 回帧)。
-
+/// Raw diagnostic frames with no vendor counterpart are all gone
+/// (2026-09-30): tqe/volt/cur/brake/periodic-report-config all go through
+/// vendor primitives; the only remaining raw-bus HT code in the CLI is scan
+/// (the vendor has no scan API; broadcast discovery must hand-write the
+/// 17 01 frame and collect the 27 01 reply).
 pub fn run_hightorque(
     args: &HashMap<String, String>,
     channel: &str,
@@ -246,12 +249,14 @@ pub fn run_hightorque(
         return Ok(());
     }
 
-    // 收敛(2026-09-29):控制/状态/参数命令全部经 vendor crate
-    // (HightorqueController 包住 CoreController + 后台收帧线程),
-    // 电机经 add_motor 注册,--model 从此真正生效(型号决定力矩补偿系数,
-    // 未知型号码会在 add_motor 处被拒)。2026-09-30 起裸诊断帧路径
-    // (diag_bus)删除,原 diag 模式(tqe/volt/cur/brake/timed-read)
-    // 全部改走 vendor 物理量原语。
+    // Convergence (2026-09-29): control/status/parameter commands all go
+    // through the vendor crate (HightorqueController wraps CoreController +
+    // a background receive thread); motors are registered via add_motor,
+    // and --model now takes effect (the model decides the torque
+    // compensation coeff; unknown model codes are rejected at add_motor).
+    // Since 2026-09-30 the raw diagnostic frame path (diag_bus) is deleted;
+    // the old diag modes (tqe/volt/cur/brake/timed-read) all use vendor
+    // physical-value primitives.
     let ctrl = HightorqueController::new(bus);
     let motor = ctrl
         .add_motor(motor_id, feedback_id, model)
@@ -265,16 +270,18 @@ pub fn run_hightorque(
     for i in 0..send_count {
         match mode.as_str() {
             "ping" | "read" => {
-                // 阻塞等新鲜状态(≤500ms):vendor request_fresh_state,
-                // 超时即报错——ping 语义 = 确认电机在总线在线且回帧。
+                // Block for a fresh state (≤500ms): vendor request_fresh_state;
+                // timeout errors out — ping semantics = confirm the motor is
+                // on the bus and replying.
                 let state = motor
                     .request_fresh_state(Duration::from_millis(500))
                     .map_err(|e| format!("hightorque {} on id={} failed: {e}", mode, motor_id))?;
                 print_state("[ok]", &state);
             }
             "pos" => {
-                // 普通位置模式 07 07:vendor send_cmd_pos_classic,力矩为
-                // 物理量 Nm(型号自适应补偿),缺省无限制(0x8000)。
+                // Classic position mode 07 07: vendor send_cmd_pos_classic;
+                // torque is physical Nm (model-adaptive compensation),
+                // default unlimited (0x8000).
                 let pos = pos_rad_from_args(args)?;
                 let tqe = tau_nm_from_args(args)?;
                 println!(
@@ -291,8 +298,8 @@ pub fn run_hightorque(
                 motor.send_cmd_vel(vel).map_err(|e| e.to_string())?;
             }
             "tqe" => {
-                // 力矩模式 05 13:vendor send_cmd_torque,物理量 Nm
-                // (0.01 N·m/LSB 基准 + 型号力矩系数补偿)。
+                // Torque mode 05 13: vendor send_cmd_torque, physical Nm
+                // (0.01 N·m/LSB base + model torque coeff compensation).
                 if args.contains_key("raw-tqe") {
                     return Err(
                         "raw-tqe is no longer accepted: torque is physical Nm (use --tau); encoding is vendor-side with model torque coeff".into(),
@@ -308,8 +315,9 @@ pub fn run_hightorque(
                 motor.send_cmd_torque(tau).map_err(|e| e.to_string())?;
             }
             "mit" => {
-                // v2.0.0 MIT(电机固件 v4.6.0+):vendor send_cmd_mit,位打包
-                // pos(16)/vel(12)/tqe(12)/kp(12)/kd(12),量程内饱和。
+                // v2.0.0 MIT (motor firmware v4.6.0+): vendor send_cmd_mit,
+                // bit-packed pos(16)/vel(12)/tqe(12)/kp(12)/kd(12),
+                // saturating within range.
                 let pos = pos_rad_from_args(args)?;
                 let vel = vel_rad_s_from_args(args)?;
                 let tau = get_f32(args, "tau", 0.0)?;
@@ -324,8 +332,9 @@ pub fn run_hightorque(
                     .map_err(|e| e.to_string())?;
             }
             "volt" => {
-                // DQ 电压模式 01 00 08 05 1B:vendor send_cmd_dq_voltage,
-                // 物理量 V(0.1 V/LSB),模式写与寄存器写拼一帧。
+                // DQ voltage mode 01 00 08 05 1B: vendor send_cmd_dq_voltage,
+                // physical V (0.1 V/LSB); mode write and register write packed
+                // into one frame.
                 if args.contains_key("raw-vol") {
                     return Err(
                         "raw-vol is no longer accepted: voltage is physical V (use --volt); scale is 0.1 V/LSB vendor-side".into(),
@@ -333,13 +342,11 @@ pub fn run_hightorque(
                 }
                 let volt = get_f32(args, "volt", 0.0)?;
                 println!("[tx] mode=volt id={} volt={:+.3}V", motor_id, volt);
-                motor
-                    .send_cmd_dq_voltage(volt)
-                    .map_err(|e| e.to_string())?;
+                motor.send_cmd_dq_voltage(volt).map_err(|e| e.to_string())?;
             }
             "cur" => {
-                // DQ 电流模式 01 00 09 05 1C:vendor send_cmd_dq_current,
-                // 物理量 A(0.1 A/LSB),拼一帧。
+                // DQ current mode 01 00 09 05 1C: vendor send_cmd_dq_current,
+                // physical A (0.1 A/LSB), packed into one frame.
                 if args.contains_key("raw-cur") {
                     return Err(
                         "raw-cur is no longer accepted: current is physical A (use --cur); scale is 0.1 A/LSB vendor-side".into(),
@@ -347,20 +354,16 @@ pub fn run_hightorque(
                 }
                 let cur = get_f32(args, "cur", 0.0)?;
                 println!("[tx] mode=cur id={} cur={:+.3}A", motor_id, cur);
-                motor
-                    .send_cmd_dq_current(cur)
-                    .map_err(|e| e.to_string())?;
+                motor.send_cmd_dq_current(cur).map_err(|e| e.to_string())?;
             }
             "set-mode" => {
-                // 运行模式切换 01 00 <mode>:写模式寄存器 0x000(表2,0-17)。
-                // 与 stop/clear-error(模式 0)互补,可显式进 DQ 电压(8)/
-                // DQ 电流(9)/位置(10)/刹车(15)等模式。
+                // Run mode switch 01 00 <mode>: writes mode register 0x000
+                // (table 2, 0-17). Complementary to stop/clear-error
+                // (mode 0); can explicitly enter DQ voltage (8) / DQ current
+                // (9) / position (10) / brake (15) and other modes.
                 let run_mode = get_u64(args, "run-mode", 0)?;
                 if run_mode > 17 {
-                    return Err(format!(
-                        "run-mode must be 0-17 (表2), got {run_mode}"
-                    )
-                    .into());
+                    return Err(format!("run-mode must be 0-17 (表2), got {run_mode}").into());
                 }
                 println!(
                     "[tx] mode=set-mode id={} run-mode={} (register 0x000)",
@@ -371,8 +374,9 @@ pub fn run_hightorque(
                     .map_err(|e| e.to_string())?;
             }
             "pos-vel-tqe" => {
-                // 协同模式 07 35:vendor send_cmd_pos_vel(速度上限换算),
-                // 力矩由 vendor 固定为无限制(0x8000),raw-tqe 不再接受。
+                // Coordinated mode 07 35: vendor send_cmd_pos_vel (velocity
+                // limit converted); torque is fixed unlimited (0x8000) by
+                // the vendor, raw-tqe no longer accepted.
                 let pos = pos_rad_from_args(args)?;
                 let vel = vel_rad_s_from_args(args)?;
                 println!(
@@ -384,8 +388,9 @@ pub fn run_hightorque(
                     .map_err(|e| e.to_string())?;
             }
             "pos-vel-acc" => {
-                // 梯形模式 07 2d(固件 v4.6.0+):vendor send_cmd_pos_vel_acc,
-                // 位置 + 速度上限 + 加速度上限,均物理量。
+                // Trapezoid mode 07 2d (firmware v4.6.0+): vendor
+                // send_cmd_pos_vel_acc, position + velocity limit +
+                // acceleration limit, all physical values.
                 let pos = pos_rad_from_args(args)?;
                 let vlim = get_f32(args, "vlim", 1.0)?;
                 let acc = get_f32(args, "acc", 1.0)?;
@@ -398,13 +403,16 @@ pub fn run_hightorque(
                     .map_err(|e| e.to_string())?;
             }
             "read-reg" => {
-                // 通用寄存器读 17 族:vendor read_registers(2026-10-22 起
-                // **固定 Int16**,--ty 已删除)。返回**换算后物理量**(按
-                // vendor 寄存器表的 quantity 归类:位置/速度→rad 族、力矩
-                // 套型号 k、电流/电压/温度/PWM/PID 按各自 scale;无换算
-                // 关系的寄存器 1:1)。名称/单位按每行地址查 parameter_info
-                // (C2:旧实现每行都打基础地址的寄存器名,张冠李戴)。
-                // 地址越界在 reg_addr_from_args 处拒绝(B2)。
+                // Generic register read (17 family): vendor read_registers
+                // (fixed Int16 since 2026-10-22, --ty removed). Returns
+                // **converted physical values** (classified by the vendor
+                // register table's quantity: position/velocity → rad family,
+                // torque with model k, current/voltage/temperature/PWM/PID
+                // per their own scale; registers with no conversion 1:1).
+                // Name/unit resolved per row address via parameter_info
+                // (C2: the old implementation printed the base address's
+                // register name on every row). Out-of-range addresses are
+                // rejected in reg_addr_from_args (B2).
                 if args.contains_key("ty") {
                     return Err(
                         "--ty was removed: register reads are fixed Int16 (2026-10-22)".into(),
@@ -414,15 +422,15 @@ pub fn run_hightorque(
                 let count = get_u64(args, "count", 1)?.clamp(1, 3) as u8;
                 let timeout_ms = get_u64(args, "timeout-ms", 500)?;
                 let vals = motor
-                    .read_registers(&[ReadCmd { addr, count }], Duration::from_millis(timeout_ms))
+                    .read_registers(
+                        &[ReadCmd { addr, count }],
+                        Duration::from_millis(timeout_ms),
+                    )
                     .map_err(|e| e.to_string())?;
                 for (a, v) in &vals {
-                    // C2:每行按自身地址查名/单位,而非基础地址。
+                    // C2: resolve name/unit by each row's own address, not the base address.
                     let (name, unit) = match parameter_info(*a) {
-                        Some(i) => (
-                            i.name,
-                            i.quantity.map(|q| q.unit_label()).unwrap_or(""),
-                        ),
+                        Some(i) => (i.name, i.quantity.map(|q| q.unit_label()).unwrap_or("")),
                         None => ("unknown", ""),
                     };
                     println!(
@@ -435,28 +443,27 @@ pub fn run_hightorque(
                 motor.disable().map_err(|e| e.to_string())?;
             }
             "brake" => {
-                // 刹车(表2 模式 15):vendor brake,三相短接阻尼刹车。
+                // Brake (table 2 mode 15): vendor brake, three-phase shorted
+                // damping brake.
                 println!("[tx] mode=brake id={} (run mode 15)", motor_id);
                 motor.brake().map_err(|e| e.to_string())?;
             }
             "conf-write" => {
-                // 落盘到 flash(05 B3),vendor store_parameters。
+                // Persist to flash (05 B3), vendor store_parameters.
                 motor.store_parameters().map_err(|e| e.to_string())?;
             }
             "rezero" => {
-                // 0x40 置零 + 自动落盘,vendor set_zero_position。
+                // 0x40 zeroing + auto persist, vendor set_zero_position.
                 motor.set_zero_position().map_err(|e| e.to_string())?;
             }
             "periodic-report" | "timed-read" => {
-                // 周期上报配置 05 B4 02 <t_ms>:vendor set_periodic_report
-                // (扩展帧)。period-ms >= 1 开启电机主动发 27 01 状态帧,
-                // 0 停止。timed-read 为旧名别名,兼容既有脚本。
+                // Periodic report config 05 B4 02 <t_ms>: vendor
+                // set_periodic_report (extended frame). period-ms >= 1 makes
+                // the motor actively send 27 01 status frames, 0 stops.
+                // timed-read is the old alias, kept for existing scripts.
                 let t_ms = get_u64(args, "period-ms", 100)?;
                 if t_ms > u16::MAX as u64 {
-                    return Err(format!(
-                        "period-ms must fit uint16, got {t_ms}"
-                    )
-                    .into());
+                    return Err(format!("period-ms must fit uint16, got {t_ms}").into());
                 }
                 println!(
                     "[tx] mode=periodic-report id={} period_ms={} ({})",
@@ -469,32 +476,39 @@ pub fn run_hightorque(
                     .map_err(|e| e.to_string())?;
             }
             "write-reg" => {
-                // 通用寄存器写 05 <addr> <val16>:vendor write_register。
-                // 读写不对称(2026-10-22 决策):读返回换算后物理量,写
-                // 仍收 raw i16(寄存器值域即 i16,换算由调用方按表完成)。
-                // --config 1 表示配置类寄存器(扩展 0x8000|id 帧),
-                // 缺省 0 走控制通道(控制目标类)。地址越界在
-                // reg_addr_from_args 处拒绝(B2:不再 as u8 截断)。
+                // Generic register write 05 <addr> <val16>: vendor write_register.
+                // Read/write asymmetry (2026-10-22 decision): reads return
+                // converted physical values, writes still take raw i16 (the
+                // register domain is i16; conversion is the caller's job per
+                // the table). --config 1 means a config-class register
+                // (extended 0x8000|id frame); the default 0 uses the control
+                // channel (control-target class). Out-of-range addresses are
+                // rejected in reg_addr_from_args (B2: no more as u8 truncation).
                 let addr = reg_addr_from_args(args, "write-reg")?;
                 let value = get_i16(args, "value", 0)?;
                 let config = get_u64(args, "config", 0)? != 0;
-                let name = parameter_info(addr)
-                    .map(|i| i.name)
-                    .unwrap_or("unknown");
+                let name = parameter_info(addr).map(|i| i.name).unwrap_or("unknown");
                 println!(
                     "[tx] mode=write-reg id={} addr=0x{addr:02X} name={} value={} frame={}",
                     motor_id,
                     name,
                     value,
-                    if config { "config(extended)" } else { "control" }
+                    if config {
+                        "config(extended)"
+                    } else {
+                        "control"
+                    }
                 );
                 motor
                     .write_register(addr, value, config)
                     .map_err(|e| e.to_string())?;
-                // --store 1:写完补一帧 conf-write(05 B3)落盘,对齐 Damiao/RS
-                // write-param 的 --store 组合便利。默认 0 只写 RAM;落盘为整机
-                // 保存(非单寄存器),固件建议重新上电后生效。write-reg 强制
-                // 单次发送(send_count=1),无循环重复写 flash 问题。
+                // --store 1: after writing, send a conf-write (05 B3) frame to
+                // persist, matching the Damiao/RS write-param --store
+                // convenience. Default 0 writes RAM only; persistence is a
+                // whole-device save (not per-register), and the firmware
+                // recommends power-cycling for it to take effect. write-reg
+                // forces a single send (send_count=1), avoiding repeated
+                // flash writes in loop mode.
                 let store_after_write = get_u64(args, "store", 0)? != 0;
                 if store_after_write {
                     motor.store_parameters().map_err(|e| e.to_string())?;
@@ -534,8 +548,9 @@ mod tests {
             .collect()
     }
 
-    /// B2 回归(2026-10-21):地址越界(> 0xFF)拒绝,不再 as u8 截断
-    /// (旧实现 --addr 0x145 会静默操作 0x45)。
+    /// B2 regression (2026-10-21): out-of-range addresses (> 0xFF) rejected,
+    /// no more as u8 truncation (the old implementation would silently
+    /// operate on 0x45 for --addr 0x145).
     #[test]
     fn reg_addr_rejects_out_of_range() {
         let a = args(&[("addr", "0x100")]);
@@ -545,13 +560,13 @@ mod tests {
         let e = reg_addr_from_args(&a, "write-reg").unwrap_err();
         assert!(e.contains("out of range"), "got: {e}");
 
-        // 合法域边界放行
+        // Valid-domain boundaries pass
         let a = args(&[("addr", "0xFF")]);
         assert_eq!(reg_addr_from_args(&a, "read-reg"), Ok(0xFF));
         let a = args(&[("addr", "0")]);
         assert_eq!(reg_addr_from_args(&a, "read-reg"), Ok(0));
 
-        // 缺参报错
+        // Missing argument errors
         let a: HashMap<String, String> = HashMap::new();
         assert!(reg_addr_from_args(&a, "read-reg")
             .unwrap_err()

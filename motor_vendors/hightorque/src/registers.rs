@@ -1,55 +1,65 @@
-//! 高擎 (Hightorque) 电机寄存器表。
+//! HighTorque motor register table.
 //!
-//! 数据来源:高擎电机寄存器功能说明表(寄存器功能、电机运行模式、报错代码、
-//! 一托多模式说明.xlsx sheet1)。地址范围 0x00–0x45,含保留项。
+//! Data source: HighTorque register function sheets (register functions,
+//! motor run modes, error codes, one-drives-many mode, xlsx sheet1).
+//! Address range 0x00–0x45, including reserved entries.
 //!
-//! 2026-10-22 决策(用户):寄存器读**固定按 Int16** 读取,不再让调用方
-//! 选数据类型;读返回值按本表 `quantity` 归属的物理量换算成物理值
-//! (用户提供换算关系:位置/速度→rad、力矩→N·m 套型号 k 系数、电流/电压
-//! →A/V、温度→°C、PWM/rKp/rKd→归一化、PID→0.1/LSB),**表内未分类的
-//! 寄存器 1:1 返回原值**。名称按量归类的条目(位置指令/速度命令/上下限
-//! 等)为推断,待真机校准。
+//! 2026-10-22 decision (user): register reads are **fixed Int16** — callers
+//! no longer choose a data type; read values are converted to physical
+//! values per this table's `quantity` classification (conversions provided
+//! by the user: position/velocity→rad, torque→N·m via the model k
+//! coefficient, current/voltage→A/V, temperature→°C, PWM/rKp/rKd→
+//! normalized, PID→0.1/LSB); **registers unclassified in the table are
+//! returned 1:1 as raw values**. Entries classified by name (position
+//! command/velocity command/limits etc.) are inferred, pending real-bus
+//! calibration.
 //!
-//! 同日追补决策:**缺号与表外地址拒绝访问**——0x00-0x45 内 xlsx 没有
-//! 的洞(0x07-0x0C/0x13/0x17/0x1E/0x1F/0x2A/0x2E/0x2F/0x35-0x3F)与
-//! 0x46-0xFF 均不在本表,读/写一律整段报错(这些地址能发帧能回值,但
-//! 语义是猜的,不再放行)。
+//! Same-day follow-up decision: **gap and out-of-table addresses are
+//! rejected** — holes inside 0x00-0x45 that the xlsx lacks
+//! (0x07-0x0C/0x13/0x17/0x1E/0x1F/0x2A/0x2E/0x2F/0x35-0x3F) and 0x46-0xFF
+//! are all outside this table; reads/writes are rejected atomically (those
+//! addresses can be framed and will reply, but their semantics are guesses,
+//! so they are no longer admitted).
 
 use crate::protocol::{
-    decode_unit_raw, tqe_restore_raw, AngleUnit, RegisterType, RegisterValue, TorqueCoeff, ACC_SCALE,
-    CUR_SCALE, PID_SCALE, POS_SCALE, PWM_SCALE, TEMP_SCALE, TIME_SCALE, TQE_SCALE, VEL_SCALE,
-    VOL_SCALE,
+    decode_unit_raw, tqe_restore_raw, AngleUnit, RegisterType, RegisterValue, TorqueCoeff,
+    ACC_SCALE, CUR_SCALE, PID_SCALE, POS_SCALE, PWM_SCALE, TEMP_SCALE, TIME_SCALE, TQE_SCALE,
+    VEL_SCALE, VOL_SCALE,
 };
 
-/// 寄存器所属物理量(决定 raw→物理量换算)。`None`(表内未分类或表外
-/// 地址)= 1:1 恒等,返回原值。
+/// Physical quantity a register belongs to (determines the raw→physical
+/// conversion). `None` (unclassified in the table, or an out-of-table
+/// address) = identity, returns the raw value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Quantity {
-    /// 位置(rad)。
+    /// Position (rad).
     Pos,
-    /// 速度(rad/s)。
+    /// Velocity (rad/s).
     Vel,
-    /// 加速度(rad/s²;int16 scale 沿用固件 convert.c 1000,与旧文档 0.01
-    /// 的争议见 protocol.rs ACC_SCALE 注,待真机校准)。
+    /// Acceleration (rad/s²; the int16 scale follows firmware convert.c's
+    /// 1000 — the dispute with the legacy doc's 0.01 is noted at the
+    /// ACC_SCALE comment in protocol.rs, pending real-bus calibration).
     Acc,
-    /// 力矩(N·m;套型号 k/d 系数,与状态路径同式)。
+    /// Torque (N·m; applies model k/d coefficients, same formula as the
+    /// state path).
     Torque,
-    /// 电流(A)。
+    /// Current (A).
     Current,
-    /// 电压(V)。
+    /// Voltage (V).
     Voltage,
-    /// 温度(°C)。
+    /// Temperature (°C).
     Temperature,
-    /// 时间(s;当前表内无时间寄存器,量程备用)。
+    /// Time (s; no time registers in the current table, scale reserved).
     Time,
-    /// PWM / rKp / rKd(归一化,raw=32767 对应 1.0)。
+    /// PWM / rKp / rKd (normalized; raw=32767 maps to 1.0).
     Pwm,
-    /// PID 增益(0.1/LSB)。
+    /// PID gain (0.1/LSB).
     Pid,
 }
 
 impl Quantity {
-    /// 输出单位标签(CLI/网关展示用;归一化与 PID 无量纲返回空)。
+    /// Unit label for output (CLI/gateway display; normalized and PID are
+    /// dimensionless and return empty).
     pub fn unit_label(self) -> &'static str {
         match self {
             Self::Pos => "rad",
@@ -66,22 +76,25 @@ impl Quantity {
     }
 }
 
-/// 寄存器元数据。
+/// Register metadata.
 #[derive(Debug, Clone, Copy)]
 pub struct RegisterInfo {
-    /// 寄存器地址(0x00–0x45)。
+    /// Register address (0x00–0x45).
     pub addr: u8,
-    /// 寄存器名称。
+    /// Register name.
     pub name: &'static str,
-    /// 是否可写。
+    /// Whether the register is writable.
     pub writable: bool,
-    /// 归属物理量(决定换算);`None` 表示无换算关系,读值 1:1。
+    /// Quantity classification (determines the conversion); `None` means
+    /// no conversion, read value is 1:1.
     pub quantity: Option<Quantity>,
 }
 
-/// 完整寄存器表(按地址升序)。quantity 归类:0x01-0x03 对照状态帧
-/// 换算;电流/电压/PID 对照固件 convert.c;温度/PWM/rKp/rKd 为用户
-/// 2026-10-22 提供的换算关系;其余按名称推断(见各项行内注)。
+/// Full register table (ascending by address). Quantity classification:
+/// 0x01-0x03 mirrors the state-frame conversion; current/voltage/PID mirror
+/// firmware convert.c; temperature/PWM/rKp/rKd use conversions the user
+/// provided on 2026-10-22; the rest are inferred by name (see the inline
+/// notes on each entry).
 pub const PARAMETER_TABLE: &[RegisterInfo] = &[
     RegisterInfo {
         addr: 0x00,
@@ -89,8 +102,9 @@ pub const PARAMETER_TABLE: &[RegisterInfo] = &[
         writable: true,
         quantity: None,
     },
-    // 位置/速度/力矩:参考固件 motor.c 用 0x17 0x01 一次读 3 个 int16,
-    // 换算与状态帧 27 01 同式(POS/VEL/TQE_SCALE + k)。
+    // Position/velocity/torque: the reference firmware motor.c reads 3 int16
+    // at once with 0x17 0x01; the conversion mirrors the 27 01 state frame
+    // (POS/VEL/TQE_SCALE + k).
     RegisterInfo {
         addr: 0x01,
         name: "位置",
@@ -184,7 +198,8 @@ pub const PARAMETER_TABLE: &[RegisterInfo] = &[
     RegisterInfo {
         addr: 0x18,
         name: "电压 FOC 角度",
-        // 角度量,但用户未提供该寄存器的换算关系 → 1:1 原值。
+        // Angle quantity, but the user provided no conversion for this
+        // register → 1:1 raw value.
         writable: true,
         quantity: None,
     },
@@ -221,7 +236,8 @@ pub const PARAMETER_TABLE: &[RegisterInfo] = &[
     RegisterInfo {
         addr: 0x20,
         name: "位置指令",
-        // 名称归类为位置(推断,待真机校准)。
+        // Classified as position by name (inferred, pending real-bus
+        // calibration).
         writable: true,
         quantity: Some(Quantity::Pos),
     },
@@ -330,7 +346,8 @@ pub const PARAMETER_TABLE: &[RegisterInfo] = &[
     RegisterInfo {
         addr: 0x40,
         name: "下限",
-        // 名称归类为位置限位(推断,待真机校准)。
+        // Classified as position limit by name (inferred, pending real-bus
+        // calibration).
         writable: true,
         quantity: Some(Quantity::Pos),
     },
@@ -366,19 +383,23 @@ pub const PARAMETER_TABLE: &[RegisterInfo] = &[
     },
 ];
 
-/// 按地址查表。
+/// Look up by address.
 pub fn parameter_info(addr: u8) -> Option<&'static RegisterInfo> {
     PARAMETER_TABLE.iter().find(|info| info.addr == addr)
 }
 
-/// 地址是否在寄存器表内(2026-10-22 追补决策:缺号与表外地址一律
-/// `false`,读/写整段拒绝)。
+/// Whether the address is in the register table (2026-10-22 follow-up
+/// decision: gap and out-of-table addresses always return `false`,
+/// reads/writes are rejected atomically).
 pub fn is_known_register(addr: u8) -> bool {
     parameter_info(addr).is_some()
 }
 
-/// 校验一段连续读地址全部在表内(整段原子,任一越界即报错;0xB3/0xB4
-/// 是命令地址不算寄存器)。报错文本带具体地址供上层透传。
+/// Validate that a consecutive read span lies entirely inside the table
+/// (atomic over the whole span; any out-of-range address errors at once;
+/// 0xB3/0xB4 are command addresses and do not count as registers). The
+/// error text carries the specific address for upper layers to pass
+/// through.
 pub fn ensure_known_span(addr: u8, count: u8) -> Result<(), String> {
     for i in 0..count {
         let a = addr.wrapping_add(i);
@@ -392,22 +413,29 @@ pub fn ensure_known_span(addr: u8, count: u8) -> Result<(), String> {
     Ok(())
 }
 
-/// 按地址取物理量归类;表内未分类或表外地址返回 `None`(换算 1:1)。
+/// Quantity classification by address; unclassified or out-of-table
+/// addresses return `None` (1:1 conversion).
 pub fn parameter_quantity(addr: u8) -> Option<Quantity> {
     parameter_info(addr).and_then(|info| info.quantity)
 }
 
-/// raw 寄存器值 → 物理量(2026-10-22 决策:读固定 Int16、返回换算后
-/// 物理值;无换算关系 1:1)。
+/// Raw register value → physical quantity (2026-10-22 decision: reads are
+/// fixed Int16 and return converted physical values; 1:1 when no
+/// conversion applies).
 ///
-/// - `RegisterValue::F32` 恒等返回(浮点 raw 本身就是物理值);
-/// - 位置/速度/加速度:raw/scale 换圈后 ×2π 得 rad(与状态路径
-///   `decode_read_reply` 同式,数值逐位一致);
-/// - 力矩:Int16 直接走 `tqe_restore_raw`(raw×0.01×k+d,与状态路径
-///   同一函数);外来 Int8/I32 缓存条目按 raw/scale×k+d 推广;
-/// - 其余量:raw/scale(经 `decode_unit_raw` 复用 QuantityScale 单源);
-/// - `None`(表内未分类):1:1 原值。缺号/表外地址在访问入口已被
-///   `ensure_known_span`/`is_known_register` 拒绝,不会到达本函数。
+/// - `RegisterValue::F32` returns as-is (a float raw is already a physical
+///   value);
+/// - Position/velocity/acceleration: raw/scale to turns, then ×2π to rad
+///   (same formula as the state path's `decode_read_reply`, bit-identical);
+/// - Torque: Int16 goes directly through `tqe_restore_raw`
+///   (raw×0.01×k+d, the same function as the state path); foreign Int8/I32
+///   cache entries generalize to raw/scale×k+d;
+/// - Other quantities: raw/scale (via `decode_unit_raw`, reusing the
+///   single QuantityScale source);
+/// - `None` (unclassified in the table): 1:1 raw value. Gap/out-of-table
+///   addresses are rejected at the entry points
+///   (`ensure_known_span`/`is_known_register`) and never reach this
+///   function.
 pub fn register_physical_value(addr: u8, v: RegisterValue, c: TorqueCoeff) -> f32 {
     let raw = v.as_f32();
     let rt = v.register_type();
@@ -420,7 +448,8 @@ pub fn register_physical_value(addr: u8, v: RegisterValue, c: TorqueCoeff) -> f3
             if let RegisterValue::I16(x) = v {
                 tqe_restore_raw(x, c)
             } else {
-                // 外来帧(Int8/I32)按 scale 推广的同一公式。
+                // Foreign frames (Int8/I32) use the same formula generalized
+                // via scale.
                 raw / TQE_SCALE.scale(rt.data_type()) * c.k + c.d
             }
         }
@@ -437,8 +466,14 @@ pub fn register_physical_value(addr: u8, v: RegisterValue, c: TorqueCoeff) -> f3
                 Quantity::Pid => (PID_SCALE, false),
                 Quantity::Torque => unreachable!("handled above"),
             };
-            // 角度量换 rad;非角量用 Turn 恒等过单位换算,退化为 raw/scale。
-            let unit = if angle { AngleUnit::Rad } else { AngleUnit::Turn };
+            // Angle quantities convert to rad; non-angle quantities pass
+            // through unit conversion with the Turn identity, degenerating
+            // to raw/scale.
+            let unit = if angle {
+                AngleUnit::Rad
+            } else {
+                AngleUnit::Turn
+            };
             decode_unit_raw(raw, unit, rt.data_type(), scale)
         }
     }
@@ -471,49 +506,53 @@ mod tests {
         assert!(parameter_info(0x50).is_none());
     }
 
-    /// 2026-10-22 追补决策:缺号与表外地址一律拒绝访问。
+    /// 2026-10-22 follow-up decision: gap and out-of-table addresses are
+    /// rejected outright.
     #[test]
     fn known_register_membership() {
-        // 表内
+        // In table
         assert!(is_known_register(0x00));
         assert!(is_known_register(0x01));
         assert!(is_known_register(0x45));
-        // 缺号(0x00-0x45 内的洞)
+        // Gap (holes inside 0x00-0x45)
         assert!(!is_known_register(0x07));
         assert!(!is_known_register(0x0A));
         assert!(!is_known_register(0x13));
         assert!(!is_known_register(0x2E));
         assert!(!is_known_register(0x35));
-        // 表外(0x46-0xFF)
+        // Out of table (0x46-0xFF)
         assert!(!is_known_register(0x46));
         assert!(!is_known_register(0x50));
         assert!(!is_known_register(0xB3));
         assert!(!is_known_register(0xFF));
     }
 
-    /// 整段校验:任一地址越界即报错,报错文本带具体地址。
+    /// Span validation: any out-of-range address errors at once, with the
+    /// specific address in the error text.
     #[test]
     fn ensure_known_span_atomic() {
         assert!(ensure_known_span(0x01, 3).is_ok());
         assert!(ensure_known_span(0x45, 1).is_ok());
-        // 单点缺号/表外
+        // Single gap/out-of-table address
         let e = ensure_known_span(0x0A, 1).unwrap_err();
         assert!(e.contains("0x0A"), "err: {e}");
         let e = ensure_known_span(0x50, 1).unwrap_err();
         assert!(e.contains("0x50"), "err: {e}");
-        // 连续读跨入缺号:0x2D 表内,0x2E 缺号
+        // Consecutive read crossing into a gap: 0x2D is in table, 0x2E is a gap
         let e = ensure_known_span(0x2D, 2).unwrap_err();
         assert!(e.contains("0x2E"), "err: {e}");
-        // 连续读跨出表尾:0x45 表内,0x46 表外
+        // Consecutive read crossing past the table end: 0x45 is in table,
+        // 0x46 is out of table
         let e = ensure_known_span(0x45, 2).unwrap_err();
         assert!(e.contains("0x46"), "err: {e}");
-        // 0xB3/0xB4 是命令地址,不算寄存器
+        // 0xB3/0xB4 are command addresses, not registers
         assert!(!is_known_register(0xB3));
         assert!(!is_known_register(0xB4));
     }
 
-    /// 2026-10-22 决策:各地址按物理量归类;无换算关系的(0x00/0x06/
-    /// 0x0F/0x18/0x27/表外)quantity 为 None → 读值 1:1。
+    /// 2026-10-22 decision: addresses classified by physical quantity;
+    /// those without a conversion (0x00/0x06/0x0F/0x18/0x27/out-of-table)
+    /// have quantity None → read value 1:1.
     #[test]
     fn quantity_assignment_by_class() {
         assert_eq!(parameter_quantity(0x01), Some(Quantity::Pos));
@@ -525,7 +564,7 @@ mod tests {
         assert_eq!(parameter_quantity(0x10), Some(Quantity::Pwm));
         assert_eq!(parameter_quantity(0x2B), Some(Quantity::Pid));
         assert_eq!(parameter_quantity(0x29), Some(Quantity::Acc));
-        // None(1:1):模式/保留/错误代码/FOC 角度(无换算关系)。
+        // None (1:1): mode/reserved/error code/FOC angle (no conversion).
         assert_eq!(parameter_quantity(0x00), None);
         assert_eq!(parameter_quantity(0x06), None);
         assert_eq!(parameter_quantity(0x0F), None);
@@ -534,7 +573,7 @@ mod tests {
         assert_eq!(parameter_quantity(0x50), None);
     }
 
-    /// 单位标签(CLI/网关展示)。
+    /// Unit labels (CLI/gateway display).
     #[test]
     fn unit_labels() {
         assert_eq!(Quantity::Pos.unit_label(), "rad");
@@ -544,7 +583,8 @@ mod tests {
         assert_eq!(Quantity::Pwm.unit_label(), "");
     }
 
-    /// 换算抽查:与状态路径同式。0x01 raw 0x1234 → 0.1234 圈 × 2π。
+    /// Conversion spot-check: same formula as the state path.
+    /// 0x01 raw 0x1234 → 0.1234 turns × 2π.
     #[test]
     fn converts_pos_like_state_path() {
         let c = TorqueCoeff { k: 0.5, d: 0.0 };
@@ -552,8 +592,9 @@ mod tests {
         assert!((v - 0x1234 as f32 * 0.0001 * std::f32::consts::TAU).abs() < 1e-6);
     }
 
-    /// 速度:raw/4000 × 2π(状态路径同式;注意用 /4000.0 而非 ×0.00025,
-    /// 两者在 f32 下有 ~2e-6 的表示差,值域 ~35 时会越过 1e-6 容差)。
+    /// Velocity: raw/4000 × 2π (same formula as the state path; note the
+    /// use of /4000.0 rather than ×0.00025 — the two differ by ~2e-6 in
+    /// f32, which exceeds the 1e-6 tolerance at values around 35).
     #[test]
     fn converts_vel_like_state_path() {
         let c = TorqueCoeff { k: 0.5, d: 0.0 };
@@ -561,7 +602,8 @@ mod tests {
         assert!((v - 0x5678 as f32 / 4000.0 * std::f32::consts::TAU).abs() < 1e-6);
     }
 
-    /// 力矩:Int16 走 tqe_restore_raw(raw×0.01×k+d),与状态路径同一函数。
+    /// Torque: Int16 goes through tqe_restore_raw (raw×0.01×k+d), the same
+    /// function as the state path.
     #[test]
     fn converts_torque_with_model_coeff() {
         let c = TorqueCoeff { k: 0.5, d: 0.0 };
@@ -569,28 +611,33 @@ mod tests {
         assert!((v - 200.0 * 0.01 * 0.5).abs() < 1e-6);
     }
 
-    /// 温度 0.1 °C/LSB、PWM 1/32767、PID 0.1/LSB。
+    /// Temperature 0.1 °C/LSB, PWM 1/32767, PID 0.1/LSB.
     #[test]
     fn converts_temperature_pwm_pid() {
         let c = TorqueCoeff { k: 0.5, d: 0.0 };
         assert!((register_physical_value(0x0E, RegisterValue::I16(100), c) - 10.0).abs() < 1e-6);
-        assert!(
-            (register_physical_value(0x10, RegisterValue::I16(32767), c) - 1.0).abs() < 1e-6
-        );
+        assert!((register_physical_value(0x10, RegisterValue::I16(32767), c) - 1.0).abs() < 1e-6);
         assert!((register_physical_value(0x2B, RegisterValue::I16(25), c) - 2.5).abs() < 1e-6);
     }
 
-    /// 无换算关系 1:1;F32 恒等。
+    /// No conversion → 1:1; F32 identity.
     #[test]
     fn identity_for_unclassified_and_float() {
         let c = TorqueCoeff { k: 0.5, d: 0.0 };
         assert!((register_physical_value(0x0F, RegisterValue::I16(5), c) - 5.0).abs() < 1e-6);
-        assert_eq!(register_physical_value(0x50, RegisterValue::I16(-3), c), -3.0);
-        assert_eq!(register_physical_value(0x03, RegisterValue::F32(1.5), c), 1.5);
+        assert_eq!(
+            register_physical_value(0x50, RegisterValue::I16(-3), c),
+            -3.0
+        );
+        assert_eq!(
+            register_physical_value(0x03, RegisterValue::F32(1.5), c),
+            1.5
+        );
     }
 
-    /// 外来 Int8 缓存条目(如别的主机发的 int8 力矩帧)按同式推广换算:
-    /// Int8 力矩 scale=2 → raw/2 × k。
+    /// A foreign Int8 cache entry (e.g. an int8 torque frame sent by
+    /// another host) converts via the same generalized formula:
+    /// Int8 torque scale=2 → raw/2 × k.
     #[test]
     fn converts_foreign_int8_torque_entry() {
         let c = TorqueCoeff { k: 0.5, d: 0.0 };

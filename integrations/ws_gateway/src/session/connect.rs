@@ -97,9 +97,11 @@ impl SessionCtx {
                 self.motor = Some(MotorHandle::Hexfellow(motor));
             }
             Vendor::Hightorque => {
-                // 收敛(2026-09-29):与其它四家同构——vendor controller 包住
-                // CoreController(后台收帧线程),电机经 add_motor 注册进设备表,
-                // 收发/解码/换算全部走 vendor crate,不再手写帧。
+                // Converged (2026-09-29): structurally identical to the other
+                // four vendors — the vendor controller wraps CoreController
+                // (background receive thread), motors register into the device
+                // table via add_motor, and all send/decode/convert goes through
+                // the vendor crate; no more hand-written frames.
                 let bus = open_hightorque_bus(&self.target, self.target.transport)?;
                 let ctrl = HightorqueController::new(bus);
                 let motor = ctrl

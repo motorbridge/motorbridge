@@ -7,9 +7,9 @@ const TWO_PI: f32 = PI * 2.0;
 pub struct HightorqueFeedbackState {
     pub can_id: u8,
     pub arbitration_id: u32,
-    /// 运行模式(表2)。寄存器读回复时为 0;状态反馈帧时为 byte0。
+    /// Run mode (table 2). Zero in register read replies; byte0 in status feedback frames.
     pub status_code: u8,
-    /// 故障码(表3)。寄存器读回复时为 0;状态反馈帧时为 byte1。
+    /// Fault code (table 3). Zero in register read replies; byte1 in status feedback frames.
     pub fault_code: u8,
     pub pos: f32,
     pub vel: f32,
@@ -19,44 +19,44 @@ pub struct HightorqueFeedbackState {
 }
 
 impl HightorqueFeedbackState {
-    /// 解析 `status_code`(byte0)为运行模式;寄存器读回复(status_code=0 且非状态帧)
-    /// 与未知码返回 `None`。
+    /// Parses `status_code` (byte0) into a run mode; register read replies
+    /// (status_code=0, not a status frame) and unknown codes return `None`.
     pub fn run_mode(&self) -> Option<RunMode> {
         RunMode::from_code(self.status_code)
     }
 
-    /// 故障码的人读描述(表3)。
+    /// Human-readable fault code description (table 3).
     pub fn fault_description(&self) -> &'static str {
         decode_fault(self.fault_code)
     }
 }
 
-/// 运行模式(表2)。状态反馈帧的 byte0 即为该值。
+/// Run mode (table 2). byte0 of a status feedback frame is this value.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunMode {
-    Stop = 0,               // 停机/清除错误
-    Error = 1,              // 故障
-    Ready2 = 2,             // 就绪
-    Ready3 = 3,             // 就绪
-    Ready4 = 4,             // 就绪
-    Pwm = 5,                // PWM 输出
-    Voltage = 6,            // 电压输出
-    FocVoltage = 7,         // FOC 电压
-    DqVoltage = 8,          // DQ 电压
-    DqCurrent = 9,          // DQ 电流
-    Position = 10,          // 位置模式
-    Timeout = 11,           // 超时
-    ZeroSpeed = 12,         // 零速
-    Range = 13,             // 量程
-    MeasureInductance = 14, // 测量电感
-    Brake = 15,             // 制动
+    Stop = 0,               // stop / clear error
+    Error = 1,              // fault
+    Ready2 = 2,             // ready
+    Ready3 = 3,             // ready
+    Ready4 = 4,             // ready
+    Pwm = 5,                // PWM output
+    Voltage = 6,            // voltage output
+    FocVoltage = 7,         // FOC voltage
+    DqVoltage = 8,          // DQ voltage
+    DqCurrent = 9,          // DQ current
+    Position = 10,          // position mode
+    Timeout = 11,           // timeout
+    ZeroSpeed = 12,         // zero speed
+    Range = 13,             // range
+    MeasureInductance = 14, // measure inductance
+    Brake = 15,             // brake
     Reserved16 = 16,
     Reserved17 = 17,
 }
 
 impl RunMode {
-    /// 从 byte0 解析运行模式;超出 0-17 返回 `None`。
+    /// Parses a run mode from byte0; codes above 17 return `None`.
     pub fn from_code(code: u8) -> Option<Self> {
         Some(match code {
             0 => Self::Stop,
@@ -82,11 +82,12 @@ impl RunMode {
     }
 }
 
-/// 故障码(表3)→ 人读描述。8-31 与 >47 为规范未定义,返回"未知故障码"。
+/// Fault code (table 3) → human-readable description. Codes 8-31 and >47 are
+/// undefined by the spec and return "unknown fault code".
 pub fn decode_fault(code: u8) -> &'static str {
     match code {
         0 => "正常",
-        // 1-7:UART/DMA 相关错误(规范未逐条命名,统一归类)
+        // 1-7: UART/DMA related errors (spec names none individually; grouped together)
         1..=7 => "UART/DMA 错误",
         32 => "校准错误",
         33 => "驱动故障",
@@ -125,12 +126,15 @@ pub(crate) fn reply_motor_id(frame: &CanFrame) -> Option<u8> {
     Some(((frame.arbitration_id >> 8) & 0x7F) as u8)
 }
 
-/// 解析 `0x27 0x01` 状态查询回复(参考固件 motor.c `len==8 &&
-/// p_data[0]==0x27` 分支): 只有 pos/vel/tqe 三个 int16(小端)。
+/// Parses the `0x27 0x01` status query reply (reference firmware motor.c
+/// `len==8 && p_data[0]==0x27` branch): only pos/vel/tqe as three
+/// little-endian int16 fields.
 ///
-/// 帧不含运行模式/故障码/温度,本函数以 0/0.0 填充这些字段——
-/// **这不是"值为 0"**。缓存侧(motor.rs `process_feedback_frame`)
-/// 按缺席字段不覆盖的规则合并,保留旧值(2026-10-23 决策)。
+/// The frame carries no run mode/fault code/temperature; this function
+/// fills those fields with 0/0.0 — **that is not "value is zero"**. The
+/// cache side (motor.rs `process_feedback_frame`) merges under the
+/// absent-fields-are-not-overwritten rule, preserving previous values
+/// (2026-10-23 decision).
 pub(crate) fn decode_read_reply(
     frame: CanFrame,
     c: TorqueCoeff,
@@ -158,19 +162,24 @@ pub(crate) fn decode_read_reply(
     })
 }
 
-/// 解析 8 字节状态反馈帧(§3.2 格式,参考固件 `motor.c::motor_process_state`
-/// 的 `len==8 && p_data[0]!=0x27` 分支):byte0=mode(表2),byte1=fault(表3),
-/// byte2-7 = pos/vel/tqe int16(小端),标度与寄存器读回复一致。
+/// Parses the 8-byte status feedback frame (§3.2 format, reference firmware
+/// `motor.c::motor_process_state` `len==8 && p_data[0]!=0x27` branch):
+/// byte0=mode (table 2), byte1=fault (table 3), bytes 2-7 =
+/// pos/vel/tqe int16 (little-endian), same scaling as register read replies.
 ///
-/// ⚠ v2.0.0 真机上本帧无已知生产者(2026-10-09 candump:控制命令即使
-/// 置 bit15 也只回 DLC=0 空帧,见 can_protocol §1.2/§3.2 更正;周期
-/// 上报发的是 `27 01` 格式)——保留本路径因参考固件/官方 PDF 定义了
-/// 该格式,旧版或未知触发方式下仍可能出现。帧不含温度,t_mos/t_rotor
-/// 以 0.0 填充——缓存侧按缺席字段不覆盖的规则合并,保留旧值
-/// (2026-10-23 决策)。
+/// ⚠ On v2.0.0 real hardware this frame has no known producer (2026-10-09
+/// candump: control commands with bit15 set still get only a DLC=0 empty
+/// frame back, see can_protocol §1.2/§3.2 corrections; periodic reports
+/// use the `27 01` format) — this path is kept because the reference
+/// firmware / official PDF define the format, so it can still appear under
+/// older firmware or unknown triggers. The frame carries no temperature;
+/// t_mos/t_rotor are filled with 0.0 — the cache side merges under the
+/// absent-fields-are-not-overwritten rule, preserving previous values
+/// (2026-10-23 decision).
 ///
-/// 寄存器读回复(0x27...)、设置 ACK(0x41,7 字节)、固件版本回复(5 字节)
-/// 均不满足此条件,会被返回 `None`,由各自的处理路径负责。
+/// Register read replies (0x27...), setting ACKs (0x41, 7 bytes) and
+/// firmware version replies (5 bytes) all fail this condition and return
+/// `None`; each is handled by its own path.
 pub(crate) fn decode_status_frame(
     frame: &CanFrame,
     c: TorqueCoeff,
@@ -195,49 +204,54 @@ pub(crate) fn decode_status_frame(
     })
 }
 
-/// 被动反馈分派:先试寄存器读回复,再试状态反馈帧。
+/// Passive feedback dispatch: try register read reply first, then status feedback frame.
 pub(crate) fn decode_feedback(frame: CanFrame, c: TorqueCoeff) -> Option<HightorqueFeedbackState> {
     decode_read_reply(frame, c).or_else(|| decode_status_frame(&frame, c))
 }
 
-// ----- 设置 ACK(参考固件 motor.c 设置解析分支)-----
+// ----- Setting ACK (reference firmware motor.c setting-parse branch) -----
 //
-// 设置类命令成功后,电机回 7 字节 ACK:`0x41 0x01 0x04` + `"OK\r\n"`。
-// 这类帧是"事务性回复",不属于被动反馈(decode_feedback 返回 None),
-// 由活动读取路径(send_with_ack)消费。
+// After a setting-class command succeeds, the motor replies with a 7-byte
+// ACK: `0x41 0x01 0x04` + `"OK\r\n"`. Such frames are transactional
+// replies, not passive feedback (decode_feedback returns None); they are
+// consumed by the active read path (send_with_ack).
 
-/// 设置类命令的成功 ACK(7 字节):`0x41 0x01 0x04` + `"OK\r\n"`。
+/// Success ACK of a setting-class command (7 bytes): `0x41 0x01 0x04` + `"OK\r\n"`.
 pub const SETTING_ACK: [u8; 7] = [0x41, 0x01, 0x04, 0x4F, 0x4B, 0x0D, 0x0A];
 
-/// 判断一帧是否为设置 ACK(dlc==7 且前 7 字节精确匹配 `SETTING_ACK`)。
+/// Tells whether a frame is a setting ACK (dlc==7 and the first 7 bytes
+/// exactly match `SETTING_ACK`).
 pub(crate) fn is_setting_ack(frame: &CanFrame) -> bool {
     frame.dlc == 7 && frame.data.starts_with(&SETTING_ACK)
 }
 
-// ----- P2-16 单位与数据类型选择 -----
+// ----- P2-16 unit and data type selection -----
 //
-// 对照参考固件 `convert.c`:`pos_vel_type_t`(RADIAN_2PI/ANGLE_360/TURNS,
-// 默认 `MOTOR_DATA_TYPE_FLAG = TURNS`)与 `data_type_t`(TFLOAT/TINT32/TINT16;
-// TINT8 在固件 switch 中未实现但 §1.3 cmd 位含 int8 且 rint8 scale 仍传入)。
-// 写路径 `conv_to_turns(v,unit) → xxx_float2int(turns,type) = turns*rintX`;
-// 读路径 `xxx_int2float(raw,type) = raw/rintX → conv_from_turns(turns,unit)`。
+// Mirrors the reference firmware `convert.c`: `pos_vel_type_t`
+// (RADIAN_2PI/ANGLE_360/TURNS, default `MOTOR_DATA_TYPE_FLAG = TURNS`) and
+// `data_type_t` (TFLOAT/TINT32/TINT16; TINT8 is unimplemented in the
+// firmware switch, but §1.3 cmd bits include int8 and the rint8 scale is
+// still passed in). Write path: `conv_to_turns(v,unit) →
+// xxx_float2int(turns,type) = turns*rintX`; read path:
+// `xxx_int2float(raw,type) = raw/rintX → conv_from_turns(turns,unit)`.
 
-/// 角度单位(参考固件 `pos_vel_type_t`)。
+/// Angle unit (reference firmware `pos_vel_type_t`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AngleUnit {
-    /// 弧度制(`RADIAN_2PI`,固件 `MY_2PI` 基准)。crate 默认。
+    /// Radians (`RADIAN_2PI`, firmware `MY_2PI` basis). Crate default.
     Rad,
-    /// 角度制(`ANGLE_360`,0–360°)。
+    /// Degrees (`ANGLE_360`, 0–360°).
     Degree,
-    /// 圈数制(`TURNS`,固件默认 `MOTOR_DATA_TYPE_FLAG`)。
+    /// Turns (`TURNS`, firmware default `MOTOR_DATA_TYPE_FLAG`).
     Turn,
 }
 
-/// 数据类型(参考固件 `data_type_t` + §1.3 cmd 半位 `[3:2]`)。
+/// Data type (reference firmware `data_type_t` + §1.3 cmd half-bits `[3:2]`).
 ///
-/// 注:固件 `data_float2int`/`data_int2float` 的 switch 未实现 `TINT8`
-/// (default → `MOTOR_ERR()`),但协议 §1.3 的 cmd 位编码含 int8,且各
-/// `*_float2int` 仍传入 rint8 scale,故此处保留 `Int8` 并取该 scale。
+/// Note: the firmware `data_float2int`/`data_int2float` switch does not
+/// implement `TINT8` (default → `MOTOR_ERR()`), but the §1.3 cmd bit
+/// encoding includes int8 and every `*_float2int` still receives the rint8
+/// scale, so `Int8` is kept here with that scale.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DataType {
     Int8,
@@ -246,8 +260,9 @@ pub enum DataType {
     Float,
 }
 
-/// 某物理量在 Int8/Int16/Int32 下的 raw scale(Float 为恒等 1.0,不查表)。
-/// 逐项对照 `convert.c` 各 `*_float2int` 的 rint8/rint16/rint32 入参。
+/// Raw scale of a physical quantity under Int8/Int16/Int32 (Float is the
+/// identity 1.0 and skips the table). Mirrors the rint8/rint16/rint32
+/// arguments of each `*_float2int` in `convert.c`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct QuantityScale {
     pub int8: f32,
@@ -266,71 +281,73 @@ impl QuantityScale {
     }
 }
 
-/// 位置 raw scale(对照 `pos_float2int`:rint8=100, rint16=10000, rint32=100000)。
+/// Position raw scale (mirrors `pos_float2int`: rint8=100, rint16=10000, rint32=100000).
 pub const POS_SCALE: QuantityScale = QuantityScale {
     int8: 100.0,
     int16: 10000.0,
     int32: 100000.0,
 };
-/// 速度 raw scale(对照 `vel_float2int`:rint8=100, rint16=4000, rint32=100000)。
+/// Velocity raw scale (mirrors `vel_float2int`: rint8=100, rint16=4000, rint32=100000).
 pub const VEL_SCALE: QuantityScale = QuantityScale {
     int8: 100.0,
     int16: 4000.0,
     int32: 100000.0,
 };
-/// 力矩 raw scale(对照 `tqe_float2int`:rint8=2, rint16=100, rint32=1000)。
+/// Torque raw scale (mirrors `tqe_float2int`: rint8=2, rint16=100, rint32=1000).
 pub const TQE_SCALE: QuantityScale = QuantityScale {
     int8: 2.0,
     int16: 100.0,
     int32: 1000.0,
 };
-/// 加速度 raw scale(对照 `acc_float2int`:rint8=20, rint16=1000, rint32=100000)。
+/// Acceleration raw scale (mirrors `acc_float2int`: rint8=20, rint16=1000, rint32=100000).
 pub const ACC_SCALE: QuantityScale = QuantityScale {
     int8: 20.0,
     int16: 1000.0,
     int32: 100000.0,
 };
-/// 电流 raw scale(对照 `cur_float2int`:rint8=1, rint16=10, rint32=1000)。
+/// Current raw scale (mirrors `cur_float2int`: rint8=1, rint16=10, rint32=1000).
 pub const CUR_SCALE: QuantityScale = QuantityScale {
     int8: 1.0,
     int16: 10.0,
     int32: 1000.0,
 };
-/// 电压 raw scale(对照 `vol_float2int`:rint8=2, rint16=10, rint32=1000)。
+/// Voltage raw scale (mirrors `vol_float2int`: rint8=2, rint16=10, rint32=1000).
 pub const VOL_SCALE: QuantityScale = QuantityScale {
     int8: 2.0,
     int16: 10.0,
     int32: 1000.0,
 };
-/// PID raw scale(对照 `pid_float2int`:rint8=1, rint16=10, rint32=1000)。
+/// PID raw scale (mirrors `pid_float2int`: rint8=1, rint16=10, rint32=1000).
 pub const PID_SCALE: QuantityScale = QuantityScale {
     int8: 1.0,
     int16: 10.0,
     int32: 1000.0,
 };
-/// 温度 raw scale(厂商寄存器单位表:int16 0.1 °C/LSB;2026-10-22 入表,
-/// 用户提供的换算关系按物理量一条给出,三列同值)。
+/// Temperature raw scale (vendor register unit table: int16 0.1 °C/LSB;
+/// added 2026-10-22 — the user-supplied conversion is one per quantity,
+/// so all three columns share the value).
 pub const TEMP_SCALE: QuantityScale = QuantityScale {
     int8: 10.0,
     int16: 10.0,
     int32: 10.0,
 };
-/// 时间 raw scale(厂商寄存器单位表:int16 0.001 s/LSB;当前寄存器表
-/// 0x00-0x45 无时间寄存器,量程定义备用)。
+/// Time raw scale (vendor register unit table: int16 0.001 s/LSB; the
+/// current register table 0x00-0x45 has no time register — range defined
+/// for future use).
 pub const TIME_SCALE: QuantityScale = QuantityScale {
     int8: 1000.0,
     int16: 1000.0,
     int32: 1000.0,
 };
-/// PWM / rKp / rKd(0x23/0x24)raw scale(厂商寄存器单位表:归一化
-/// 1/32767,即 raw=32767 对应满量程 1.0)。
+/// PWM / rKp / rKd (0x23/0x24) raw scale (vendor register unit table:
+/// normalized 1/32767, i.e. raw=32767 corresponds to full scale 1.0).
 pub const PWM_SCALE: QuantityScale = QuantityScale {
     int8: 32767.0,
     int16: 32767.0,
     int32: 32767.0,
 };
 
-/// 单位→圈数(镜像 `conv_to_turns`)。
+/// Unit → turns (mirrors `conv_to_turns`).
 pub fn to_turns(value: f32, unit: AngleUnit) -> f32 {
     match unit {
         AngleUnit::Rad => value / TWO_PI,
@@ -339,7 +356,7 @@ pub fn to_turns(value: f32, unit: AngleUnit) -> f32 {
     }
 }
 
-/// 圈数→单位(镜像 `conv_from_turns`)。
+/// Turns → unit (mirrors `conv_from_turns`).
 pub fn from_turns(turns: f32, unit: AngleUnit) -> f32 {
     match unit {
         AngleUnit::Rad => turns * TWO_PI,
@@ -348,9 +365,12 @@ pub fn from_turns(turns: f32, unit: AngleUnit) -> f32 {
     }
 }
 
-/// 数据类型对应的 raw 对称饱和限(对照 `convert.c::data_limit` 的 max 入参:
-/// TINT16=32760、TINT32=2147483640)。注:固件 `data_limit` 负侧实现有笔误
-/// (`return -min` → 负饱和返回正值),此处修正为对称饱和,避免负向溢出误为正满量程。
+/// Symmetric raw saturation limit per data type (mirrors the max arguments
+/// of `convert.c::data_limit`: TINT16=32760, TINT32=2147483640). Note: the
+/// firmware `data_limit` has a typo on the negative side (`return -min` →
+/// negative saturation returns a positive value); corrected here to
+/// symmetric saturation so a negative overflow is not mistaken for
+/// positive full scale.
 const fn int_clamp_limit(ty: DataType) -> f32 {
     match ty {
         DataType::Int8 => 127.0,
@@ -360,9 +380,11 @@ const fn int_clamp_limit(ty: DataType) -> f32 {
     }
 }
 
-/// 写:物理量(指定单位)→ float raw(单位先经 `conv_to_turns` 转圈,再乘 scale;
-/// 镜像 `xxx_float2int` 的 `in_data * rintX`)。已按 `ty` 对称饱和到对应整型限。
-/// `DataType::Float` 原样返回(不乘 scale、不饱和)。
+/// Write: physical quantity (in the given unit) → float raw (the unit is
+/// first converted to turns via `conv_to_turns`, then multiplied by the
+/// scale; mirrors `xxx_float2int`'s `in_data * rintX`). Symmetrically
+/// saturated to the integer limit of `ty`. `DataType::Float` is returned
+/// as-is (no scale, no saturation).
 pub fn encode_unit_raw(value: f32, unit: AngleUnit, ty: DataType, scale: QuantityScale) -> f32 {
     if ty == DataType::Float {
         return value;
@@ -373,8 +395,9 @@ pub fn encode_unit_raw(value: f32, unit: AngleUnit, ty: DataType, scale: Quantit
     raw.clamp(-lim, lim)
 }
 
-/// 读:float raw → 物理量(指定单位;镜像 `xxx_int2float` 的 `raw / rintX`
-/// 再 `conv_from_turns`)。`DataType::Float` 原样返回。
+/// Read: float raw → physical quantity (in the given unit; mirrors
+/// `xxx_int2float`'s `raw / rintX` followed by `conv_from_turns`).
+/// `DataType::Float` is returned as-is.
 pub fn decode_unit_raw(raw: f32, unit: AngleUnit, ty: DataType, scale: QuantityScale) -> f32 {
     if ty == DataType::Float {
         return raw;
@@ -383,7 +406,7 @@ pub fn decode_unit_raw(raw: f32, unit: AngleUnit, ty: DataType, scale: QuantityS
     from_turns(turns, unit)
 }
 
-/// i16 raw 编码便捷路径(默认 Rad+Int16,crate 现有命令路径沿用)。
+/// Convenience path to i16 raw (Rad+Int16, as the crate's existing command paths use).
 fn to_i16_raw(value: f32, unit: AngleUnit, scale: QuantityScale) -> i16 {
     let raw = encode_unit_raw(value, unit, DataType::Int16, scale);
     (raw.round() as i32).clamp(i16::MIN as i32, i16::MAX as i32) as i16
@@ -397,19 +420,21 @@ pub(crate) fn radps_to_vel_raw(radps: f32) -> i16 {
     to_i16_raw(radps, AngleUnit::Rad, VEL_SCALE)
 }
 
-/// 力矩补偿系数 {k, d}(参考固件 `motor_tqe_adj_t`)。
+/// Torque compensation coefficients {k, d} (reference firmware `motor_tqe_adj_t`).
 ///
-/// 写力矩:`raw = tqe_adjust(tau) * 100 = ((tau - d) / k) * 100`;
-/// 读力矩:`tau = tqe_restore(raw * 0.01) = raw * 0.01 * k + d`。
-/// 当前固件所有型号的 `d` 均为 0(注释里的 d 值已禁用)。
+/// Write torque: `raw = tqe_adjust(tau) * 100 = ((tau - d) / k) * 100`;
+/// read torque: `tau = tqe_restore(raw * 0.01) = raw * 0.01 * k + d`.
+/// On current firmware `d` is 0 for every model (the d values in comments are disabled).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TorqueCoeff {
     pub k: f32,
     pub d: f32,
 }
 
-/// 电机型号(参考固件 `motor_type_t`)。决定力矩 raw↔Nm 的补偿系数。
-/// 变体名镜像固件枚举码(如 `M60SG_35`),不改为驼峰以保持与源码对照可读。
+/// Motor model (reference firmware `motor_type_t`). Determines the torque
+/// raw↔Nm compensation coefficients. Variant names mirror the firmware
+/// enum codes (e.g. `M60SG_35`); not camel-cased, to stay comparable
+/// against the source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub enum MotorModel {
@@ -422,20 +447,22 @@ pub enum MotorModel {
     M5046_20,
     M5047_09,
     M5047_36,
-    /// HTDW-5036-02-CNE(50mm 行星关节, 减速比 36)。k=0.64 取自厂商
-    /// 寄存器单位表 k 表的 M5047_36 行(2026-10-20 决策);模组手册的扭矩
-    /// 常数 Kt=0.54 Nm/A 是另一概念, 不作补偿系数(固件表无此型号, 待实测校准)。
+    /// HTDW-5036-02-CNE (50mm planetary joint, gear ratio 36). k=0.64 taken
+    /// from the M5047_36 row of the vendor register unit table's k table
+    /// (2026-10-20 decision); the module manual's torque constant
+    /// Kt=0.54 Nm/A is a different concept and is not used as the
+    /// compensation coefficient (firmware table lacks this model, pending calibration).
     M5036_36,
     M6056_36,
     M7256_35,
     M60SG_35,
     M60BM_35,
-    /// 通用/无明确型号(k=0.5, d=0)。固件在型号未知时用此项。
+    /// Generic / no specific model (k=0.5, d=0). The firmware uses this when the model is unknown.
     General,
 }
 
 impl MotorModel {
-    /// 力矩补偿系数(逐项对照参考固件 `motor_tqe_adj[]`)。
+    /// Torque compensation coefficients (mirrors the reference firmware `motor_tqe_adj[]` item by item).
     pub const fn coeff(self) -> TorqueCoeff {
         match self {
             Self::Null => TorqueCoeff { k: 0.0, d: 0.0 },
@@ -464,8 +491,10 @@ impl MotorModel {
                 k: 0.547_474,
                 d: 0.0,
             },
-            // 2026-10-20 决策: 取飞书单位表 0.64 为准;固件 motor_tqe_adj 为 0.35,
-            // 两版固件一致但按厂商文档优先原则弃用(分歧已上报厂商确认前以文档为准)。
+            // 2026-10-20 decision: take 0.64 from the Feishu unit table;
+            // firmware motor_tqe_adj is 0.35, identical across both firmware
+            // versions, but dropped per the vendor-docs-over-firmware
+            // principle (doc wins while the dispute awaits vendor confirmation).
             Self::M5047_36 => TorqueCoeff { k: 0.64, d: 0.0 },
             Self::M5036_36 => TorqueCoeff { k: 0.64, d: 0.0 },
             Self::M6056_36 => TorqueCoeff { k: 0.677, d: 0.0 },
@@ -479,9 +508,11 @@ impl MotorModel {
         }
     }
 
-    /// 从型号提示字符串解析。接受 `5046-20` / `5046_20` / `M5046_20` /
-    /// `ht-5046-20` / `5036` / `ht-5036` 等大小写与分隔符变体;通用占位(`""`/`hightorque`/`ht`/
-    /// `auto`/`default`/`general`)返回 [`MotorModel::General`];无法识别返回 `None`。
+    /// Parses from a model hint string. Accepts case and separator variants
+    /// like `5046-20` / `5046_20` / `M5046_20` / `ht-5046-20` / `5036` /
+    /// `ht-5036`; generic placeholders (`""`/`hightorque`/`ht`/`auto`/
+    /// `default`/`general`) return [`MotorModel::General`]; unrecognized
+    /// strings return `None`.
     pub fn from_hint(hint: &str) -> Option<Self> {
         let s = hint.trim().to_ascii_lowercase();
         match s.as_str() {
@@ -507,8 +538,10 @@ impl MotorModel {
             "5046_20" => Self::M5046_20,
             "5047_09" => Self::M5047_09,
             "5047_36" => Self::M5047_36,
-            // HTDW-5036-02-CNE: 后缀按 SDK 约定取减速比(36), 非产品商业代号 -02。
-            // 裸 "5036"、减速比式 "5036_36"、商业代号 "5036_02" 均映射到唯一 5036 变体。
+            // HTDW-5036-02-CNE: the suffix follows the SDK convention and is
+            // the gear ratio (36), not the commercial code -02. Bare "5036",
+            // ratio style "5036_36" and commercial code "5036_02" all map to
+            // the single 5036 variant.
             "5036" | "5036_36" | "5036_02" => Self::M5036_36,
             "6056_36" => Self::M6056_36,
             "7256_35" => Self::M7256_35,
@@ -519,8 +552,8 @@ impl MotorModel {
     }
 }
 
-/// 写力矩:真实 Nm → int16 raw(经 `tqe_adjust` + TINT16 scale=100)。
-/// `k == 0`(MNULL)时返回 0,避免除零。
+/// Write torque: real Nm → int16 raw (via `tqe_adjust` + TINT16 scale=100).
+/// Returns 0 when `k == 0` (MNULL) to avoid division by zero.
 pub(crate) fn tqe_adjust_to_raw(tau_nm: f32, c: TorqueCoeff) -> i16 {
     if c.k == 0.0 {
         return 0;
@@ -529,42 +562,47 @@ pub(crate) fn tqe_adjust_to_raw(tau_nm: f32, c: TorqueCoeff) -> i16 {
     v.clamp(i16::MIN as i32, i16::MAX as i32) as i16
 }
 
-/// 读力矩:int16 raw → 真实 Nm(经 TINT16 scale=0.01 + `tqe_restore`)。
+/// Read torque: int16 raw → real Nm (via TINT16 scale=0.01 + `tqe_restore`).
 pub(crate) fn tqe_restore_raw(raw: i16, c: TorqueCoeff) -> f32 {
     raw as f32 * 0.01 * c.k + c.d
 }
 
-/// DQ 电压模式:V → int16 raw(协议 §1 通信命令 6,0.1 V/LSB)。超界饱和。
+/// DQ voltage mode: V → int16 raw (protocol §1 command 6, 0.1 V/LSB). Saturates out of range.
 pub(crate) fn volts_to_raw(voltage_v: f32) -> i16 {
     let v = (voltage_v * 10.0).round() as i32;
     v.clamp(i16::MIN as i32, i16::MAX as i32) as i16
 }
 
-/// DQ 电流模式:A → int16 raw(协议 §1 通信命令 6,0.1 A/LSB)。超界饱和。
+/// DQ current mode: A → int16 raw (protocol §1 command 6, 0.1 A/LSB). Saturates out of range.
 pub(crate) fn amps_to_raw(current_a: f32) -> i16 {
     let v = (current_a * 10.0).round() as i32;
     v.clamp(i16::MIN as i32, i16::MAX as i32) as i16
 }
 
-/// 加速度(rad/s²)→梯形模式 int16 原始值。
+/// Acceleration (rad/s²) → trapezoid mode int16 raw value.
 ///
-/// 参考固件 `motor_set_pos_vel_acc` 经 `conv_to_turns` → `acc_float2int(TINT16)`
-/// 落地,`data_float2int` 对 TINT16 用 scale=1000(转/秒²→raw),即
-/// `acc_raw = acc_turns * 1000 = (acc_rad_s2 / 2π) * 1000`。
+/// The reference firmware `motor_set_pos_vel_acc` lands via `conv_to_turns` →
+/// `acc_float2int(TINT16)`, where `data_float2int` uses scale=1000 for TINT16
+/// (turns/s² → raw), i.e. `acc_raw = acc_turns * 1000 = (acc_rad_s2 / 2π) * 1000`.
 ///
-/// 注:`libelybot_can.c` 的 `motor_control_pos_vel_acc` 注释写"单位 0.01 转/秒²"
-/// (scale 100),与 `convert.c` 实际代码路径(scale 1000)不一致;此处跟随实际
-/// 代码路径,待真机校准后确认。
+/// Note: the `libelybot_can.c` comment on `motor_control_pos_vel_acc` says
+/// "unit 0.01 turns/s²" (scale 100), inconsistent with the actual `convert.c`
+/// code path (scale 1000); this follows the code path. 2026-11-02 resolution:
+/// the Feishu unit table and the firmware code agree on scale 1000, so the
+/// old comment is a deprecated outlier — final confirmation pending a
+/// real-bus trapezoid timing test.
 pub(crate) fn radps2_to_acc_raw(radps2: f32) -> i16 {
     to_i16_raw(radps2, AngleUnit::Rad, ACC_SCALE)
 }
 
-// ----- MIT 模式(电机固件 v4.6.0+)-----
+// ----- MIT mode (motor firmware v4.6.0+) -----
 //
-// 参考 `motor_control_pos_vel_tqe_kp_kd`(`libelybot_can.c`):帧 ID = `0x18000 | id`
-// (扩展 29 位),8 字节位打包:pos(16 bit)、vel(12)、tqe(12)、kp(12)、kd(12)。
-// 量程来自 `motor_set_pos_vel_tqe_kp_kd`(`motor_control.c`):pos/vel 以"圈"为单位
-// (经 conv_to_turns),tqe 以 Nm 为单位(型号自适应见 P2-15,此处先不修正)。
+// Reference `motor_control_pos_vel_tqe_kp_kd` (`libelybot_can.c`): frame
+// ID = `0x18000 | id` (extended 29-bit), 8 bytes bit-packed: pos (16 bit),
+// vel (12), tqe (12), kp (12), kd (12). Ranges come from
+// `motor_set_pos_vel_tqe_kp_kd` (`motor_control.c`): pos/vel in "turns"
+// (via conv_to_turns), tqe in Nm (model adaptation see P2-15, not
+// corrected here).
 
 pub const MIT_ID_PREFIX: u32 = 0x18000;
 
@@ -579,9 +617,10 @@ pub const MIT_KP_MAX: f32 = 400.0;
 pub const MIT_KD_MIN: f32 = -100.0;
 pub const MIT_KD_MAX: f32 = 100.0;
 
-/// 镜像参考固件 `mit_float2int`:`raw = (x - x_min) * ((1<<bits) / span)`,
-/// 并饱和到 `[0, (1<<bits)-1]`(否则 12 位字段取满量程时会得到 1<<12=4096,
-/// 高位溢出后位打包错位)。
+/// Mirrors the reference firmware `mit_float2int`: `raw = (x - x_min) *
+/// ((1<<bits) / span)`, saturated to `[0, (1<<bits)-1]` (otherwise a
+/// 12-bit field at full scale yields 1<<12=4096, and the overflowing high
+/// bit misaligns the bit packing).
 pub(crate) fn mit_float2int(x: f32, x_min: f32, x_max: f32, bits: u8) -> u16 {
     let span = x_max - x_min;
     let scale = ((1u32 << bits) as f32) / span;
@@ -590,15 +629,11 @@ pub(crate) fn mit_float2int(x: f32, x_min: f32, x_max: f32, bits: u8) -> u16 {
     raw.clamp(0.0, max) as u16
 }
 
-/// 编码 MIT 帧(供 CLI/ws_gateway 等上层复用,避免协议逻辑第 4 份拷贝)。
-/// 输入:pos(rad)、vel(rad/s)、tqe(Nm)、kp、kd 无量纲。量程内饱和。
-pub fn encode_mit_frame(
-    pos_rad: f32,
-    vel_radps: f32,
-    tqe_nm: f32,
-    kp: f32,
-    kd: f32,
-) -> [u8; 8] {
+/// Encodes the MIT frame (reused by upper layers such as CLI/ws_gateway,
+/// avoiding a 4th copy of the protocol logic).
+/// Inputs: pos (rad), vel (rad/s), tqe (Nm), dimensionless kp/kd.
+/// Saturates within range.
+pub fn encode_mit_frame(pos_rad: f32, vel_radps: f32, tqe_nm: f32, kp: f32, kd: f32) -> [u8; 8] {
     let pos_turns = pos_rad / TWO_PI;
     let vel_turns = vel_radps / TWO_PI;
     let pos_u = mit_float2int(pos_turns, MIT_POS_MIN, MIT_POS_MAX, 16);
@@ -621,15 +656,16 @@ pub fn encode_mit_frame(
     [b0, b1, b2, b3, b4, b5, b6, b7]
 }
 
-// ----- 通用寄存器读取(协议 §1.3)-----
+// ----- Generic register read (protocol §1.3) -----
 //
-// 读命令字节(cmd)= `[7:4]=0001 读 / 0010 回复`, `[3:2]` 类型(00=int8,
-// 01=int16, 10=int32, 11=float), `[1:0]` 数量(01=1, 10=2, 11=3)。
-// 多对 `(cmd, addr)` 可拼接,总长 ≤ 8 字节。回复镜像(cmd 高半字节=0010),
-// 每对形如 `(reply_cmd, start_addr, value0, value1, ...)`,地址连续递增。
+// Read command byte (cmd) = `[7:4]=0001 read / 0010 reply`, `[3:2]` type
+// (00=int8, 01=int16, 10=int32, 11=float), `[1:0]` count (01=1, 10=2,
+// 11=3). Multiple `(cmd, addr)` pairs may be concatenated up to 8 bytes
+// total. The reply mirrors it (cmd high half-byte=0010); each pair is
+// `(reply_cmd, start_addr, value0, value1, ...)` with addresses ascending.
 
-/// 寄存器数据类型(对应协议 cmd 的 `[3:2]` 两位)。Hash/Eq 供
-/// motor.rs 寄存器缓存以 `(addr, ty)` 作键(A3)。
+/// Register data type (the two `[3:2]` cmd bits of the protocol). Hash/Eq
+/// support the motor.rs register cache keyed by `(addr, ty)` (A3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RegisterType {
     Int8 = 0b00,
@@ -639,7 +675,7 @@ pub enum RegisterType {
 }
 
 impl RegisterType {
-    /// 从 cmd 字节的 `[3:2]` 两位反解类型。
+    /// Decodes the type back from the two `[3:2]` cmd bits.
     pub(crate) fn from_cmd_bits(bits: u8) -> Option<Self> {
         match bits & 0b11 {
             0 => Some(Self::Int8),
@@ -662,8 +698,9 @@ impl RegisterType {
         }
     }
 
-    /// 桥接到控制帧换算用的 `DataType`(寄存器读换算复用
-    /// `QuantityScale::scale`,后者按 `DataType` 取列)。
+    /// Bridges to the `DataType` used by control-frame conversion (the
+    /// register read conversion reuses `QuantityScale::scale`, which picks
+    /// the column by `DataType`).
     pub(crate) fn data_type(self) -> DataType {
         match self {
             Self::Int8 => DataType::Int8,
@@ -674,7 +711,7 @@ impl RegisterType {
     }
 }
 
-/// 读到的寄存器原始值。
+/// Raw register value as read.
 #[derive(Debug, Clone, Copy)]
 pub enum RegisterValue {
     I8(i8),
@@ -684,7 +721,7 @@ pub enum RegisterValue {
 }
 
 impl RegisterValue {
-    /// 以 f32 形式取值(用于位置/速度/力矩等的后续标度换算)。
+    /// Value as f32 (for downstream scale conversion of position/velocity/torque etc.).
     pub fn as_f32(self) -> f32 {
         match self {
             Self::I8(v) => v as f32,
@@ -694,8 +731,9 @@ impl RegisterValue {
         }
     }
 
-    /// 值的数据类型(motor.rs 寄存器缓存 `(addr, ty)` 键的 `ty` 来源,
-    /// 回复帧 cmd 半字节编码的类型与解码变体一致)。
+    /// The value's data type (the `ty` source of the motor.rs register
+    /// cache's `(addr, ty)` key; the reply frame's cmd half-byte encodes
+    /// the same type as the decoded variant).
     pub fn register_type(self) -> RegisterType {
         match self {
             Self::I8(_) => RegisterType::Int8,
@@ -706,9 +744,9 @@ impl RegisterValue {
     }
 }
 
-/// 一条读请求:从 `addr` 起连续读 `count` 个数据(count ∈ 1..=3)。
-/// 2026-10-22 决策:读取**固定按 Int16**(`cmd [3:2]` 恒 01),调用方
-/// 不再指定数据类型。
+/// One read request: read `count` consecutive values starting at `addr`
+/// (count ∈ 1..=3). 2026-10-22 decision: reads are **fixed Int16**
+/// (`cmd [3:2]` is always 01); callers no longer specify the data type.
 #[derive(Debug, Clone, Copy)]
 pub struct ReadCmd {
     pub addr: u8,
@@ -721,27 +759,32 @@ impl ReadCmd {
         if !(1..=3).contains(&count) {
             return None;
         }
-        // count 1/2/3 恰好等于 2 位编码 01/10/11;类型位恒 Int16(01)
+        // count 1/2/3 is exactly the 2-bit encoding 01/10/11; type bits are always Int16 (01)
         Some(0b0001_0000 | (RegisterType::Int16.cmd_bits() << 2) | (count & 0b11))
     }
 }
 
 const REPLY_NIBBLE: u8 = 0b0010_0000;
 
-/// 单条读请求的规范帧数据:恰好 2 字节 `(cmd, addr)`。
+/// Canonical frame data of a single read request: exactly 2 bytes `(cmd, addr)`.
 ///
-/// 2026-10-24 真机实测(can0,candump):固件只解析帧内**第一对**
-/// `(cmd, addr)`,尾随字节必须全零——多条读请求拼一帧(非零尾随
-/// 字节)会被电机**整帧静默丢弃**(零回帧,连 DLC=0 空帧都没有;
-/// dlc 2-8 的零尾随帧均正常受理)。故读请求一律一帧一对,连续地址
-/// 靠 cmd 的 count 位(1..=3)覆盖,非连续地址分多帧发。
+/// 2026-10-24 real-bus tests (can0, candump): the firmware parses only the
+/// **first** `(cmd, addr)` pair of a frame and the trailing bytes must be
+/// all zero — packing multiple read requests into one frame (non-zero
+/// trailing bytes) makes the motor **drop the whole frame silently** (zero
+/// replies, not even a DLC=0 empty frame; dlc 2-8 zero-trailing frames are
+/// all accepted). So read requests are always one pair per frame;
+/// consecutive addresses are covered by the cmd count bits (1..=3), and
+/// non-consecutive addresses go in separate frames.
 pub(crate) fn encode_read(cmd: ReadCmd) -> Option<[u8; 2]> {
     Some([cmd.cmd_byte()?, cmd.addr])
 }
 
-/// 解析寄存器读回复。返回 `(addr, value)` 列表,地址按 count 连续递增。
+/// Parses a register read reply. Returns a list of `(addr, value)` with
+/// addresses ascending consecutively per count.
 ///
-/// 非回复帧(首字节高半字节 != 0010)或长度不足时返回 `None`。
+/// Returns `None` for non-reply frames (first byte high half-byte != 0010)
+/// or insufficient length.
 pub(crate) fn decode_register_reply(data: &[u8]) -> Option<Vec<(u8, RegisterValue)>> {
     if data.is_empty() {
         return None;
@@ -811,7 +854,7 @@ mod tests {
         }
     }
 
-    /// 测试用通用系数(k=0.5, d=0)。
+    /// Generic test coefficient (k=0.5, d=0).
     const GEN_COEFF: TorqueCoeff = TorqueCoeff { k: 0.5, d: 0.0 };
 
     // The bug: extended-frame replies put the motor id in the HIGH byte
@@ -846,7 +889,7 @@ mod tests {
         assert_eq!(state.can_id, 1);
     }
 
-    // ----- 通用寄存器读取 -----
+    // ----- Generic register read -----
 
     #[test]
     fn encode_read_single_int16_count3_matches_0x17_0x01() {
@@ -859,8 +902,9 @@ mod tests {
         );
     }
 
-    /// 2026-10-22 决策:类型位恒 Int16 → count1 cmd=0x15、count2=0x16。
-    /// 2026-10-24 真机实测:一帧一对(固件丢弃非零尾随字节的多对拼帧)。
+    /// 2026-10-22 decision: type bits always Int16 → count1 cmd=0x15,
+    /// count2=0x16. 2026-10-24 real-bus tests: one pair per frame (the
+    /// firmware drops multi-pair frames with non-zero trailing bytes).
     #[test]
     fn encode_read_fixed_int16_cmd_bytes() {
         assert_eq!(
@@ -892,7 +936,7 @@ mod tests {
 
     #[test]
     fn decode_register_reply_pos_vel_tqe() {
-        // 0x27 0x01, pos=0x1234, vel=0x0009, tqe=0x0000 (spec 示例)
+        // 0x27 0x01, pos=0x1234, vel=0x0009, tqe=0x0000 (spec example)
         let data = [0x27, 0x01, 0x34, 0x12, 0x09, 0x00, 0x00, 0x00];
         let vals = decode_register_reply(&data).expect("reply decodes");
         assert_eq!(vals.len(), 3);
@@ -918,20 +962,20 @@ mod tests {
 
     #[test]
     fn decode_register_reply_rejects_status_frame() {
-        // 状态反馈帧首字节=mode(高半字节 0/1),不是回复(0010)
+        // Status feedback frame first byte = mode (high half-byte 0/1), not a reply (0010)
         let data = [0x0A, 0x00, 0x34, 0x12, 0x09, 0x00, 0x00, 0x00];
         assert!(decode_register_reply(&data).is_none());
     }
 
     #[test]
     fn decode_register_reply_rejects_non_reply_first_byte() {
-        let data = [0x17, 0x01, 0, 0, 0, 0, 0, 0]; // 0x17 高半字节=0001,非回复
+        let data = [0x17, 0x01, 0, 0, 0, 0, 0, 0]; // 0x17 high half-byte=0001, not a reply
         assert!(decode_register_reply(&data).is_none());
     }
 
     #[test]
     fn decode_register_reply_multi_pair() {
-        // 两对:int16 count1 @0x01, int16 count1 @0x0F
+        // Two pairs: int16 count1 @0x01, int16 count1 @0x0F
         // pair1: 0x25 0x01 (reply int16 count1), data 0x34 0x12
         // pair2: 0x25 0x0F, data 0x09 0x00
         let data = [0x25, 0x01, 0x34, 0x12, 0x25, 0x0F, 0x09, 0x00];
@@ -943,15 +987,15 @@ mod tests {
 
     #[test]
     fn decode_register_reply_rejects_empty_data() {
-        // 电机会回 DLC=0 空帧(如 bit15 置位时), 空数据不是回复
+        // The motor may reply with a DLC=0 empty frame (e.g. when bit15 is set); empty data is not a reply
         assert!(decode_register_reply(&[]).is_none());
     }
 
-    // ----- 状态反馈帧(P1-4) -----
+    // ----- Status feedback frame (P1-4) -----
 
     #[test]
     fn decode_status_frame_extracts_mode_and_fault() {
-        // mode=0x0A(位置模式), fault=0, pos=0x1234, vel=0x0009, tqe=0x0000
+        // mode=0x0A (position mode), fault=0, pos=0x1234, vel=0x0009, tqe=0x0000
         let frame = frame_with(
             0x0100,
             [0x0A, 0x00, 0x34, 0x12, 0x09, 0x00, 0x00, 0x00],
@@ -969,7 +1013,7 @@ mod tests {
 
     #[test]
     fn decode_status_frame_carries_fault_code() {
-        // mode=0x02(ready), fault=0x22(34=过压)
+        // mode=0x02 (ready), fault=0x22 (34=overvoltage)
         let frame = frame_with(0x0100, [0x02, 0x22, 0, 0, 0, 0, 0, 0], 8, true);
         let state = decode_status_frame(&frame, GEN_COEFF).expect("status frame decodes");
         assert_eq!(state.status_code, 0x02);
@@ -978,17 +1022,17 @@ mod tests {
 
     #[test]
     fn decode_status_frame_rejects_register_reply_and_short() {
-        // 0x27 寄存器回复不应被当状态帧
+        // A 0x27 register reply must not be treated as a status frame
         let reg = frame_with(0x0100, [0x27, 0x01, 0, 0, 0, 0, 0, 0], 8, true);
         assert!(decode_status_frame(&reg, GEN_COEFF).is_none());
-        // 短帧
+        // short frame
         let short = frame_with(0x0100, [0x0A, 0x00, 0, 0, 0, 0, 0, 0], 5, true);
         assert!(decode_status_frame(&short, GEN_COEFF).is_none());
     }
 
     #[test]
     fn decode_feedback_dispatches_both_paths() {
-        // 寄存器读回复走 read_reply 分支(mode=0, fault=0)
+        // Register read reply goes through the read_reply branch (mode=0, fault=0)
         let reg = frame_with(
             0x0100,
             [0x27, 0x01, 0x34, 0x12, 0x09, 0x00, 0x00, 0x00],
@@ -999,7 +1043,7 @@ mod tests {
         assert_eq!(s.status_code, 0);
         assert_eq!(s.fault_code, 0);
 
-        // 状态反馈帧走 status 分支
+        // Status feedback frame goes through the status branch
         let st = frame_with(
             0x0100,
             [0x0A, 0x00, 0x34, 0x12, 0x09, 0x00, 0x00, 0x00],
@@ -1012,7 +1056,7 @@ mod tests {
 
     #[test]
     fn decode_feedback_rejects_ack_and_version() {
-        // 设置 ACK(7 字节)与版本回复(5 字节)都不属于反馈
+        // Setting ACKs (7 bytes) and version replies (5 bytes) are both not feedback
         let ack = frame_with(
             0x0100,
             [0x41, 0x01, 0x04, 0x4F, 0x4B, 0x0D, 0x0A, 0],
@@ -1024,15 +1068,17 @@ mod tests {
         assert!(decode_feedback(ver, GEN_COEFF).is_none());
     }
 
-    // ----- MIT 模式位打包(P1-2)-----
+    // ----- MIT mode bit packing (P1-2) -----
     //
-    // 验证 `encode_mit_frame` 的位布局(pos@byte0-1、vel@byte2+byte3高半位、
-    // tqe@byte3低半位+byte4、kp@byte5+byte6高半位、kd@byte6低半位+byte7):
-    // 逐字段置最大值、其余置最小值,只应翻转该字段对应的位。
+    // Verifies the bit layout of `encode_mit_frame` (pos@byte0-1,
+    // vel@byte2+byte3 high nibble, tqe@byte3 low nibble+byte4,
+    // kp@byte5+byte6 high nibble, kd@byte6 low nibble+byte7): set each
+    // field to its maximum and the rest to their minimum — only that
+    // field's bits should flip.
 
     #[test]
     fn mit_float2int_midpoint_is_half_scale() {
-        // 对称量程,中点 0 应映射到半量程。
+        // Symmetric range: the midpoint 0 should map to half scale.
         assert_eq!(mit_float2int(0.0, -10.0, 10.0, 12), 2048);
         assert_eq!(mit_float2int(0.0, -2.0, 2.0, 12), 2048);
         assert_eq!(mit_float2int(0.0, -400.0, 400.0, 12), 2048);
@@ -1090,8 +1136,8 @@ mod tests {
             MIT_KP_MIN,
             MIT_KD_MIN,
         );
-        // byte2 = vel 低 8 位(0xFF),byte3 高半位 = vel 高 4 位(0x0F),
-        // byte3 低半位 = tqe 低 4 位(0)→ byte3 = 0x0F。
+        // byte2 = vel low 8 bits (0xFF), byte3 high nibble = vel high 4 bits (0x0F),
+        // byte3 low nibble = tqe low 4 bits (0) → byte3 = 0x0F.
         assert_eq!(d[0], 0x00);
         assert_eq!(d[1], 0x00);
         assert_eq!(d[2], 0xFF);
@@ -1108,7 +1154,7 @@ mod tests {
             MIT_KP_MIN,
             MIT_KD_MIN,
         );
-        // byte3 低半位 = tqe 低 4 位(0x0F)<<4 → 0xF0,byte4 = tqe 高 8 位(0xFF)。
+        // byte3 low nibble = tqe low 4 bits (0x0F) << 4 → 0xF0, byte4 = tqe high 8 bits (0xFF).
         assert_eq!(d[2], 0x00);
         assert_eq!(d[3], 0xF0);
         assert_eq!(d[4], 0xFF);
@@ -1143,26 +1189,27 @@ mod tests {
         assert_eq!(d[7], 0xFF);
     }
 
-    // ----- 梯形模式加速度标度(P1-3)-----
+    // ----- Trapezoid mode acceleration scale (P1-3) -----
 
     #[test]
     fn radps2_to_acc_raw_one_rev_per_s2_is_1000() {
-        // 1 圈/s² = 2π rad/s² → acc_turns=1 → raw=1000(scale=1000)。
+        // 1 turn/s² = 2π rad/s² → acc_turns=1 → raw=1000 (scale=1000).
         let raw = radps2_to_acc_raw(TWO_PI);
         assert_eq!(raw, 1000);
     }
 
     #[test]
     fn radps2_to_acc_raw_saturates() {
-        // 远超 i16 量程 → 饱和到固件 data_limit 的 ±32760(非 i16::MAX,
-        // 预留 0x8000 作 NAN_INT16 "无限制" 哨兵,对照 convert.c)。
+        // Far beyond the i16 range → saturates to the firmware data_limit
+        // ±32760 (not i16::MAX — 0x8000 is reserved as the NAN_INT16
+        // "no limit" sentinel, per convert.c).
         let raw = radps2_to_acc_raw(1.0e9);
         assert_eq!(raw, 32760);
         let raw = radps2_to_acc_raw(-1.0e9);
         assert_eq!(raw, -32760);
     }
 
-    // ----- P2-16 单位与数据类型 -----
+    // ----- P2-16 units and data types -----
 
     #[test]
     fn quantity_scales_match_convert_c() {
@@ -1240,13 +1287,13 @@ mod tests {
                 assert!((back - v).abs() < 1e-5, "unit {unit:?} v={v} back={back}");
             }
         }
-        // 各单位 1 圈等价:Rad=2π、Degree=360、Turn=1
+        // One turn in each unit: Rad=2π, Degree=360, Turn=1
         assert!((to_turns(TWO_PI, AngleUnit::Rad) - 1.0).abs() < 1e-5);
         assert!((to_turns(360.0, AngleUnit::Degree) - 1.0).abs() < 1e-5);
         assert_eq!(to_turns(1.0, AngleUnit::Turn), 1.0);
     }
 
-    /// 各 (AngleUnit, DataType) 组合的 encode→decode 往返,以 pos 为例。
+    /// encode→decode round trip for every (AngleUnit, DataType) combination, using pos as the example.
     #[test]
     fn encode_decode_unit_round_trip_all_combos() {
         for unit in [AngleUnit::Rad, AngleUnit::Degree, AngleUnit::Turn] {
@@ -1256,7 +1303,7 @@ mod tests {
                 DataType::Int32,
                 DataType::Float,
             ] {
-                // 取一个在所有类型量程内的值:0.3 圈
+                // Pick a value within every type's range: 0.3 turns
                 let v_in_unit = match unit {
                     AngleUnit::Rad => 0.3 * TWO_PI,
                     AngleUnit::Degree => 0.3 * 360.0,
@@ -1264,7 +1311,7 @@ mod tests {
                 };
                 let raw = encode_unit_raw(v_in_unit, unit, ty, POS_SCALE);
                 let back = decode_unit_raw(raw, unit, ty, POS_SCALE);
-                // 量化误差:Float 无损,整型 ≤ 1/scale
+                // Quantization error: Float lossless, integers ≤ 1/scale
                 let tol = match ty {
                     DataType::Float => 1e-5,
                     DataType::Int8 => 1.0 / POS_SCALE.int8,
@@ -1281,7 +1328,7 @@ mod tests {
 
     #[test]
     fn encode_unit_raw_float_is_identity() {
-        // Float 类型不乘 scale、不饱和,原样返回
+        // Float type: no scale, no saturation, returned as-is
         let raw = encode_unit_raw(1.5, AngleUnit::Rad, DataType::Float, POS_SCALE);
         assert_eq!(raw, 1.5);
         let back = decode_unit_raw(1.5, AngleUnit::Rad, DataType::Float, POS_SCALE);
@@ -1290,7 +1337,7 @@ mod tests {
 
     #[test]
     fn encode_unit_raw_int16_matches_legacy_rad_to_pos_raw() {
-        // P2-16 泛化路径应与原 Rad+Int16 固定常量路径一致。
+        // The P2-16 generalized path should match the legacy Rad+Int16 fixed-constant path.
         for rad in [0.0f32, 0.5 * TWO_PI, 1.0 * TWO_PI, -0.25 * TWO_PI] {
             let via_unit =
                 encode_unit_raw(rad, AngleUnit::Rad, DataType::Int16, POS_SCALE).round() as i32;
@@ -1328,33 +1375,33 @@ mod tests {
             encode_unit_raw(-1.0e15, AngleUnit::Turn, DataType::Int32, POS_SCALE),
             -2_147_483_640.0
         );
-        // float: 不饱和
+        // float: no saturation
         assert_eq!(
             encode_unit_raw(1.0e15, AngleUnit::Turn, DataType::Float, POS_SCALE),
             1.0e15
         );
     }
 
-    /// 单位换算正确性:1 圈经 Degree+Int16 编码,raw 应 = 1 * 360/360 * 10000 = 10000。
+    /// Unit conversion correctness: 1 turn encoded via Degree+Int16 should give raw = 1 * 360/360 * 10000 = 10000.
     #[test]
     fn encode_unit_raw_degree_one_rev_is_10000_int16() {
         let raw = encode_unit_raw(360.0, AngleUnit::Degree, DataType::Int16, POS_SCALE);
         assert_eq!(raw, 10000.0);
     }
 
-    /// 圈数制 + Int16:1.0 圈 → 1 * 10000 = 10000(对照固件默认 TURNS)。
+    /// Turns + Int16: 1.0 turn → 1 * 10000 = 10000 (matches the firmware default TURNS).
     #[test]
     fn encode_unit_raw_turn_one_rev_is_10000_int16() {
         let raw = encode_unit_raw(1.0, AngleUnit::Turn, DataType::Int16, POS_SCALE);
         assert_eq!(raw, 10000.0);
-        // decode 往返
+        // decode round trip
         assert!(
             (decode_unit_raw(10000.0, AngleUnit::Turn, DataType::Int16, POS_SCALE) - 1.0).abs()
                 < 1e-6
         );
     }
 
-    // ----- 设置 ACK(P1-6)-----
+    // ----- Setting ACK (P1-6) -----
 
     #[test]
     fn is_setting_ack_matches_exact_frame() {
@@ -1377,7 +1424,7 @@ mod tests {
             true,
         );
         assert!(!is_setting_ack(&long));
-        // 字节错乱(0x4E 代替 0x4F)
+        // scrambled bytes (0x4E instead of 0x4F)
         let bad = frame_with(
             0x0100,
             [0x41, 0x01, 0x04, 0x4E, 0x4B, 0x0D, 0x0A, 0],
@@ -1385,7 +1432,7 @@ mod tests {
             true,
         );
         assert!(!is_setting_ack(&bad));
-        // 状态帧
+        // status frame
         let status = frame_with(0x0100, [0x0A, 0x00, 0, 0, 0, 0, 0, 0], 8, true);
         assert!(!is_setting_ack(&status));
     }
@@ -1398,7 +1445,7 @@ mod tests {
                 "code {code} should map to a RunMode"
             );
         }
-        // 18 及以上不在表2 范围
+        // 18 and above are outside the table 2 range
         assert_eq!(RunMode::from_code(18), None);
         assert_eq!(RunMode::from_code(255), None);
     }
@@ -1416,7 +1463,7 @@ mod tests {
     #[test]
     fn decode_fault_known_codes() {
         assert_eq!(decode_fault(0), "正常");
-        // 1-7 统一归类为 UART/DMA 错误
+        // 1-7 grouped together as UART/DMA errors
         for c in 1u8..=7 {
             assert_eq!(decode_fault(c), "UART/DMA 错误", "code {c}");
         }
@@ -1440,7 +1487,7 @@ mod tests {
 
     #[test]
     fn decode_fault_unknown_codes() {
-        // 8-31 与 >47 为规范未定义
+        // 8-31 and >47 are undefined by the spec
         assert_eq!(decode_fault(8), "未知故障码");
         assert_eq!(decode_fault(31), "未知故障码");
         assert_eq!(decode_fault(48), "未知故障码");
@@ -1462,16 +1509,16 @@ mod tests {
         };
         assert_eq!(s.run_mode(), Some(RunMode::Position));
         assert_eq!(s.fault_description(), "过压");
-        // 未知码
+        // unknown codes
         s.status_code = 99;
         s.fault_code = 200;
         assert_eq!(s.run_mode(), None);
         assert_eq!(s.fault_description(), "未知故障码");
     }
 
-    // ----- P2-15 力矩型号自适应 -----
+    // ----- P2-15 torque model adaptation -----
 
-    /// 逐型号系数对照参考固件 `convert.c::motor_tqe_adj[]`。所有 d=0。
+    /// Per-model coefficients against the reference firmware `convert.c::motor_tqe_adj[]`. All d=0.
     #[test]
     fn motor_model_coeff_matches_firmware_table() {
         assert_eq!(MotorModel::Null.coeff(), TorqueCoeff { k: 0.0, d: 0.0 });
@@ -1523,11 +1570,11 @@ mod tests {
         );
         assert_eq!(
             MotorModel::M5047_36.coeff(),
-            // 2026-10-20 决策: 飞书 0.64 为准(固件两版均 0.35, 弃用)。
+            // 2026-10-20 decision: Feishu 0.64 wins (both firmware versions say 0.35, dropped).
             TorqueCoeff { k: 0.64, d: 0.0 }
         );
-        // HTDW-5036-02-CNE: k=0.64(飞书单位表 M5047_36 行, 2026-10-20 决策;
-        // Kt=0.54 是模组扭矩常数, 与 k 不同概念, 未用作补偿系数)。
+        // HTDW-5036-02-CNE: k=0.64 (Feishu unit table M5047_36 row, 2026-10-20 decision;
+        // Kt=0.54 is the module torque constant, a different concept from k, not used as compensation).
         assert_eq!(
             MotorModel::M5036_36.coeff(),
             TorqueCoeff { k: 0.64, d: 0.0 }
@@ -1585,16 +1632,22 @@ mod tests {
             MotorModel::from_hint("m5046_20"),
             Some(MotorModel::M5046_20)
         );
-        // HTDW-5036-02: 裸型号与带减速比变体均解析为 M5036_36
+        // HTDW-5036-02: both the bare model code and the gear-ratio variant parse as M5036_36
         assert_eq!(MotorModel::from_hint("5036"), Some(MotorModel::M5036_36));
         assert_eq!(MotorModel::from_hint("5036_36"), Some(MotorModel::M5036_36));
-        assert_eq!(MotorModel::from_hint("M5036_36"), Some(MotorModel::M5036_36));
+        assert_eq!(
+            MotorModel::from_hint("M5036_36"),
+            Some(MotorModel::M5036_36)
+        );
         assert_eq!(MotorModel::from_hint("ht-5036"), Some(MotorModel::M5036_36));
-        assert_eq!(MotorModel::from_hint("ht-5036-36"), Some(MotorModel::M5036_36));
-        // 商业代号 -02 (HTDW-5036-02) 亦映射到同一变体(-02 非减速比)
+        assert_eq!(
+            MotorModel::from_hint("ht-5036-36"),
+            Some(MotorModel::M5036_36)
+        );
+        // The commercial code -02 (HTDW-5036-02) also maps to the same variant (-02 is not a gear ratio)
         assert_eq!(MotorModel::from_hint("5036-02"), Some(MotorModel::M5036_36));
         assert_eq!(MotorModel::from_hint("5036_02"), Some(MotorModel::M5036_36));
-        // 大小写不敏感
+        // case-insensitive
         assert_eq!(
             MotorModel::from_hint("M5046_20"),
             Some(MotorModel::M5046_20)
@@ -1614,8 +1667,8 @@ mod tests {
         assert_eq!(MotorModel::from_hint("none"), Some(MotorModel::Null));
     }
 
-    /// `tqe_adjust_to_raw` / `tqe_restore_raw` 在各型号系数下应近似互逆。
-    /// 跳过 Null(k=0,恒返回 0)。
+    /// `tqe_adjust_to_raw` / `tqe_restore_raw` should be near-inverses under
+    /// every model's coefficients. Null is skipped (k=0, always returns 0).
     #[test]
     fn tqe_adjust_restore_round_trip_per_model() {
         let models = [
@@ -1639,7 +1692,7 @@ mod tests {
             for tau in [0.0f32, 0.5, 1.0, 2.0, -1.0, 5.0] {
                 let raw = tqe_adjust_to_raw(tau, c);
                 let restored = tqe_restore_raw(raw, c);
-                // TINT16 scale=100 的量化误差 ≤ k * 0.01
+                // TINT16 scale=100 quantization error ≤ k * 0.01
                 let tol = (c.k * 0.01).max(1e-6);
                 assert!(
                     (restored - tau).abs() < tol,
@@ -1650,7 +1703,7 @@ mod tests {
         }
     }
 
-    /// Null 型号(k=0)写力矩恒为 0,避免除零。
+    /// Null model (k=0): write torque is always 0, avoiding division by zero.
     #[test]
     fn tqe_adjust_to_raw_null_model_returns_zero() {
         let c = MotorModel::Null.coeff();
@@ -1658,7 +1711,7 @@ mod tests {
         assert_eq!(tqe_restore_raw(0, c), 0.0);
     }
 
-    /// General(k=0.5):1.0 Nm → ((1.0/0.5)*100) = 200;raw 200 → 200*0.01*0.5 = 1.0。
+    /// General (k=0.5): 1.0 Nm → ((1.0/0.5)*100) = 200; raw 200 → 200*0.01*0.5 = 1.0.
     #[test]
     fn tqe_adjust_to_raw_general_k_half() {
         let c = MotorModel::General.coeff();
@@ -1667,7 +1720,7 @@ mod tests {
         assert_eq!(tqe_restore_raw(200, c), 1.0);
     }
 
-    /// 量化误差:General k=0.5 下,0.005 Nm 不足一个 raw 步进(0.01*0.5=0.005)。
+    /// Quantization error: with General k=0.5, 0.005 Nm is under one raw step (0.01*0.5=0.005).
     #[test]
     fn tqe_adjust_to_raw_quantizes_to_steps_of_k_times_001() {
         let c = MotorModel::General.coeff();

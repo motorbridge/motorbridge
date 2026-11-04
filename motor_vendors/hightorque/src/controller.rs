@@ -36,8 +36,10 @@ impl HightorqueController {
         feedback_id: u16,
         model: &str,
     ) -> Result<Arc<HightorqueMotor>> {
-        // 型号提示经 MotorModel::from_hint 校验:接受通用占位(ht/hightorque/auto/
-        // default)与具体型号码(5046-20 等),其余拒绝。具体型号决定力矩补偿系数(P2-15)。
+        // Model hint validated via MotorModel::from_hint: accepts generic
+        // placeholders (ht/hightorque/auto/default) and specific model codes
+        // (5046-20 etc.), rejects the rest. The specific model decides the
+        // torque compensation coefficient (P2-15).
         let _model_enum = MotorModel::from_hint(model).ok_or_else(|| {
             MotorError::InvalidArgument(format!("unsupported HighTorque model hint: {model}"))
         })?;

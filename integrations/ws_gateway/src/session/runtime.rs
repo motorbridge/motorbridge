@@ -76,16 +76,17 @@ impl SessionCtx {
                 Some(ActiveCommand::Vel { .. })
                 | Some(ActiveCommand::ForcePos { .. })
                 | Some(ActiveCommand::PosVelAcc { .. })
-                | Some(ActiveCommand::Torque { .. }) => {
-                    Err("vel/force_pos/pos_vel_acc/torque are not supported for hexfellow".to_string())
-                }
+                | Some(ActiveCommand::Torque { .. }) => Err(
+                    "vel/force_pos/pos_vel_acc/torque are not supported for hexfellow".to_string(),
+                ),
                 None => Ok(()),
             },
             Some(MotorHandle::Hightorque(motor)) => match self.active.as_ref() {
-                // 收敛(2026-09-29):全部经 vendor crate。MIT = `0x18000|id`
-                // 位打包帧;vel = `07 07`;pos_vel = `07 35` 协同(此前被拒,
-                // 现在与 ABI/Python 能力对齐);pos_vel_acc = `07 2d` 梯形;
-                // force_pos 协议无对应命令。
+                // Converged (2026-09-29): everything goes through the vendor
+                // crate. MIT = the `0x18000|id` bit-packed frame; vel =
+                // `07 07`; pos_vel = `07 35` coordinated (previously
+                // rejected, now aligned with ABI/Python); pos_vel_acc =
+                // `07 2d` trapezoid; force_pos has no protocol counterpart.
                 Some(ActiveCommand::Mit {
                     pos,
                     vel,
@@ -98,17 +99,19 @@ impl SessionCtx {
                 Some(ActiveCommand::Vel { vel }) => {
                     motor.send_cmd_vel(*vel).map_err(|e| e.to_string())
                 }
-                Some(ActiveCommand::PosVel { pos, vlim }) => {
-                    motor.send_cmd_pos_vel(*pos, *vlim).map_err(|e| e.to_string())
-                }
-                // 梯形控制(07 2d,固件 v4.6.0+):vendor 原语收敛后接入。
+                Some(ActiveCommand::PosVel { pos, vlim }) => motor
+                    .send_cmd_pos_vel(*pos, *vlim)
+                    .map_err(|e| e.to_string()),
+                // Trapezoid control (07 2d, firmware v4.6.0+): wired in after
+                // the vendor primitive convergence.
                 Some(ActiveCommand::PosVelAcc { pos, vlim, acc }) => motor
                     .send_cmd_pos_vel_acc(*pos, *vlim, *acc)
                     .map_err(|e| e.to_string()),
-                // 力矩模式(05 13):目标力矩 Nm,vendor 原语(型号系数补偿)。
-                Some(ActiveCommand::Torque { tau }) => motor
-                    .send_cmd_torque(*tau)
-                    .map_err(|e| e.to_string()),
+                // Torque mode (05 13): target torque Nm, vendor primitive
+                // (model coeff compensation).
+                Some(ActiveCommand::Torque { tau }) => {
+                    motor.send_cmd_torque(*tau).map_err(|e| e.to_string())
+                }
                 Some(ActiveCommand::ForcePos { .. }) => {
                     Err("force_pos is not supported for hightorque".to_string())
                 }
@@ -209,9 +212,11 @@ impl SessionCtx {
                 }
             }
             (Some(ControllerHandle::Hightorque(_)), Some(MotorHandle::Hightorque(motor))) => {
-                // 收敛(2026-09-29):17 01 查询、等待、解码、物理量换算全部走
-                // vendor(带力矩系数补偿),取代此前手写 wait+raw 换算(力矩
-                // 平移 ÷100、status 恒 0 的两处错误随之消灭)。
+                // Converged (2026-09-29): the 17 01 query, wait, decode, and
+                // physical-value conversion all go through the vendor (with
+                // torque coeff compensation), replacing the earlier
+                // hand-written wait+raw conversion (the torque offset ÷100
+                // and the always-0 status bugs went away with it).
                 let _ = motor.request_fresh_state(Duration::from_millis(120));
                 if let Some(s) = motor.latest_state() {
                     Ok(json!({

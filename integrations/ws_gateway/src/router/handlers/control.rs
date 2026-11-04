@@ -93,8 +93,10 @@ fn handle_mit(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
             }
         }
         Some(MotorHandle::Hightorque(m)) => {
-            // 收敛(2026-09-29):MIT 经 vendor `0x18000|id` 位打包帧,
-            // kp/kd 打包进帧(取代 G4 时期的半迁移:编码用 vendor、成帧手写)。
+            // Converged (2026-09-29): MIT goes through the vendor
+            // `0x18000|id` bit-packed frame with kp/kd packed into the frame
+            // (replacing the G4-era half-migration: vendor encoding but
+            // hand-written framing).
             if let ActiveCommand::Mit {
                 pos,
                 vel,
@@ -206,8 +208,9 @@ fn handle_pos_vel(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
             Ok(json!({"op":"pos_vel","continuous": as_bool(v, "continuous", false)}))
         }
         Some(MotorHandle::Hightorque(m)) => {
-            // 收敛(2026-09-29):07 35 协同帧(vendor),此前 gateway 一直拒绝
-            // pos_vel —— 现在与 ABI/Python 能力对齐。
+            // Converged (2026-09-29): 07 35 coordinated frame (vendor); the
+            // gateway used to reject pos_vel — now aligned with the
+            // ABI/Python capabilities.
             if let ActiveCommand::PosVel { pos, vlim } = cmd {
                 m.send_cmd_pos_vel(pos, vlim).map_err(|e| e.to_string())?;
             }
@@ -232,8 +235,9 @@ fn handle_pos_vel_acc(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> 
         vlim: as_f32(v, "vlim", 1.0),
         acc: as_f32(v, "acc", 1.0),
     };
-    // 梯形控制(07 2d,固件 v4.6.0+)是 HighTorque 协议专属,其它厂商
-    // 协议无加速度字段,直接拒绝而非近似降级。
+    // Trapezoid control (07 2d, firmware v4.6.0+) is exclusive to the
+    // HighTorque protocol; other vendors' protocols have no acceleration
+    // field, so reject rather than degrade to an approximation.
     match ctx.motor.as_ref() {
         Some(MotorHandle::Hightorque(m)) => {
             if let ActiveCommand::PosVelAcc { pos, vlim, acc } = cmd {
@@ -247,9 +251,7 @@ fn handle_pos_vel_acc(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> 
             };
             Ok(json!({"op":"pos_vel_acc","continuous": as_bool(v, "continuous", false)}))
         }
-        Some(MotorHandle::Damiao(_)) => {
-            Err("pos_vel_acc is not supported for damiao".to_string())
-        }
+        Some(MotorHandle::Damiao(_)) => Err("pos_vel_acc is not supported for damiao".to_string()),
         Some(MotorHandle::Hexfellow(_)) => {
             Err("pos_vel_acc is not supported for hexfellow".to_string())
         }
@@ -268,8 +270,9 @@ fn handle_torque(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
     let cmd = ActiveCommand::Torque {
         tau: as_f32(v, "tau", 0.0),
     };
-    // 力矩目标直接下发(05 13)是 HighTorque 协议专属;其它厂商的力矩
-    // 语义走 MIT 前馈(`mit` op),这里拒绝而非近似降级。
+    // Direct torque-target command (05 13) is exclusive to the HighTorque
+    // protocol; other vendors express torque via MIT feedforward (the `mit`
+    // op), so reject here rather than degrade to an approximation.
     match ctx.motor.as_ref() {
         Some(MotorHandle::Hightorque(m)) => {
             if let ActiveCommand::Torque { tau } = cmd {
@@ -283,15 +286,11 @@ fn handle_torque(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
             Ok(json!({"op":"torque","continuous": as_bool(v, "continuous", false)}))
         }
         Some(MotorHandle::Damiao(_)) => Err("torque is not supported for damiao".to_string()),
-        Some(MotorHandle::Hexfellow(_)) => {
-            Err("torque is not supported for hexfellow".to_string())
-        }
+        Some(MotorHandle::Hexfellow(_)) => Err("torque is not supported for hexfellow".to_string()),
         Some(MotorHandle::Myactuator(_)) => {
             Err("torque is not supported for myactuator".to_string())
         }
-        Some(MotorHandle::Robstride(_)) => {
-            Err("torque is not supported for robstride".to_string())
-        }
+        Some(MotorHandle::Robstride(_)) => Err("torque is not supported for robstride".to_string()),
         None => Err("motor not connected".to_string()),
     }
 }
@@ -343,8 +342,9 @@ fn handle_vel(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
             }
         }
         Some(MotorHandle::Hightorque(m)) => {
-            // 收敛(2026-09-29):07 07 速度帧(vendor),力矩字段 0x8000 无限制
-            // 哨兵由 vendor 填充(旧手写路径硬编码 0)。
+            // Converged (2026-09-29): 07 07 velocity frame (vendor); the
+            // vendor fills the torque field's 0x8000 unlimited sentinel
+            // (the old hand-written path hardcoded 0).
             if let ActiveCommand::Vel { vel } = cmd {
                 m.send_cmd_vel(vel).map_err(|e| e.to_string())?;
             }

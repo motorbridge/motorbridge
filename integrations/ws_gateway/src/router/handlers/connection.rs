@@ -235,8 +235,9 @@ fn handle_enable(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         Some(MotorHandle::Damiao(m)) => m.enable().map_err(|e| e.to_string())?,
         Some(MotorHandle::Hexfellow(m)) => m.enable().map_err(|e| e.to_string())?,
         Some(MotorHandle::Hightorque(m)) => {
-            // 收敛(2026-09-29):协议无 enable 命令,vendor 返回 Unsupported
-            // ——诚实报错,取代旧假成功 no-op(连帧都不发却回 enabled:true)。
+            // Converged (2026-09-29): the protocol has no enable command; the
+            // vendor returns Unsupported — an honest error replacing the old
+            // fake-success no-op (replying enabled:true without sending a frame).
             m.enable().map_err(|e| e.to_string())?
         }
         Some(MotorHandle::Myactuator(m)) => m.enable().map_err(|e| e.to_string())?,
@@ -264,8 +265,9 @@ fn handle_disable(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         Some(MotorHandle::Damiao(m)) => m.disable().map_err(|e| e.to_string())?,
         Some(MotorHandle::Hexfellow(m)) => m.disable().map_err(|e| e.to_string())?,
         Some(MotorHandle::Hightorque(m)) => {
-            // 收敛(2026-09-29):disable = stop 帧 `01 00 00`(失力矩+清错)
-            // ——取代旧假成功 no-op(下电/停止什么都不做)。
+            // Converged (2026-09-29): disable = stop frame `01 00 00` (drop
+            // torque + clear errors) — replaces the old fake-success no-op
+            // (power-down/stop did nothing).
             m.disable().map_err(|e| e.to_string())?
         }
         Some(MotorHandle::Myactuator(m)) => m.disable().map_err(|e| e.to_string())?,
@@ -302,7 +304,7 @@ fn handle_stop(ctx: &mut SessionCtx) -> Result<Value, String> {
                 )
                 .map_err(|e| e.to_string())?,
             MotorHandle::Hightorque(m) => {
-                // stop ≡ disable(stop 帧清错+失力矩),经 vendor
+                // stop ≡ disable (stop frame clears errors + drops torque), via vendor
                 m.disable().map_err(|e| e.to_string())?;
             }
             MotorHandle::Myactuator(mm) => mm.stop_motor().map_err(|e| e.to_string())?,

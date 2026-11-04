@@ -110,16 +110,18 @@ pub(crate) enum ActiveCommand {
         pos: f32,
         vlim: f32,
     },
-    /// HighTorque 梯形控制(07 2d):位置 + 速度上限 + 加速度上限。
-    /// 其它厂商协议无对应命令,apply_active 返回不支持。
+    /// HighTorque trapezoid control (07 2d): position + velocity limit +
+    /// acceleration limit. No other vendor protocol has an equivalent command;
+    /// apply_active returns unsupported.
     PosVelAcc {
         pos: f32,
         vlim: f32,
         acc: f32,
     },
-    /// HighTorque 力矩模式(05 13):目标力矩(Nm,物理量,型号系数补偿)。
-    /// 其它厂商协议无独立力矩目标命令,apply_active 返回不支持
-    /// (MIT 前馈力矩走 `mit` op)。
+    /// HighTorque torque mode (05 13): target torque (N·m, physical value
+    /// with model coefficient compensation). No other vendor protocol has a
+    /// standalone torque-target command; apply_active returns unsupported
+    /// (MIT feedforward torque goes through the `mit` op).
     Torque {
         tau: f32,
     },
@@ -136,8 +138,9 @@ pub(crate) enum ActiveCommand {
 pub(crate) enum ControllerHandle {
     Damiao(DamiaoController),
     Hexfellow(HexfellowController),
-    /// 收敛(2026-09-29):HT 与其它四家同构,持有 vendor controller
-    /// (CoreController + 后台收帧线程),不再持有裸 bus 手写帧。
+    /// Converged (2026-09-29): HT is structurally identical to the other
+    /// four vendors, holding a vendor controller (CoreController + background
+    /// receive thread) instead of a raw bus with hand-written frames.
     Hightorque(HightorqueController),
     Myactuator(MyActuatorController),
     Robstride(RobstrideController),

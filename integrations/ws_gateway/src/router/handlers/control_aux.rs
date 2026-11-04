@@ -53,16 +53,19 @@ fn handle_pos(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
     }
 }
 
-/// HighTorque 普通位置模式(`07 07`):目标位置 + 可选力矩上限。
-/// `tqe` 缺省表示力矩无限制(0x8000 哨兵);力矩按型号自适应补偿。
-/// 字段存在但非数字时报错拒绝(评审 A2:限幅是安全字段,类型错误
-/// 不能静默降级为"无限制")。一次性命令,不进入 continuous 活动指令
-/// (与 myactuator "pos" 同型)。
+/// HighTorque classic position mode (`07 07`): target position + optional
+/// torque limit. `tqe` absent means unlimited torque (0x8000 sentinel);
+/// torque gets model-adaptive compensation. A present-but-non-numeric field
+/// errors out (review A2: the limit is a safety field, a type error must
+/// not silently degrade to "unlimited"). One-shot command, does not enter
+/// the continuous active command (same shape as myactuator "pos").
 fn handle_pos_classic(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
     ctx.ensure_connected()?;
     let pos = as_f32(v, "pos", 0.0);
-    // 区分"字段缺席 = 故意不限力矩"与"字段存在但类型错 = 客户端笔误":
-    // 后者报错,避免 "tqe":"1.5" 被静默编码为 0x8000 无限制力矩。
+    // Distinguish "field absent = intentionally unlimited torque" from
+    // "field present but wrong type = client typo": the latter errors out,
+    // so "tqe":"1.5" is never silently encoded as the 0x8000 unlimited
+    // torque sentinel.
     let tqe = match v.get("tqe") {
         None => None,
         Some(value) => Some(
@@ -116,10 +119,12 @@ fn handle_read(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
     ctx.ensure_connected()?;
     match (&ctx.controller, &ctx.motor) {
         (Some(ControllerHandle::Hightorque(_)), Some(MotorHandle::Hightorque(m))) => {
-            // 收敛(2026-09-29):17 01 查询 + 等待 + 解码全部走 vendor,
-            // 物理量带力矩系数补偿(旧手写路径力矩平移 ÷100)。
-            // 2026-10-21 起 vendor 阻塞式状态查询为 request_fresh_state
-            // (request_motor_feedback 归还 DM 非阻塞语义)。
+            // Converged (2026-09-29): the 17 01 query + wait + decode all go
+            // through the vendor, physical values with torque coeff
+            // compensation (the old hand-written path offset torque by ÷100).
+            // Since 2026-10-21 the vendor blocking state query is
+            // request_fresh_state (request_motor_feedback was returned to
+            // DM non-blocking semantics).
             let timeout = Duration::from_millis(as_u64(v, "timeout_ms", 500));
             let s = m.request_fresh_state(timeout).map_err(|e| e.to_string())?;
             Ok(json!({
@@ -137,18 +142,23 @@ fn handle_read(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
     }
 }
 
-/// HighTorque 通用寄存器读取(17 族):从 `addr` 连续读 `count`(1-3) 个寄存器。
-/// 2026-10-22 起:读取**固定按 Int16**,报文 `ty` 字段已删除——显式携带
-/// `ty` 直接报错(不静默忽略,旧客户端迁移时能立刻发现);返回值为
-/// **换算后物理量**(按 vendor 寄存器表 quantity 归类:位置/速度→rad 族、
-/// 力矩套型号 k、电流/电压/温度/PWM/PID 按各自 scale;无换算关系的
-/// 寄存器 1:1)。每行的 name/unit 按该行自身地址查表(而非基础地址)。
+/// HighTorque generic register read (17 family): read `count` (1-3)
+/// consecutive registers starting at `addr`. Since 2026-10-22: reads are
+/// **fixed Int16**, the message `ty` field is removed — explicitly carrying
+/// `ty` errors out (not silently ignored, so old clients find out
+/// immediately when migrating); the return value is the **converted
+/// physical value** (classified by the vendor register table quantity:
+/// position/velocity → rad family, torque with model k, current/voltage/
+/// temperature/PWM/PID per their own scale; registers with no conversion
+/// 1:1). Each row's name/unit is resolved by that row's own address (not
+/// the base address).
 fn handle_read_register(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
     ctx.ensure_connected()?;
     match ctx.motor.as_ref() {
         Some(MotorHandle::Hightorque(m)) => {
-            // B2 修复(2026-10-21):越界地址(> 0xFF)直接拒绝,不再
-            // `as u8` 静默截断(addr=300 → 0x2C 读错寄存器)。
+            // B2 fix (2026-10-21): out-of-range addresses (> 0xFF) are
+            // rejected outright, no more silent `as u8` truncation
+            // (addr=300 → 0x2C reading the wrong register).
             let addr_raw = v
                 .get("addr")
                 .and_then(Value::as_u64)
@@ -167,7 +177,7 @@ fn handle_read_register(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String
             let vals = m
                 .read_registers(&[ReadCmd { addr, count }], timeout)
                 .map_err(|e| e.to_string())?;
-            // C2:每行按自身地址查名称/单位,而非基础地址。
+            // C2: resolve each row's name/unit by its own address, not the base address.
             let registers: Vec<Value> = vals
                 .iter()
                 .map(|(a, val)| {
@@ -199,9 +209,10 @@ fn handle_read_register(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String
     }
 }
 
-/// HighTorque DQ 电压模式(`01 00 08 05 1B`,模式写+寄存器写拼一帧):
-/// Q 轴电压(V,0.1 V/LSB)。协议只定义 Q 分量。一次性命令,不进入 continuous
-/// (持续 DQ 电压控制请循环调用)。
+/// HighTorque DQ voltage mode (`01 00 08 05 1B`, mode write + register
+/// write packed into one frame): Q-axis voltage (V, 0.1 V/LSB). The protocol
+/// only defines the Q component. One-shot command, does not enter
+/// continuous (loop this op for sustained DQ voltage control).
 fn handle_dq_voltage(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
     ctx.ensure_connected()?;
     let volt = as_f32(v, "volt", 0.0);
@@ -215,7 +226,8 @@ fn handle_dq_voltage(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
     }
 }
 
-/// HighTorque DQ 电流模式(`01 00 09 05 1C`,拼一帧):Q 轴电流(A,0.1 A/LSB)。
+/// HighTorque DQ current mode (`01 00 09 05 1C`, packed into one frame):
+/// Q-axis current (A, 0.1 A/LSB).
 fn handle_dq_current(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
     ctx.ensure_connected()?;
     let cur = as_f32(v, "cur", 0.0);
@@ -229,7 +241,8 @@ fn handle_dq_current(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
     }
 }
 
-/// HighTorque 刹车(表2 模式 15):三相短接阻尼刹车。一次性命令。
+/// HighTorque brake (table 2 mode 15): three-phase shorted damping brake.
+/// One-shot command.
 fn handle_brake(ctx: &mut SessionCtx) -> Result<Value, String> {
     ctx.ensure_connected()?;
     match ctx.motor.as_ref() {
@@ -242,9 +255,10 @@ fn handle_brake(ctx: &mut SessionCtx) -> Result<Value, String> {
     }
 }
 
-/// HighTorque 运行模式切换(`01 00 <mode>` 写模式寄存器 0x000):
-/// mode 0-17(表2;0=停止并清错,8=DQ 电压,9=DQ 电流,10=位置,15=刹车)。
-/// 真发帧,与 `ensure_mode`(仅校验)不同。
+/// HighTorque run mode switch (`01 00 <mode>` writing mode register 0x000):
+/// mode 0-17 (table 2; 0=stop and clear error, 8=DQ voltage, 9=DQ current,
+/// 10=position, 15=brake). Actually sends a frame, unlike `ensure_mode`
+/// (validation only).
 fn handle_run_mode(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
     ctx.ensure_connected()?;
     let mode = v
@@ -264,25 +278,28 @@ fn handle_run_mode(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
     }
 }
 
-/// HighTorque 通用寄存器写(`05 <addr> <val16>`):int16 值。
-/// `config_class` 非 0 表示配置类寄存器(走扩展 0x8000|id 帧)。
-/// 模式寄存器 0x000 不适用本 op,请用 run_mode。
+/// HighTorque generic register write (`05 <addr> <val16>`): int16 value.
+/// Non-zero `config_class` means a config-class register (extended
+/// 0x8000|id frame). Mode register 0x000 does not apply here — use
+/// run_mode.
 fn handle_write_register(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
     ctx.ensure_connected()?;
-    // B2 修复(2026-10-21):同 read 侧,越界地址拒绝,不再 as u8 截断。
+    // B2 fix (2026-10-21): same as the read side — out-of-range addresses
+    // are rejected, no more as u8 truncation.
     let addr_raw = v
         .get("addr")
         .and_then(Value::as_u64)
         .ok_or_else(|| "write_register requires integer 'addr' (0x00-0xFF)".to_string())?;
-    let addr = u8::try_from(addr_raw).map_err(|_| {
-        format!("write_register 'addr' out of range 0x00-0xFF, got {addr_raw}")
-    })?;
+    let addr = u8::try_from(addr_raw)
+        .map_err(|_| format!("write_register 'addr' out of range 0x00-0xFF, got {addr_raw}"))?;
     let value = v
         .get("value")
         .and_then(Value::as_i64)
         .ok_or_else(|| "write_register requires integer 'value' (int16)".to_string())?;
     if !(-32768..=32767).contains(&value) {
-        return Err(format!("write_register 'value' must fit int16, got {value}"));
+        return Err(format!(
+            "write_register 'value' must fit int16, got {value}"
+        ));
     }
     let config_class = v.get("config_class").and_then(Value::as_u64).unwrap_or(0) != 0;
     let info = parameter_info(addr);
@@ -304,17 +321,19 @@ fn handle_write_register(v: &Value, ctx: &mut SessionCtx) -> Result<Value, Strin
     }
 }
 
-/// HighTorque 周期上报配置(`05 B4 02 <t_ms16>`,扩展帧):
-/// `period_ms` >= 1 开启电机按周期主动发 27 01 状态帧(由被动反馈路径
-/// 入状态缓存);`period_ms`=0 停止上报。
+/// HighTorque periodic report config (`05 B4 02 <t_ms16>`, extended frame):
+/// `period_ms` >= 1 makes the motor periodically send 27 01 status frames
+/// on its own (consumed into the state cache by the passive feedback path);
+/// `period_ms`=0 stops reporting.
 fn handle_periodic_report(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
     ctx.ensure_connected()?;
-    let period_ms = v
-        .get("period_ms")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| "periodic_report requires integer 'period_ms' (>=1 enable, 0 stop)".to_string())?;
+    let period_ms = v.get("period_ms").and_then(Value::as_u64).ok_or_else(|| {
+        "periodic_report requires integer 'period_ms' (>=1 enable, 0 stop)".to_string()
+    })?;
     if period_ms > u16::MAX as u64 {
-        return Err(format!("periodic_report 'period_ms' must fit uint16, got {period_ms}"));
+        return Err(format!(
+            "periodic_report 'period_ms' must fit uint16, got {period_ms}"
+        ));
     }
     match ctx.motor.as_ref() {
         Some(MotorHandle::Hightorque(m)) => {
@@ -367,9 +386,10 @@ mod tests {
         )
     }
 
-    /// 评审 A2 回归:pos_classic 的 tqe 传非数字 JSON 类型(字符串/布尔/
-    /// null)时报错拒绝,且报错发生在任何控制帧发出之前——限幅是安全
-    /// 字段,类型错不得静默降级为 0x8000 无限制力矩。
+    /// Review A2 regression: a non-numeric JSON type (string/bool/null) for
+    /// pos_classic's tqe errors out, and the error happens before any
+    /// control frame is sent — the limit is a safety field, a type error
+    /// must not silently degrade to the 0x8000 unlimited torque sentinel.
     #[test]
     fn pos_classic_rejects_non_numeric_tqe_without_sending() {
         for bad in [json!("1.5"), json!(true), json!(null), json!([1.5])] {
@@ -385,9 +405,11 @@ mod tests {
         }
     }
 
-    /// B2 回归(2026-10-21):寄存器地址越界(> 0xFF)直接拒绝,不再
-    /// `as u8` 静默截断。读、写两个 op 都验证(旧实现 addr=300 会截成
-    /// 0x2C 读/写错误寄存器),且拒绝发生在发帧之前(总线零帧)。
+    /// B2 regression (2026-10-21): out-of-range register addresses (> 0xFF)
+    /// are rejected outright, no more silent `as u8` truncation. Both the
+    /// read and write ops are verified (the old implementation truncated
+    /// addr=300 to 0x2C, reading/writing the wrong register), and the
+    /// rejection happens before any frame is sent (zero bus frames).
     #[test]
     fn read_write_register_reject_out_of_range_addr() {
         let (bus, mut ctx) = ht_ctx();
@@ -402,10 +424,11 @@ mod tests {
         let sent = bus.sent.lock().expect("sent");
         assert_eq!(sent.len(), 0, "越界地址应在发帧前拒绝");
 
-        // 合法域边界:入参域上限 0xFF 现属表外(vendor 表校验拒绝,
-        // 见 read_write_register_rejects_unknown_table_addr);取表内
-        // 最高地址 0x45 作为"入参放行且发帧"的边界用例(会走到超时,
-        // 但帧已发出)
+        // Valid-domain boundary: the argument domain ceiling 0xFF is now
+        // out-of-table (rejected by the vendor table validation, see
+        // read_write_register_rejects_unknown_table_addr); use the highest
+        // in-table address 0x45 as the "argument passes and a frame goes
+        // out" boundary case (it will time out, but the frame was sent)
         let (_bus, mut ctx) = ht_ctx();
         let _ = handle_read_register(&json!({ "addr": 0x45, "timeout_ms": 10 }), &mut ctx);
         let sent = _bus.sent.lock().expect("sent");
@@ -413,9 +436,11 @@ mod tests {
         assert_eq!(sent[0].data[1], 0x45);
     }
 
-    /// 2026-10-22 追补决策回归:缺号/表外地址拒绝访问——0x00-0xFF 入参
-    /// 域内的洞(缺号 0x0A)与 0x46-0xFF(表外 0x50/0xFF)一律报错且
-    /// 总线零发帧(vendor `ensure_known_span` 在发帧前拒绝);写路径同拒。
+    /// 2026-10-22 follow-up decision regression: gap/out-of-table addresses
+    /// are rejected — holes inside the 0x00-0xFF argument domain (gap 0x0A)
+    /// and 0x46-0xFF (out-of-table 0x50/0xFF) all error out with zero bus
+    /// frames (the vendor `ensure_known_span` rejects before sending); the
+    /// write path rejects the same way.
     #[test]
     fn read_write_register_rejects_unknown_table_addr() {
         let (bus, mut ctx) = ht_ctx();
@@ -437,9 +462,10 @@ mod tests {
         assert_eq!(sent.len(), 0, "拒绝应发生在发帧之前");
     }
 
-    /// 2026-10-22 决策回归:读取固定 Int16——0x0E(温度)读帧 cmd=0x15
-    /// (read|Int16|count1),扩展 0x8000|id、dlc 2。Mock 总线无回复,
-    /// 阻塞读超时属预期。
+    /// 2026-10-22 decision regression: reads are fixed Int16 — the 0x0E
+    /// (temperature) read frame has cmd=0x15 (read|Int16|count1), extended
+    /// 0x8000|id, dlc 2. The mock bus never replies, so the blocking read
+    /// timing out is expected.
     #[test]
     fn read_register_defaults_unverified_addr_to_int16() {
         let (bus, mut ctx) = ht_ctx();
@@ -457,8 +483,9 @@ mod tests {
         );
     }
 
-    /// 2026-10-22:报文显式携带 `ty` 直接报错(字段已删除,读取固定
-    /// Int16),不静默忽略;拒绝发生在发帧之前(总线零帧)。
+    /// 2026-10-22: a message explicitly carrying `ty` errors out (the field
+    /// is removed, reads are fixed Int16), not silently ignored; the
+    /// rejection happens before any frame is sent (zero bus frames).
     #[test]
     fn read_register_rejects_removed_ty_field() {
         let (bus, mut ctx) = ht_ctx();
@@ -469,8 +496,8 @@ mod tests {
         assert_eq!(sent.len(), 0, "ty 拒绝应在发帧前");
     }
 
-    /// 字段缺席 = 故意不限力矩(None);数字正常解析。两种合法形态
-    /// 都照常下发 07 07 帧。
+    /// Field absent = intentionally unlimited torque (None); a number
+    /// parses normally. Both legal shapes send the 07 07 frame as usual.
     #[test]
     fn pos_classic_accepts_absent_and_numeric_tqe() {
         let (bus, mut ctx) = ht_ctx();
@@ -480,11 +507,8 @@ mod tests {
         assert_eq!(sent.len(), 1, "absent tqe still sends the 07 07 frame");
 
         let (_bus, mut ctx) = ht_ctx();
-        let r = handle_pos_classic(
-            &json!({ "pos": 1.0, "tqe": 1.5 }),
-            &mut ctx,
-        )
-        .expect("numeric tqe ok");
+        let r = handle_pos_classic(&json!({ "pos": 1.0, "tqe": 1.5 }), &mut ctx)
+            .expect("numeric tqe ok");
         assert_eq!(r["tqe"], json!(1.5));
     }
 }

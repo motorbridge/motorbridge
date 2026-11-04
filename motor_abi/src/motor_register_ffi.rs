@@ -297,19 +297,23 @@ pub extern "C" fn motor_handle_robstride_set_active_report(
     ffi_rc(rc)
 }
 
-/// HighTorque 通用寄存器读取(协议 §1.3 `17 <cmd> <addr>` 族)。
+/// HighTorque generic register read (protocol §1.3 `17 <cmd> <addr>` family).
 ///
-/// 2026-10-22 起:读取**固定按 Int16**(`cmd[3:2]` 恒 01),`ty` 参数已
-/// 从签名删除;返回值为**换算后物理量**(位置/速度/加速度→rad 族,
-/// 力矩套型号 k/d,电流/电压/温度/PWM/PID 按各自 scale;无换算关系
-/// 的寄存器及表外地址 1:1 返回 raw)。
+/// Since 2026-10-22: reads are **fixed Int16** (`cmd[3:2]` always 01); the `ty`
+/// parameter has been removed from the signature. The return value is the
+/// **converted physical quantity** (position/velocity/acceleration → rad
+/// family, torque via model k/d, current/voltage/temperature/PWM/PID per
+/// their own scale; registers with no conversion and out-of-table addresses
+/// return raw 1:1).
 ///
-/// - `addr`: 寄存器地址(表1,0x00–0x45)
-/// - `count`: 连续读取个数(1–3),地址从 `addr` 起连续递增(0xFF 后回绕)
-/// - `out_values`: 写出 `count` 个 f32(换算后物理量)
+/// - `addr`: register address (table 1, 0x00–0x45)
+/// - `count`: number of consecutive registers to read (1–3); addresses
+///   increment from `addr` (wrapping past 0xFF)
+/// - `out_values`: receives `count` f32 values (converted physical quantities)
 ///
-/// 单地址读的简化封装;多段任意地址列表读保留在 vendor `read_registers`。
-/// 仅 HighTorque 电机支持。
+/// Simplified wrapper for single-address reads; multi-segment arbitrary
+/// address-list reads remain in the vendor `read_registers`.
+/// HighTorque motors only.
 #[unsafe(no_mangle)]
 pub extern "C" fn motor_handle_hightorque_get_register(
     motor: *mut MotorHandle,
@@ -330,7 +334,8 @@ pub extern "C" fn motor_handle_hightorque_get_register(
                 Duration::from_millis(timeout_ms as u64),
             )
             .map(|vals| {
-                // 返回列表按 count 连续递增;不足 count 时逐个写出已有值。
+                // The returned list increments by count consecutively; when
+                // fewer than count values arrive, write out what exists.
                 unsafe {
                     for (i, (_, v)) in vals.iter().take(count as usize).enumerate() {
                         *out_values.add(i) = *v;
@@ -343,17 +348,21 @@ pub extern "C" fn motor_handle_hightorque_get_register(
     ffi_rc(rc)
 }
 
-/// HighTorque 非阻塞寄存器查询(DM 风格"请求即发送"):只发 `17` 族读
-/// 请求帧(2026-10-22 起**固定 Int16**),立即返回不等回帧。回复由
-/// CoreController 后台收帧线程解码,按地址写入电机寄存器缓存(带入缓
-/// 时刻);之后 `hightorque_get_cached_register` 读最近值(非阻塞,已换算
-/// 为物理量),或 `hightorque_get_register`/vendor `read_registers` 阻塞
-/// 等新鲜值。供固定频率监测循环使用(发完即走,下一拍读缓存)。
+/// HighTorque non-blocking register query (DM-style "request and send"):
+/// only sends the `17` family read request frame (**fixed Int16** since
+/// 2026-10-22) and returns immediately without waiting for a reply. The
+/// reply is decoded by the CoreController background receive thread and
+/// written into the motor register cache by address (with the receive
+/// timestamp); afterwards `hightorque_get_cached_register` reads the most
+/// recent value (non-blocking, already converted to a physical quantity),
+/// or `hightorque_get_register`/vendor `read_registers` blocks for a fresh
+/// value. Intended for fixed-rate monitoring loops (fire and forget, read
+/// the cache on the next tick).
 ///
-/// - `addr`: 寄存器地址(表1,0x00–0x45)
-/// - `count`: 连续读取个数(1–3)
+/// - `addr`: register address (table 1, 0x00–0x45)
+/// - `count`: number of consecutive registers to read (1–3)
 ///
-/// 仅 HighTorque 电机支持。
+/// HighTorque motors only.
 #[unsafe(no_mangle)]
 pub extern "C" fn motor_handle_hightorque_request_register(
     motor: *mut MotorHandle,
@@ -378,12 +387,15 @@ pub extern "C" fn motor_handle_hightorque_request_register(
     ffi_rc(rc)
 }
 
-/// HighTorque 读寄存器缓存最近值(不发帧不等待)。
-/// `out_has_value` 写 1 且 `out_value` 写**换算后物理量**(`f32`);从未
-/// 收到过该地址回复时 `out_has_value` 写 0。注意:不区分新鲜/陈旧
-/// (电机掉线后停留在最后一值);需要新鲜值用 `hightorque_get_register`
-/// 或先 `hightorque_request_register` 发查询、隔一拍回读本缓存。
-/// 仅 HighTorque 电机支持。
+/// HighTorque read of the most recent cached register value (sends no
+/// frame, does not wait). Writes 1 to `out_has_value` and the **converted
+/// physical quantity** (`f32`) to `out_value`; writes 0 to `out_has_value`
+/// if no reply for this address has ever been received. Note: freshness is
+/// not distinguished (the last value persists after the motor goes
+/// offline); for a fresh value use `hightorque_get_register`, or first
+/// send a query via `hightorque_request_register` and read this cache one
+/// tick later.
+/// HighTorque motors only.
 #[unsafe(no_mangle)]
 pub extern "C" fn motor_handle_hightorque_get_cached_register(
     motor: *mut MotorHandle,
@@ -442,16 +454,18 @@ mod tests {
         }
     }
 
-    /// F4:通用寄存器读,固定 Int16 单地址(count=1)。回复 0x25(cmd=
-    /// reply nibble|Int16<<2|count) + addr + i16 值。0x0F(错误代码,
-    /// 表内未分类)→ 无换算关系,1:1 返回 raw。2026-10-22 追补后缺号/
-    /// 表外地址在 vendor 层整段拒绝(见 hightorque_get_register_rejects_
-    /// unknown_addr)。
+    /// F4: generic register read, fixed Int16 single address (count=1).
+    /// Reply is 0x25 (cmd = reply nibble|Int16<<2|count) + addr + i16
+    /// value. 0x0F (error code, unclassified in the table) → no
+    /// conversion, returns raw 1:1. After the 2026-10-22 follow-up,
+    /// gap/out-of-table addresses are rejected at the vendor layer for
+    /// the whole span (see hightorque_get_register_rejects_unknown_addr).
     #[test]
     fn hightorque_get_register_int16_single() {
         let (bus, mut handle) = ht_handle();
-        // 回复须在请求之后入缓(时间戳新鲜度): 模拟后台轮询线程在
-        // 请求发出 10ms 后投递寄存器回复
+        // The reply must enter the cache after the request (timestamp
+        // freshness): simulate the background polling thread delivering
+        // the register reply 10ms after the request is sent.
         let deliver = {
             let m = match &*handle.inner.lock().expect("inner") {
                 MotorHandleInner::Hightorque(m) => Arc::clone(m),
@@ -460,12 +474,12 @@ mod tests {
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(10));
                 m.process_feedback_frame(rx_frame(
-                        0x0100,
-                        [0x25, 0x0F, 0x34, 0x12, 0, 0, 0, 0],
-                        4,
-                        true,
-                    ))
-                    .expect("merge reply");
+                    0x0100,
+                    [0x25, 0x0F, 0x34, 0x12, 0, 0, 0, 0],
+                    4,
+                    true,
+                ))
+                .expect("merge reply");
             })
         };
         let mut out = [0f32; 3];
@@ -479,20 +493,22 @@ mod tests {
         deliver.join().expect("join deliver thread");
         assert_eq!(rc, 0);
         assert_eq!(out[0], 0x1234 as f32);
-        // 查询帧:扩展 0x8000|id,载荷 = 读命令 0x15(0x1X 族|Int16<<2|count1) + addr
+        // Query frame: extended 0x8000|id, payload = read command 0x15
+        // (0x1X family|Int16<<2|count1) + addr
         let sent = bus.sent.lock().expect("sent");
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].arbitration_id, 0x8001);
         assert_eq!(&sent[0].data[..2], &[0x15, 0x0F]);
     }
 
-    /// F4:缺号/表外地址拒绝访问(2026-10-22 追补决策)——读返回
-    /// rc=-1 且总线零发帧(拒绝发生在发帧之前)。
+    /// F4: gap/out-of-table addresses are rejected (2026-10-22 follow-up
+    /// decision) — the read returns rc=-1 with zero frames on the bus
+    /// (rejection happens before sending).
     #[test]
     fn hightorque_get_register_rejects_unknown_addr() {
         let (bus, mut handle) = ht_handle();
         let mut out = [0f32; 3];
-        // 缺号(0x0A)
+        // Gap address (0x0A)
         let rc = motor_handle_hightorque_get_register(
             (&mut handle) as *mut MotorHandle,
             0x0A,
@@ -501,7 +517,7 @@ mod tests {
             out.as_mut_ptr(),
         );
         assert_eq!(rc, -1);
-        // 表外(0x50)
+        // Out-of-table (0x50)
         let rc = motor_handle_hightorque_get_register(
             (&mut handle) as *mut MotorHandle,
             0x50,
@@ -510,7 +526,8 @@ mod tests {
             out.as_mut_ptr(),
         );
         assert_eq!(rc, -1);
-        // 连续读跨入缺号(0x2D 表内 + 0x2E 缺号)整段拒绝
+        // A consecutive read crossing into a gap (0x2D in-table + 0x2E
+        // gap) is rejected for the whole span
         let rc = motor_handle_hightorque_get_register(
             (&mut handle) as *mut MotorHandle,
             0x2D,
@@ -523,19 +540,18 @@ mod tests {
         assert_eq!(sent.len(), 0, "拒绝应发生在发帧之前");
     }
 
-    /// F4:非阻塞寄存器查询 + 缓存读取闭环:request_register 发帧即返回,
-    /// get_cached_register 在回复入缓前 has=0、入缓后返回换算后物理量
-    /// (0x0E 温度: raw 100 → 10.0°C)。
+    /// F4: non-blocking register query + cached-read round trip:
+    /// request_register returns right after sending; get_cached_register
+    /// returns has=0 before the reply enters the cache, and the converted
+    /// physical quantity afterwards (0x0E temperature: raw 100 → 10.0°C).
     #[test]
     fn hightorque_request_register_and_cached_register_roundtrip() {
         let (bus, mut handle) = ht_handle();
-        let rc = motor_handle_hightorque_request_register(
-            (&mut handle) as *mut MotorHandle,
-            0x0E,
-            1,
-        );
+        let rc =
+            motor_handle_hightorque_request_register((&mut handle) as *mut MotorHandle, 0x0E, 1);
         assert_eq!(rc, 0);
-        // 查询帧:扩展 0x8000|id,载荷 0x15 0x0E(固定 int16 count1 读 0x0E)
+        // Query frame: extended 0x8000|id, payload 0x15 0x0E (fixed
+        // int16 count1 read of 0x0E)
         let sent = bus.sent.lock().expect("sent");
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].arbitration_id, 0x8001);
@@ -552,13 +568,19 @@ mod tests {
         assert_eq!(rc, 0);
         assert_eq!(has, 0, "入缓前应无值");
 
-        // 模拟被动路径(后台轮询线程)入缓
+        // Simulate the passive path (background polling thread) entering
+        // the cache
         let m = match &*handle.inner.lock().expect("inner") {
             MotorHandleInner::Hightorque(m) => Arc::clone(m),
             _ => panic!("expected hightorque motor"),
         };
-        m.process_feedback_frame(rx_frame(0x0100, [0x25, 0x0E, 0x64, 0x00, 0, 0, 0, 0], 4, true))
-            .expect("merge");
+        m.process_feedback_frame(rx_frame(
+            0x0100,
+            [0x25, 0x0E, 0x64, 0x00, 0, 0, 0, 0],
+            4,
+            true,
+        ))
+        .expect("merge");
         let rc = motor_handle_hightorque_get_cached_register(
             (&mut handle) as *mut MotorHandle,
             0x0E,
@@ -570,8 +592,8 @@ mod tests {
         assert!((val - 10.0).abs() < 1e-4, "raw 100 → 10.0°C, 实得 {val}");
     }
 
-    /// 2026-10-22:读取返回换算后物理量。0x03 力矩, "ht"→General k=0.5:
-    /// raw 2560 → 2560×0.01×0.5 = 12.8 N·m。
+    /// 2026-10-22: reads return converted physical quantities. 0x03
+    /// torque, "ht"→General k=0.5: raw 2560 → 2560×0.01×0.5 = 12.8 N·m.
     #[test]
     fn hightorque_get_register_converts_torque_with_model_coeff() {
         let (bus, mut handle) = ht_handle();
@@ -610,7 +632,7 @@ mod tests {
         assert_eq!(&sent[0].data[..2], &[0x15, 0x03]);
     }
 
-    /// F5:get_state 输出 fault_code(表3,状态帧 byte1)。
+    /// F5: get_state outputs fault_code (table 3, status-frame byte1).
     #[test]
     fn hightorque_get_state_includes_fault_code() {
         let (_bus, mut handle) = ht_handle();
@@ -618,8 +640,10 @@ mod tests {
             MotorHandleInner::Hightorque(m) => Arc::clone(m),
             _ => panic!("expected hightorque motor"),
         };
-        // 控制命令附带状态帧:byte0=运行模式(表2),byte1=故障码(表3)。
-        // (27 01 寄存器读回复不带故障码,status/fault 均为 0。)
+        // Status frame attached to a control command: byte0 = run mode
+        // (table 2), byte1 = fault code (table 3).
+        // (27 01 register read replies carry no fault code; status/fault
+        // are both 0.)
         motor
             .process_feedback_frame(rx_frame(
                 0x0100,
@@ -629,7 +653,8 @@ mod tests {
             ))
             .expect("process");
         let mut state = MotorState::default();
-        let rc = crate::state_ffi::motor_handle_get_state((&mut handle) as *mut MotorHandle, &mut state);
+        let rc =
+            crate::state_ffi::motor_handle_get_state((&mut handle) as *mut MotorHandle, &mut state);
         assert_eq!(rc, 0);
         assert_eq!(state.has_value, 1);
         assert_eq!(state.fault_code, 0x07);
