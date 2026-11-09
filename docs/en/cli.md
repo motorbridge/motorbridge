@@ -105,28 +105,34 @@ cargo run -p motor_cli --release -- \
   --mode pos-vel --pos 1.5 --vlim 1.0 --loc-kp 5.0 --loop 1 --dt-ms 20
 ```
 
-## HighTorque (native `ht_can` v1.5.5)
+## HighTorque (native `ht_can` v2.0.0)
 
 Supported modes:
 
 - `scan`
 - `read` / `ping`
 - `mit` (unified interface)
-- `pos` / `vel` / `tqe`
+- `pos` / `vel` / `tqe` (torque mode `05 13`: `--tau <Nm>` physical units, model torque-coeff compensated)
 - `pos-vel-tqe`
-- `volt` / `cur`
-- `stop` / `brake` / `rezero` / `conf-write` / `timed-read`
+- `pos-vel-acc` (trapezoid `07 2d`, firmware v4.6.0+): `--pos <rad> --vlim <rad/s> --acc <rad/s^2>`
+- `volt` (DQ voltage mode `01 00 08 05 1B`): `--volt <V>` (0.1 V/LSB, Q component only per protocol)
+- `cur` (DQ current mode `01 00 09 05 1C`): `--cur <A>` (0.1 A/LSB)
+- `set-mode` (run mode switch `01 00 <mode>`): `--run-mode <0-17>` (table 2; 0 = stop & clear error, 8 = DQ voltage, 9 = DQ current, 10 = position, 15 = brake)
+- `read-reg` (generic register read, `17` family): `--addr <hex|dec>` required, `--count` (1-3, default 1); since 2026-10-22 reads are **fixed Int16** (`--ty` removed, passing it errors out) and return **converted physical values** (pos/vel/acc in rad-family units, torque in N·m via model k, current/voltage/temperature/PWM/PID per their scales; unclassified registers return raw 1:1); each output line carries that row's register name and unit; the address must be in the parameter table (the 43 xlsx-listed registers within 0x00-0x45) — missing (缺号) and out-of-table addresses are rejected for both read and write
+- `write-reg` (generic register write `05 <addr> <val16>`): `--addr` required (must also be in the parameter table; missing/out-of-table addresses are rejected), `--value <int16>`, `--config` (0/1; 1 = config class via extended frame, default 0 via the control channel)
+- `periodic-report` (periodic status report `05 B4 02 <t_ms>`): `--period-ms` (>=1 enables the motor-initiated status stream, 0 stops; `timed-read` remains a legacy alias)
+- `stop` / `brake` (run mode 15, all phases shorted damping brake) / `rezero` / `conf-write`
 
 Unit interface (aligned with other vendors):
 
 - `--pos` in `rad`
 - `--vel` in `rad/s`
 - `--tau` in `Nm`
-- `--kp`, `--kd` are accepted for unified MIT signature, ignored by `ht_can` protocol
+- `--kp`, `--kd` are packed into the v2.0.0 MIT bit-packed frame (firmware v4.6.0+; ranges kp ±400, kd ±100; values beyond range saturate)
 
-Raw interface (debug):
+Raw interface (debug, position/velocity only):
 
-- `--raw-pos`, `--raw-vel`, `--raw-tqe`
+- `--raw-pos`, `--raw-vel` (torque/voltage/current are physical-only `--tau`/`--volt`/`--cur`; encoding is vendor-side)
 
 Examples:
 
@@ -153,6 +159,20 @@ cargo run -p motor_cli --release -- \
 # Stop
 cargo run -p motor_cli --release -- \
   --vendor hightorque --channel can0 --motor-id 1 --mode stop
+```
+
+```bash
+# Trapezoid move to +90 deg, vlim 1 rad/s, acc 2 rad/s^2
+cargo run -p motor_cli --release -- \
+  --vendor hightorque --channel can0 --motor-id 1 \
+  --mode pos-vel-acc --pos 1.5708 --vlim 1.0 --acc 2.0
+```
+
+```bash
+# Read 3 consecutive registers (pos/vel/torque; fixed Int16, returns converted physical values rad/rad·s⁻¹/N·m)
+cargo run -p motor_cli --release -- \
+  --vendor hightorque --channel can0 --motor-id 1 \
+  --mode read-reg --addr 0x01 --count 3
 ```
 
 ## MyActuator

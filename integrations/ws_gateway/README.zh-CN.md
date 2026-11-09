@@ -68,7 +68,7 @@ WS API 主链路已实现。
 | robstride | 原生 MIT | 映射到原生 Position（`run_mode=1` + `vel_max` + `loc_ref`） | 原生 Velocity 模式 | 不支持 | `vel` 映射到 vendor velocity target；`pos_vel` 映射到 vendor Position | 参数读写走 `robstride_*` |
 | hexfellow | 原生 MIT | 原生 POS_VEL | 不支持 | 不支持 | `mit` 支持 `kp/kd/tau`，无独立 `vel` | CAN-FD 链路 |
 | myactuator | 不支持 | Position 设定流程 | 原生速度设定 | 不支持 | `pos_vel` 通过 position setpoint 实现；基线里 `vel` 可用 | 强项是 current/position/version/mode-query |
-| hightorque | 原生 MIT（ht_can 映射） | 映射到原生 pos+vel+tqe | 原生速度帧 | 映射到原生 pos+vel+tqe | `mit/vel` 为原生帧映射；`kp/kd` 保留但协议侧忽略；`pos_vel/force_pos` 映射到 pos+vel+tqe | 当前子集 scan/read/mit/vel/pos-vel/force-pos/stop；`enable/disable` 接受但为 no-op |
+| hightorque | 原生 MIT（v2.0.0 位打包帧） | 原生 POS_VEL（`0x07 0x35` 协同） | 原生速度帧 | 不支持 | 全部命令经 `motor_vendor_hightorque`（唯一实现）；回帧为物理量并带型号力矩系数补偿 | 另有 `pos_vel_acc`（梯形 `07 2d`）与 `torque`（`05 13`，物理量 Nm）模式，以及 `pos_classic`/`dq_voltage`/`dq_current`/`brake`/`run_mode`/`write_register`/`periodic_report`/`read_register` 专属 op；`enable` 为语义空操作（方案 B，2026-10-08，不发帧直接成功） |
 
 ### 统一核心操作支持矩阵
 
@@ -78,15 +78,17 @@ WS API 主链路已实现。
 | robstride | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 |
 | hexfellow | 支持 | 不支持 | 支持 | 支持 | 支持 | 支持 |
 | myactuator | 支持 | 不支持 | 支持 | 支持 | 支持 | 支持 |
-| hightorque | 支持 | 不支持 | 接受（no-op） | 接受（no-op） | 支持 | 支持 |
+| hightorque | 支持 | 不支持 | 如实拒绝 | 支持（停止帧） | 支持 | 支持 |
 
 ### 模式参数差异说明
 
 - `mit`：统一字段一致，但各厂商内部缩放/编码不同，由网关适配层处理。
-  HighTorque 细节：当前协议路径会忽略 `kp/kd`。
+  HighTorque 细节：v2.0.0 位打包帧（`0x18000 | id`，固件 v4.6.0+），`kp/kd`
+  打包进帧，量程 pos ±3.2768 圈、vel ±2.0 圈/s、tau ±10 Nm、kp ±400、
+  kd ±100，超界饱和。
 - `pos_vel`：仅对具备等价模式的厂商可用。
 - `vel`：方向与量纲转换由厂商适配层内部处理。
-- `force_pos`：Damiao 原生支持；HighTorque 映射到 pos+vel+tqe；其他厂商不支持。
+- `force_pos`：Damiao 原生支持；其他厂商不支持。
 
 ## WS `capabilities` 响应结构（草案）
 
@@ -128,9 +130,9 @@ WS API 主链路已实现。
       },
       "hightorque": {
         "transports": ["auto", "socketcan"],
-        "modes": ["mit", "pos_vel", "vel", "force_pos"],
-        "ops_unified": ["scan", "stop", "state_once", "status", "verify"],
-        "ops_vendor_native": ["read"]
+        "modes": ["mit", "pos_vel", "pos_vel_acc", "vel", "torque"],
+        "ops_unified": ["scan", "disable", "stop", "state_once", "status", "verify"],
+        "ops_vendor_native": ["read", "pos_classic", "read_register", "dq_voltage", "dq_current", "brake", "run_mode", "write_register", "periodic_report", "set_zero_position", "store_parameters"]
       }
     },
     "unsupported_behavior": "return {ok:false,error:'unsupported ...'}"
@@ -342,7 +344,7 @@ or offline joints return `has_value:false` instead of failing the whole request.
 - 参数流：`param_stream` 支持 Damiao 与 RobStride；`damiao_param_stream` / `robstride_param_stream` 是厂商专用别名。
 - RobStride 专属操作：`robstride_ping`、`robstride_read_param`、`robstride_write_param`、`set_active_report`。
 - MyActuator 专属操作：`current`、`pos`、`version`、`mode-query`。
-- HighTorque 专属操作：`read`。
+- HighTorque 专属操作：`read`、`pos_classic`（经典位置 `07 07`，`tqe` 可缺省=无限制）、`version`（固件版本，MyActuator 亦支持）、`read_register`（`17` 族通用寄存器读，`addr/count`，2026-10-22 起固定 Int16 并返回换算后物理量）、`torque`（`05 13`，物理量 Nm，支持 continuous）、`dq_voltage`/`dq_current`（模式写+寄存器写拼一帧）、`brake`（模式 15）、`run_mode`（表2 模式切换，真发帧）、`write_register`（`05 <addr> <val16>`）、`periodic_report`（`05 B4`，电机主动状态流）。
 - 后续 V2 可升级为二进制帧，同时保留同一语义。
 
 ## 简易上位机（快速联调）

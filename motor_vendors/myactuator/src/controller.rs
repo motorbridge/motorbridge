@@ -1,5 +1,6 @@
 use crate::motor::MyActuatorMotor;
 use motor_core::bus::{open_can_bus, open_socketcanfd, CanBus};
+use motor_core::controller::CoreController;
 use motor_core::error::Result;
 use motor_core::vendor_controller::VendorController;
 use std::sync::Arc;
@@ -12,6 +13,15 @@ impl MyActuatorController {
     pub fn new(bus: Arc<dyn CanBus>) -> Self {
         Self {
             controller: VendorController::new(bus),
+        }
+    }
+
+    /// Wrap an existing shared `CoreController` (mixed-vendor bus): this
+    /// controller's motors join the shared core's device table, sharing one
+    /// bus fd and one background receive thread with other vendors.
+    pub fn new_shared(core: Arc<CoreController>) -> Self {
+        Self {
+            controller: VendorController::new_shared(core),
         }
     }
 

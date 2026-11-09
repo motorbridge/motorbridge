@@ -1,10 +1,7 @@
 use crate::commands::{as_bool, as_f32, as_u64};
-use crate::model::{ActiveCommand, ControllerHandle, MotorHandle};
-use crate::session::SessionCtx;
+use crate::model::{ActiveCommand, MotorHandle};
+use crate::session::{SessionCtx, TWO_PI};
 use crate::vendors::damiao_ws::ensure_control_mode_soft;
-use crate::vendors::hightorque_ws::{
-    pos_raw_from_rad, send_hightorque_ext, tqe_raw_from_tau, vel_raw_from_rad_s, TWO_PI,
-};
 use motor_vendor_damiao::ControlMode as DamiaoControlMode;
 use motor_vendor_hexfellow::{
     MitTarget as HexfellowMitTarget, PosVelTarget as HexfellowPosVelTarget,
@@ -19,6 +16,8 @@ pub(crate) fn handle(op: &str, v: &Value, ctx: &mut SessionCtx) -> Option<Result
     match op {
         "mit" => Some(handle_mit(v, ctx)),
         "pos_vel" | "pos-vel" => Some(handle_pos_vel(v, ctx)),
+        "pos_vel_acc" | "pos-vel-acc" => Some(handle_pos_vel_acc(v, ctx)),
+        "torque" => Some(handle_torque(v, ctx)),
         "vel" => Some(handle_vel(v, ctx)),
         "force_pos" | "force-pos" => Some(handle_force_pos(v, ctx)),
         _ => None,
@@ -93,18 +92,21 @@ fn handle_mit(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
                 .map_err(|e| e.to_string())?;
             }
         }
-        Some(MotorHandle::Hightorque(mid)) => {
-            if let ActiveCommand::Mit { pos, vel, tau, .. } = cmd {
-                let pos_raw = pos_raw_from_rad(pos);
-                let vel_raw = vel_raw_from_rad_s(vel);
-                let tqe_raw = tqe_raw_from_tau(tau);
-                let mut data = [0x07, 0x35, 0, 0, 0, 0, 0, 0];
-                data[2..4].copy_from_slice(&vel_raw.to_le_bytes());
-                data[4..6].copy_from_slice(&tqe_raw.to_le_bytes());
-                data[6..8].copy_from_slice(&pos_raw.to_le_bytes());
-                if let Some(ControllerHandle::Hightorque(bus)) = ctx.controller.as_ref() {
-                    send_hightorque_ext(bus.as_ref(), *mid, &data)?;
-                }
+        Some(MotorHandle::Hightorque(m)) => {
+            // Converged (2026-09-29): MIT goes through the vendor
+            // `0x18000|id` bit-packed frame with kp/kd packed into the frame
+            // (replacing the G4-era half-migration: vendor encoding but
+            // hand-written framing).
+            if let ActiveCommand::Mit {
+                pos,
+                vel,
+                kp,
+                kd,
+                tau,
+            } = cmd
+            {
+                m.send_cmd_mit(pos, vel, kp, kd, tau)
+                    .map_err(|e| e.to_string())?;
             }
         }
         Some(MotorHandle::Myactuator(_)) => {
@@ -205,12 +207,90 @@ fn handle_pos_vel(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
             };
             Ok(json!({"op":"pos_vel","continuous": as_bool(v, "continuous", false)}))
         }
-        Some(MotorHandle::Hightorque(_)) => {
-            Err("pos_vel is not supported for hightorque".to_string())
+        Some(MotorHandle::Hightorque(m)) => {
+            // Converged (2026-09-29): 07 35 coordinated frame (vendor); the
+            // gateway used to reject pos_vel — now aligned with the
+            // ABI/Python capabilities.
+            if let ActiveCommand::PosVel { pos, vlim } = cmd {
+                m.send_cmd_pos_vel(pos, vlim).map_err(|e| e.to_string())?;
+            }
+            ctx.active = if as_bool(v, "continuous", false) {
+                Some(cmd)
+            } else {
+                None
+            };
+            Ok(json!({"op":"pos_vel","continuous": as_bool(v, "continuous", false)}))
         }
         Some(MotorHandle::Myactuator(_)) => {
             Err("pos_vel is not supported for myactuator".to_string())
         }
+        None => Err("motor not connected".to_string()),
+    }
+}
+
+fn handle_pos_vel_acc(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
+    ctx.ensure_connected()?;
+    let cmd = ActiveCommand::PosVelAcc {
+        pos: as_f32(v, "pos", 0.0),
+        vlim: as_f32(v, "vlim", 1.0),
+        acc: as_f32(v, "acc", 1.0),
+    };
+    // Trapezoid control (07 2d, firmware v4.6.0+) is exclusive to the
+    // HighTorque protocol; other vendors' protocols have no acceleration
+    // field, so reject rather than degrade to an approximation.
+    match ctx.motor.as_ref() {
+        Some(MotorHandle::Hightorque(m)) => {
+            if let ActiveCommand::PosVelAcc { pos, vlim, acc } = cmd {
+                m.send_cmd_pos_vel_acc(pos, vlim, acc)
+                    .map_err(|e| e.to_string())?;
+            }
+            ctx.active = if as_bool(v, "continuous", false) {
+                Some(cmd)
+            } else {
+                None
+            };
+            Ok(json!({"op":"pos_vel_acc","continuous": as_bool(v, "continuous", false)}))
+        }
+        Some(MotorHandle::Damiao(_)) => Err("pos_vel_acc is not supported for damiao".to_string()),
+        Some(MotorHandle::Hexfellow(_)) => {
+            Err("pos_vel_acc is not supported for hexfellow".to_string())
+        }
+        Some(MotorHandle::Myactuator(_)) => {
+            Err("pos_vel_acc is not supported for myactuator".to_string())
+        }
+        Some(MotorHandle::Robstride(_)) => {
+            Err("pos_vel_acc is not supported for robstride".to_string())
+        }
+        None => Err("motor not connected".to_string()),
+    }
+}
+
+fn handle_torque(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
+    ctx.ensure_connected()?;
+    let cmd = ActiveCommand::Torque {
+        tau: as_f32(v, "tau", 0.0),
+    };
+    // Direct torque-target command (05 13) is exclusive to the HighTorque
+    // protocol; other vendors express torque via MIT feedforward (the `mit`
+    // op), so reject here rather than degrade to an approximation.
+    match ctx.motor.as_ref() {
+        Some(MotorHandle::Hightorque(m)) => {
+            if let ActiveCommand::Torque { tau } = cmd {
+                m.send_cmd_torque(tau).map_err(|e| e.to_string())?;
+            }
+            ctx.active = if as_bool(v, "continuous", false) {
+                Some(cmd)
+            } else {
+                None
+            };
+            Ok(json!({"op":"torque","continuous": as_bool(v, "continuous", false)}))
+        }
+        Some(MotorHandle::Damiao(_)) => Err("torque is not supported for damiao".to_string()),
+        Some(MotorHandle::Hexfellow(_)) => Err("torque is not supported for hexfellow".to_string()),
+        Some(MotorHandle::Myactuator(_)) => {
+            Err("torque is not supported for myactuator".to_string())
+        }
+        Some(MotorHandle::Robstride(_)) => Err("torque is not supported for robstride".to_string()),
         None => Err("motor not connected".to_string()),
     }
 }
@@ -261,16 +341,12 @@ fn handle_vel(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
                     .map_err(|e| e.to_string())?;
             }
         }
-        Some(MotorHandle::Hightorque(mid)) => {
+        Some(MotorHandle::Hightorque(m)) => {
+            // Converged (2026-09-29): 07 07 velocity frame (vendor); the
+            // vendor fills the torque field's 0x8000 unlimited sentinel
+            // (the old hand-written path hardcoded 0).
             if let ActiveCommand::Vel { vel } = cmd {
-                let vel_raw = vel_raw_from_rad_s(vel);
-                let tqe_raw = 0i16;
-                let mut data = [0x07, 0x07, 0x00, 0x80, 0x20, 0x00, 0x80, 0x00];
-                data[4..6].copy_from_slice(&vel_raw.to_le_bytes());
-                data[6..8].copy_from_slice(&tqe_raw.to_le_bytes());
-                if let Some(ControllerHandle::Hightorque(bus)) = ctx.controller.as_ref() {
-                    send_hightorque_ext(bus.as_ref(), *mid, &data)?;
-                }
+                m.send_cmd_vel(vel).map_err(|e| e.to_string())?;
             }
         }
         Some(MotorHandle::Hexfellow(_)) => {

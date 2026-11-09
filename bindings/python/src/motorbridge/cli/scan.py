@@ -233,13 +233,25 @@ def _scan_hightorque(args: argparse.Namespace, start_id: int, end_id: int) -> li
             motor = ctrl.add_hightorque_motor(mid, 0x01, args.model)
             try:
                 try:
+                    # 2026-10-24 修复:request_feedback 2026-10-23 起非阻塞
+                    # (DM 语义),回帧 ≥0.5ms 后才入缓——立即 get_state 恒
+                    # None,扫描永远 miss(旧阻塞 .so 掩盖了该缺陷)。改为
+                    # damiao 分支同款"发帧 + 轮询直到超时"。
                     motor.request_feedback()
-                    st = motor.get_state()
-                    if st is None:
+                    hit = None
+                    deadline = time.monotonic() + args.timeout_ms / 1000.0
+                    while time.monotonic() < deadline:
+                        ctrl.poll_feedback_once()
+                        st = motor.get_state()
+                        if st is not None:
+                            hit = st
+                            break
+                        time.sleep(0.002)
+                    if hit is None:
                         raise RuntimeError("no feedback")
                     meta = (
-                        f"vendor=hightorque pos={st.pos:+.4f}rad "
-                        f"vel={st.vel:+.4f}rad/s torq={st.torq:+.3f}Nm"
+                        f"vendor=hightorque pos={hit.pos:+.4f}rad "
+                        f"vel={hit.vel:+.4f}rad/s torq={hit.torq:+.3f}Nm"
                     )
                     found.append((mid, meta))
                     print(f"[hit] probe=0x{mid:02X} {meta}")

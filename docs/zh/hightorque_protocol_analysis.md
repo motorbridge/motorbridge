@@ -1,5 +1,10 @@
 # HighTorque 协议说明（2026-03 更新）
 
+> **2026-09 更新**：vendor 层已迁移到 `ht_can` **v2.0.0**（MIT 走 `0x18000|id` 位打包帧，
+> 固件 v4.6.0+，`kp/kd` 打包进帧；清错=停止帧 模式 0）。CLI/ws_gateway 的 MIT 路径也已
+> 切 v2.0.0 并复用 vendor 编码。本文下述 v1.5.5 时代的帧族描述为历史记录，
+> 现行状态以 [hightorque_fullchain_audit.md](hightorque_fullchain_audit.md) 为准。
+
 <!-- channel-compat-note -->
 ## 通道兼容说明（PCAN + CANable candleLight/gs_usb + Damiao 串口桥 + DM_Device）
 

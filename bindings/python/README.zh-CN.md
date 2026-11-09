@@ -365,7 +365,7 @@ from motorbridge import Controller
 
 with Controller("can0") as ctrl:
     motor = ctrl.add_hightorque_motor(1, 0x01, "hightorque")
-    motor.send_mit(3.1416, 0.8, 0.0, 0.0, 0.8)  # kp/kd 参数保留，但协议本身不使用
+    motor.send_mit(3.1416, 0.8, 0.0, 0.0, 0.8)  # kp/kd 打包进 v2.0.0 MIT 位打包帧
     motor.request_feedback()
     print(motor.get_state())
     motor.close()
@@ -450,7 +450,7 @@ Python 示例中 Damiao 用法已覆盖到位：
 | RobStride | `mit` | `--pos --vel --kp --kd --tau` | 原生 MIT 帧 |
 | RobStride | `pos-vel` | `--pos --vlim --loc-kp` | 映射到原生 Position 模式；未传 `--loc-kp` 时接受 `--kp` 作为 fallback |
 | RobStride | `vel` | `--vel` | 原生速度模式 |
-| HighTorque | `mit` | `--pos --vel --tau` | `--kp/--kd` 为统一签名兼容参数，`ht_can v1.5.5` 会忽略 |
+| HighTorque | `mit` | `--pos --vel --kp --kd --tau` | v2.0.0 位打包 MIT 帧（`0x18000 \| id`，固件 v4.6.0+）；超出打包量程的值饱和 |
 | Hexfellow | `mit` | `--pos --vel --kp --kd --tau` | CAN-FD 路径 |
 | Hexfellow | `pos-vel` | `--pos --vlim` | CAN-FD 路径 |
 

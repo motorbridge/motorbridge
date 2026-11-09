@@ -3,11 +3,11 @@ use super::*;
 macro_rules! dispatch_controller {
     ($inner:expr, $method:ident) => {
         match $inner {
+            // Eager dm-serial/dm-device path: keeps its own DamiaoController (own core).
             ControllerInner::Damiao(ctrl) => ctrl.$method().map_err(|e| e.to_string()),
-            ControllerInner::Hexfellow(ctrl) => ctrl.$method().map_err(|e| e.to_string()),
-            ControllerInner::MyActuator(ctrl) => ctrl.$method().map_err(|e| e.to_string()),
-            ControllerInner::Robstride(ctrl) => ctrl.$method().map_err(|e| e.to_string()),
-            ControllerInner::Hightorque(ctrl) => ctrl.$method().map_err(|e| e.to_string()),
+            // Shared-core multi-vendor path: route to the one CoreController,
+            // which iterates every device in its table regardless of vendor.
+            ControllerInner::Bound(b) => b.core.$method().map_err(|e| e.to_string()),
             ControllerInner::Unbound(_) => Err(
                 "controller has no motor; add a motor before calling this operation".to_string(),
             ),

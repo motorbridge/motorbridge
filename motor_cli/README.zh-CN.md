@@ -40,7 +40,7 @@ motor_cli -h
 ## HighTorque 补充说明
 
 - 协议深度分析文档：`../docs/zh/hightorque_protocol_analysis.md`
-- 当前 `vendor=hightorque` 为 原生 ht_can v1.5.5 的“直连 CAN”模式，不是官方的“串口->CANboard”传输链路。
+- 当前 `vendor=hightorque` 为 原生 ht_can v2.0.0 的“直连 CAN”模式，不是官方的“串口->CANboard”传输链路。
 
 ## CAN 调试入口
 
@@ -59,7 +59,7 @@ motor_cli -h
 
 当前状态：
 - Hexfellow：`socketcanfd` 路径已实测，统一 `mit` / `pos-vel` 可用。
-- HighTorque：标准 CAN 下统一 `mit` / `vel` 已实测可用（协议层忽略 `kp/kd`）。
+- HighTorque：标准 CAN 下统一 `mit` / `vel` 已实测可用（`mit` 走 v2.0.0 位打包帧，`kp/kd` 打包进帧；超量程饱和）。
 - Damiao：统一 `mit` / `pos-vel` / `vel` / `force-pos` 的基线实现；
   `dm-device` 已在 USB2CANFD_DUAL 的通道 0/1 和 LINKX4C SDK 通道
   `0..3` 扫描中验证。
@@ -608,18 +608,28 @@ motor_cli \
   --vendor all --channel can0 --mode scan --start-id 1 --end-id 255
 ```
 
-## 8. vendor=`hightorque`（原生 `ht_can` v1.5.5）
+## 8. vendor=`hightorque`（原生 `ht_can` v2.0.0）
 
-- 当前实现走 HighTorque 原生 `ht_can` v1.5.5 直连 CAN 协议路径。
+- 控制/状态/参数命令全部经 `motor_vendor_hightorque`（与 ABI/Python/gateway 层共用同一份实现）；`mit` 走 v2.0.0 位打包帧（`0x18000 | id`，固件 v4.6.0+）。
+- 广播 `scan` 是 CLI 仅存的 HT 裸总线代码（vendor 无 scan API）；原诊断帧路径（diag_bus）已删除，`tqe`/`volt`/`cur`/`brake`/周期上报全部改走 vendor 物理量原语。
 - 用于 SocketCAN（`can0` 等）直连电机场景。
 - HighTorque 官方 Panthera SDK 的“USB 串口 -> CANboard -> 电机”链路与当前 CLI 直连 CAN 路径相互独立。
-- 支持模式：`scan | read | ping | mit | pos | vel | tqe | pos-vel-tqe | volt | cur | stop | brake | rezero | conf-write | timed-read`。
+- 支持模式：`scan | read | ping | mit | pos | vel | tqe | volt | cur | set-mode | pos-vel-tqe | pos-vel-acc | version | read-reg | write-reg | stop | brake | rezero | conf-write | periodic-report`。
+- `--model` 从此真正生效：注册电机时校验，并决定物理力矩的补偿系数（接受 `hightorque`/`ht`/`auto` 占位符或具体型号码如 `5036-36`）。
+- `read`/`ping` 打印 vendor 解码后的物理量状态（`pos`/`vel`/`torq` 外加 `status`/`fault`/温度，力矩系数已补偿）。
 - 统一单位接口：
-  - `--pos` 为 `rad`
-  - `--vel` 为 `rad/s`
-  - `--tau` 为 `Nm`
-  - `--kp`、`--kd` 为统一 MIT 参数签名保留，`ht_can` 协议本身不使用。
-  - 原始调试参数：`--raw-pos`、`--raw-vel`、`--raw-tqe`。
+  - `--pos` 为 `rad`、`--vel` 为 `rad/s`、`--tau` 为 `Nm`、`--volt` 为 `V`、`--cur` 为 `A`
+  - `--kp`、`--kd` 打包进 v2.0.0 MIT 位打包帧（量程 kp ±400、kd ±100，超界饱和）。
+  - 原始调试参数：`--raw-pos`/`--raw-vel`（换算为物理量后由 vendor 重新编码）；力矩/电压/电流一律物理量（`--tau`/`--volt`/`--cur`），`--raw-tqe`/`--raw-vol`/`--raw-cur` 不再接受——编码（含型号力矩系数补偿、0.1 V/A 标度）在 vendor 侧完成。
+- `tqe`（力矩模式 `05 13`）：`--tau <Nm>`，物理量直发，无需预先切模式。
+- `volt`（DQ 电压 `01 00 08 05 1B`，模式写+寄存器写拼一帧）：`--volt <V>`（0.1 V/LSB，协议只定义 Q 分量）。
+- `cur`（DQ 电流 `01 00 09 05 1C`）：`--cur <A>`（0.1 A/LSB）。
+- `set-mode`（运行模式切换 `01 00 <mode>`）：`--run-mode <0-17>`（表2；0=停止并清错，8=DQ 电压，9=DQ 电流，10=位置，15=刹车）。
+- `periodic-report`（周期上报 `05 B4 02 <t_ms>`）：`--period-ms <ms>`（≥1 开启电机按周期主动发 `27 01` 状态帧，0 停止；`timed-read` 保留为旧名别名）。
+- `pos-vel-acc`（梯形 `07 2d`，固件 v4.6.0+）：`--pos <rad> --vlim <rad/s> --acc <rad/s^2>`。
+- `version`：查询固件版本（`15 B5 02`），打印 `firmware=major.minor.patch`；`--timeout-ms` 可调（默认 500）。
+- `read-reg`：通用寄存器读（`17` 族），`--addr <hex|dec>` 必填，`--count`（1-3）默认 1，`--ty`（`0|i8`/`1|i16`/`2|i32`/`3|f32`）缺省回落寄存器表已核实类型、无则必填；打印 raw 值与寄存器名，物理量标度换算按寄存器功能表由调用方完成。
+- `write-reg`：通用寄存器写（`05 <addr> <val16>`），`--addr` 必填、`--value <int16>`、`--config`（0/1，1=配置类走扩展 `0x8000|id` 帧，缺省 0 走控制通道）；模式寄存器 0x000 请用 `set-mode`。`--store`（0/1，缺省 0；1=写完补发一帧 `conf-write`（`05 B3`）落盘，对齐 Damiao/RobStride `write-param --store` 组合便利；落盘为整机保存，建议重新上电后生效）。
 
 ## 9. vendor=`myactuator`
 

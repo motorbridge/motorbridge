@@ -3,6 +3,9 @@ use crate::model::{ActiveCommand, ControllerHandle, MotorHandle, Target};
 mod connect;
 mod runtime;
 
+/// 弧度 ↔ 圈(hexfellow 物理量为 rev/permille,需要换算)。
+pub(crate) const TWO_PI: f32 = std::f32::consts::TAU;
+
 pub(crate) struct SessionCtx {
     pub(crate) target: Target,
     pub(crate) controller: Option<ControllerHandle>,

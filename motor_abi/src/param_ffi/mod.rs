@@ -120,6 +120,5 @@ macro_rules! define_param_write_ffis_5 {
 mod common;
 mod damiao;
 mod hexfellow;
-mod hightorque;
 mod myactuator;
 mod robstride;

@@ -35,7 +35,7 @@ mindmap
         Modes
           enable / disable / stop / status / current / vel / pos
       HighTorque
-        hightorque (native ht_can v1.5.5)
+        hightorque (native ht_can v2.0.0)
         Modes
           scan / read / mit / pos-vel / vel / stop
     Template
@@ -50,7 +50,7 @@ mindmap
 | Damiao | 3507, 4310, 4310P, 4340, 4340P, 6006, 8006, 8009, 10010L, 10010, H3510, G6215, H6220, JH11, 6248P | scan, enable, disable, MIT, POS_VEL, VEL, FORCE_POS, set-id, set-zero | 支持（f32/u32） | 支持 | 生产基线；修改 ID 建议使用 `--store 1 --verify-id 1` |
 | RobStride | rs-00, rs-01, rs-02, rs-03, rs-04, rs-05, rs-05el, rs-06 | scan, ping, enable, disable, MIT, POS_VEL, VEL, parameter read/write, set-id, zero | 支持（i8/u8/u16/u32/f32） | 支持 | 使用 29-bit 扩展 CAN ID；默认 host/feedback ID 为 `0xFD`；set-id 对齐上位工具帧布局 |
 | MyActuator | X-series（运行时 model 字符串，默认 `X8`） | enable, disable, stop, status, current, vel, pos, version, mode-query | 暂不支持（CLI 命令级支持） | 支持 | 使用标准 11-bit ID：`0x140+id` / `0x240+id`；常用 ID 范围 1..32 |
-| HighTorque | hightorque（运行时 model 字符串；原生 `ht_can v1.5.5`） | scan, read, MIT, POS_VEL, VEL, stop, brake, rezero | 暂不支持（vendor 命令级支持） | 支持 | 对外统一 `rad/rad/s/Nm` 接口；原生 payload 缩放由实现层处理 |
+| HighTorque | hightorque（运行时 model 字符串；原生 `ht_can` v2.0.0） | scan, read, MIT, POS_VEL, POS_VEL_ACC（梯形 07 2d）, VEL, POS_CLASSIC（07 07）, torque（力矩 05 13）, dq_voltage（DQ 电压）/ dq_current（DQ 电流）, set-mode（运行模式切换）, periodic-report（周期上报）, read-reg（17 族通用寄存器读）, write-reg（通用寄存器写）, version（固件版本）, stop, brake（模式 15）, rezero | 暂不支持（vendor 命令级支持） | 支持 | 对外统一 `rad/rad/s/Nm/V/A` 物理量接口（力矩/电压/电流由 vendor 侧编码并做型号力矩系数补偿）；MIT 走 `0x18000 \| id` 位打包帧（固件 v4.6.0+），原生 payload 缩放由实现层处理 |
 
 ## 模板（非生产）
 

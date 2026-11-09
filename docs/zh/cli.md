@@ -105,28 +105,34 @@ cargo run -p motor_cli --release -- \
   --mode pos-vel --pos 1.5 --vlim 1.0 --loc-kp 5.0 --loop 1 --dt-ms 20
 ```
 
-## HighTorque（原生 `ht_can` v1.5.5）
+## HighTorque（原生 `ht_can` v2.0.0）
 
 支持模式：
 
 - `scan`
 - `read` / `ping`
 - `mit`（统一接口）
-- `pos` / `vel` / `tqe`
+- `pos` / `vel` / `tqe`（力矩模式 `05 13`，`--tau <Nm>` 物理量，型号力矩系数补偿）
 - `pos-vel-tqe`
-- `volt` / `cur`
-- `stop` / `brake` / `rezero` / `conf-write` / `timed-read`
+- `pos-vel-acc`（梯形 `07 2d`，固件 v4.6.0+）：`--pos <rad> --vlim <rad/s> --acc <rad/s^2>`
+- `volt`（DQ 电压模式 `01 00 08 05 1B`）：`--volt <V>`（0.1 V/LSB，协议只定义 Q 分量）
+- `cur`（DQ 电流模式 `01 00 09 05 1C`）：`--cur <A>`（0.1 A/LSB）
+- `set-mode`（运行模式切换 `01 00 <mode>`）：`--run-mode <0-17>`（表2；0=停止并清错，8=DQ 电压，9=DQ 电流，10=位置，15=刹车）
+- `read-reg`（通用寄存器读 `17` 族）：`--addr <hex|dec>` 必填、`--count`（1-3，默认 1）；2026-10-22 起读取**固定按 Int16**（`--ty` 已删除，显式传入会报错），返回**换算后物理量**（位置/速度/加速度→rad 族、力矩→N·m 套型号 k、电流/电压/温度/PWM/PID 按各自 scale；无换算关系的寄存器 1:1），每行打印该行地址的寄存器名与单位；地址须在寄存器表（0x00-0x45 中 xlsx 列出的 43 个）内，缺号/表外地址读/写均报错
+- `write-reg`（通用寄存器写 `05 <addr> <val16>`）：`--addr` 必填（同样须在寄存器表内，缺号/表外拒绝）、`--value <int16>`、`--config`（0/1，1=配置类走扩展帧，缺省 0 走控制通道）
+- `periodic-report`（周期上报 `05 B4 02 <t_ms>`）：`--period-ms`（≥1 开启电机主动状态流，0 停止；`timed-read` 为旧名别名）
+- `stop` / `brake`（模式 15，三相短接阻尼刹车）/ `rezero` / `conf-write`
 
 统一单位接口（与其他电机保持一致）：
 
 - `--pos`：弧度（rad）
 - `--vel`：弧度每秒（rad/s）
 - `--tau`：扭矩（Nm）
-- `--kp`、`--kd`：为统一 MIT 参数签名保留，`ht_can` 协议本身不使用
+- `--kp`、`--kd`：打包进 v2.0.0 MIT 位打包帧（固件 v4.6.0+；量程 kp ±400、kd ±100，超界饱和）
 
-底层原始接口（调试）：
+底层原始接口（调试，仅位置/速度）：
 
-- `--raw-pos`、`--raw-vel`、`--raw-tqe`
+- `--raw-pos`、`--raw-vel`（力矩/电压/电流已统一为物理量 `--tau`/`--volt`/`--cur`，由 vendor 侧编码）
 
 示例：
 
@@ -153,6 +159,20 @@ cargo run -p motor_cli --release -- \
 # 停止
 cargo run -p motor_cli --release -- \
   --vendor hightorque --channel can0 --motor-id 1 --mode stop
+```
+
+```bash
+# 梯形运动到 +90 度，限速 1 rad/s、加速度 2 rad/s^2
+cargo run -p motor_cli --release -- \
+  --vendor hightorque --channel can0 --motor-id 1 \
+  --mode pos-vel-acc --pos 1.5708 --vlim 1.0 --acc 2.0
+```
+
+```bash
+# 读 3 个连续寄存器（位置/速度/转矩，固定 Int16，返回换算后物理量 rad/rad·s⁻¹/N·m）
+cargo run -p motor_cli --release -- \
+  --vendor hightorque --channel can0 --motor-id 1 \
+  --mode read-reg --addr 0x01 --count 3
 ```
 
 ## MyActuator 示例

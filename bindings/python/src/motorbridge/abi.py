@@ -9,6 +9,7 @@ from ctypes import (
     c_char_p,
     c_float,
     c_int8,
+    c_int16,
     c_int32,
     c_uint8,
     c_uint16,
@@ -32,6 +33,8 @@ class CState(Structure):
         ("torq", c_float),
         ("t_mos", c_float),
         ("t_rotor", c_float),
+        # HighTorque: 表3 故障码(0=无故障); 其余厂商恒 0。末尾追加, 旧布局不变。
+        ("fault_code", c_uint8),
     ]
 
 
@@ -189,6 +192,39 @@ class Abi:
         lib.motor_handle_store_parameters.restype = c_int32
         lib.motor_handle_request_feedback.argtypes = [c_void_p]
         lib.motor_handle_request_feedback.restype = c_int32
+
+        lib.motor_handle_hightorque_send_pos_vel_acc.argtypes = [c_void_p, c_float, c_float, c_float]
+        lib.motor_handle_hightorque_send_pos_vel_acc.restype = c_int32
+        lib.motor_handle_hightorque_send_pos_classic.argtypes = [c_void_p, c_float, c_float]
+        lib.motor_handle_hightorque_send_pos_classic.restype = c_int32
+        # 2026-10-22: hightorque_get_register / request_register 删除 ty 参数
+        # (读取固定 Int16), 返回换算后物理量。
+        lib.motor_handle_hightorque_get_register.argtypes = [
+            c_void_p, c_uint8, c_uint8, c_uint32, POINTER(c_float)
+        ]
+        lib.motor_handle_hightorque_get_register.restype = c_int32
+        lib.motor_handle_hightorque_request_register.argtypes = [
+            c_void_p, c_uint8, c_uint8
+        ]
+        lib.motor_handle_hightorque_request_register.restype = c_int32
+        lib.motor_handle_hightorque_get_cached_register.argtypes = [
+            c_void_p, c_uint8, POINTER(c_uint8), POINTER(c_float)
+        ]
+        lib.motor_handle_hightorque_get_cached_register.restype = c_int32
+        lib.motor_handle_hightorque_send_torque.argtypes = [c_void_p, c_float]
+        lib.motor_handle_hightorque_send_torque.restype = c_int32
+        lib.motor_handle_hightorque_send_dq_voltage.argtypes = [c_void_p, c_float]
+        lib.motor_handle_hightorque_send_dq_voltage.restype = c_int32
+        lib.motor_handle_hightorque_send_dq_current.argtypes = [c_void_p, c_float]
+        lib.motor_handle_hightorque_send_dq_current.restype = c_int32
+        lib.motor_handle_hightorque_brake.argtypes = [c_void_p]
+        lib.motor_handle_hightorque_brake.restype = c_int32
+        lib.motor_handle_hightorque_set_run_mode.argtypes = [c_void_p, c_uint8]
+        lib.motor_handle_hightorque_set_run_mode.restype = c_int32
+        lib.motor_handle_hightorque_write_register.argtypes = [c_void_p, c_uint8, c_int16, c_uint8]
+        lib.motor_handle_hightorque_write_register.restype = c_int32
+        lib.motor_handle_hightorque_set_periodic_report.argtypes = [c_void_p, c_uint16]
+        lib.motor_handle_hightorque_set_periodic_report.restype = c_int32
         lib.motor_handle_set_can_timeout_ms.argtypes = [c_void_p, c_uint32]
         lib.motor_handle_set_can_timeout_ms.restype = c_int32
 

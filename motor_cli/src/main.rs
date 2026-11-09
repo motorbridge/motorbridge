@@ -167,8 +167,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if !ht_args.contains_key("end-id") {
             ht_args.insert("end-id".to_string(), "32".to_string());
         }
-        let _ = hightorque_model;
-        run_hightorque(&ht_args, &channel, motor_id)?;
+        run_hightorque(&ht_args, &channel, &hightorque_model, motor_id, 0x0001)?;
         run_myactuator(&args, &channel, &myactuator_model, motor_id, 0x0241)?;
         return Ok(());
     }
@@ -178,7 +177,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "robstride" => run_robstride(&args, &channel, &model, motor_id, feedback_id, "robstride"),
         "robstride_cia402" => run_robstride_cia402(&args, &channel, &model, motor_id, feedback_id),
         "robstride_mit" => run_robstride_mit(&args, &channel, &model, motor_id, feedback_id),
-        "hightorque" => run_hightorque(&args, &channel, motor_id),
+        "hightorque" => run_hightorque(&args, &channel, &model, motor_id, feedback_id),
         "myactuator" => run_myactuator(&args, &channel, &model, motor_id, feedback_id),
         "hexfellow" => run_hexfellow(&args, &channel, &model, motor_id, feedback_id),
         _ => Err(format!("unknown vendor: {vendor}").into()),

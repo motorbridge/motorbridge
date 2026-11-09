@@ -167,6 +167,19 @@ Note:
 - RobStride feedback/host default should use `0xFD`; scan tries `0xFD,0xFF,0xFE,0x00,0xAA` by default.
 - RobStride `feedback_id` / `host_id` is not the motor `device_id`; scan hits report the motor ID as `probe` / `device_id`.
 
+HighTorque SDK extensions (beyond the unified modes, motor-handle methods):
+
+- `hightorque_send_pos_vel_acc(pos, vlim, acc)` — trapezoid control (`07 2d`, firmware v4.6.0+), rad / rad/s / rad/s².
+- `hightorque_send_pos_classic(pos, tqe=None)` — classic position mode (`07 07`), torque limit in Nm; `None` means unlimited.
+- `hightorque_send_torque(torque_nm)` — torque mode (`05 13`): direct torque target in Nm (model-coeff compensated), no mode pre-switch needed.
+- `hightorque_send_dq_voltage(voltage_v)` / `hightorque_send_dq_current(current_a)` — DQ voltage / current modes (mode write + Q-axis register write combined in one frame), V (0.1 V/LSB) / A (0.1 A/LSB); Q component only per protocol.
+- `hightorque_brake()` — brake (run mode 15): all phases shorted damping brake.
+- `hightorque_set_run_mode(mode)` — run-mode switch (`01 00 <mode>`, register 0x000), mode 0-17 per table 2 (0 = stop & clear error); sends a real frame unlike `ensure_mode`.
+- `hightorque_write_register(addr, value, config_class=False)` — generic register write (`05 <addr> <val16>`); `config_class=True` sends via the extended `0x8000|id` frame.
+- `hightorque_set_periodic_report(period_ms)` — periodic status report (`05 B4 02`): `>=1` enables the motor-initiated `27 01` status stream, `0` stops it.
+- `hightorque_get_register(addr, count=1, timeout_ms=500) -> list[float]` — generic register read (`17` family); **fixed Int16 since 2026-10-22** (`ty` param removed; passing it errors at the ABI boundary), returns **converted physical values** (pos/vel/acc in rad-family units, torque in N·m via model k, current/voltage/temperature/PWM/PID per scale; unclassified registers 1:1). `addr` (and every address covered by `count`) must be in the HighTorque parameter table — the 43 xlsx-listed registers within 0x00-0x45; missing (缺号) and out-of-table addresses error out for both read and write (same rule as `hightorque_write_register`). ⚠ signature change: the old positional call `get_register(0x01, 1, 3)` (addr, ty, count) silently becomes (addr, count=1, timeout_ms=3) — re-check positional args when migrating scripts.
+- `get_state()` now also returns `fault_code` (HighTorque table-3 fault code, 0 = no fault; other vendors always 0).
+
 ## Quick Start
 
 ```python
@@ -339,7 +352,7 @@ from motorbridge import Controller
 
 with Controller("can0") as ctrl:
     motor = ctrl.add_hightorque_motor(1, 0x01, "hightorque")
-    motor.send_mit(3.1416, 0.8, 0.0, 0.0, 0.8)  # kp/kd are accepted but ignored by protocol
+    motor.send_mit(3.1416, 0.8, 0.0, 0.0, 0.8)  # kp/kd are bit-packed into the v2.0.0 MIT frame
     motor.request_feedback()
     print(motor.get_state())
     motor.close()
@@ -425,7 +438,7 @@ uses only the arguments that its native protocol understands.
 | RobStride | `mit` | `--pos --vel --kp --kd --tau` | native MIT frame |
 | RobStride | `pos-vel` | `--pos --vlim --loc-kp` | maps to native Position mode; `--kp` is accepted as a `--loc-kp` fallback |
 | RobStride | `vel` | `--vel` | native speed mode |
-| HighTorque | `mit` | `--pos --vel --tau` | `--kp/--kd` are accepted for unified signature but ignored by `ht_can v1.5.5` |
+| HighTorque | `mit` | `--pos --vel --kp --kd --tau` | v2.0.0 bit-packed MIT frame (`0x18000 \| id`, firmware v4.6.0+); values beyond the packed range saturate |
 | Hexfellow | `mit` | `--pos --vel --kp --kd --tau` | CAN-FD path |
 | Hexfellow | `pos-vel` | `--pos --vlim` | CAN-FD path |
 

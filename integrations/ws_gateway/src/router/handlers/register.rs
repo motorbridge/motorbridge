@@ -5,7 +5,6 @@ use crate::commands::{
 use crate::model::{ControllerHandle, MotorHandle};
 use crate::session::SessionCtx;
 use crate::vendors::damiao_ws::ensure_control_mode_soft;
-use crate::vendors::hightorque_ws::send_hightorque_ext;
 use motor_vendor_robstride::ParameterValue as RobstrideParameterValue;
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -49,8 +48,13 @@ fn handle_clear_error(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> 
         Some(MotorHandle::Hexfellow(_)) => {
             return Err("clear_error is not supported for hexfellow".to_string())
         }
-        Some(MotorHandle::Hightorque(_)) => {
-            return Err("clear_error is not supported for hightorque".to_string())
+        Some(MotorHandle::Hightorque(m)) => {
+            // Table 2 mode 0 is literally "stop, clear error": the single
+            // `0x01 0x00 0x00` frame both stops and clears, same frame as
+            // the stop op (G3: protocol-level clear_error ≡ stop; converged
+            // through the vendor, frame type follows the global default of
+            // extended 29-bit with bit15).
+            m.clear_error().map_err(|e| e.to_string())?;
         }
         Some(MotorHandle::Myactuator(_)) => {
             return Err("clear_error is not supported for myactuator".to_string())
@@ -82,8 +86,11 @@ fn handle_set_zero_position(v: &Value, ctx: &mut SessionCtx) -> Result<Value, St
         Some(MotorHandle::Hexfellow(_)) => {
             return Err("set_zero_position is not supported for hexfellow".to_string())
         }
-        Some(MotorHandle::Hightorque(_)) => {
-            return Err("set_zero_position is not supported for hightorque".to_string())
+        Some(MotorHandle::Hightorque(m)) => {
+            // Converged (2026-09-29): the gateway used to reject this, but
+            // the vendor has always supported the 0x40 zero-position frame
+            // (auto-persists internally) — aligned with ABI/Python.
+            m.set_zero_position().map_err(|e| e.to_string())?;
         }
         None => return Err("motor not connected".to_string()),
     }
@@ -160,8 +167,19 @@ fn handle_request_feedback(v: &Value, ctx: &mut SessionCtx) -> Result<Value, Str
             m.request_status().map_err(|e| e.to_string())?;
             c.poll_feedback_once().map_err(|e| e.to_string())?;
         }
-        (Some(ControllerHandle::Hightorque(bus)), Some(MotorHandle::Hightorque(mid))) => {
-            send_hightorque_ext(bus.as_ref(), *mid, &[0x17, 0x01, 0, 0, 0, 0, 0, 0])?;
+        (Some(ControllerHandle::Hightorque(_)), Some(MotorHandle::Hightorque(m))) => {
+            // Converged (2026-10-12): command 8 (read state) is a special
+            // case of command 7 (generic register read) — the 17 01 state
+            // query = reading 3 int16s starting at 0x01. Non-blocking
+            // "send and return" goes through the vendor method of the same
+            // name (since 2026-10-24 it sends two frames: 17 01 + 16 0E
+            // temperature/error code; real-bus testing showed the firmware
+            // parses one pair per frame). Replies are decoded by the vendor
+            // background receive thread and written into both the state and
+            // register caches; the 26 0E reply patches t_mos/fault_code in
+            // place (without bumping the state count); state_once/poll and
+            // cached_register can all read it back.
+            m.request_motor_feedback().map_err(|e| e.to_string())?;
         }
         _ => return Err("motor not connected".to_string()),
     }
@@ -225,8 +243,11 @@ fn handle_store_parameters(v: &Value, ctx: &mut SessionCtx) -> Result<Value, Str
         Some(MotorHandle::Hexfellow(_)) => {
             return Err("store_parameters is not supported for hexfellow".to_string())
         }
-        Some(MotorHandle::Hightorque(_)) => {
-            return Err("store_parameters is not supported for hightorque".to_string())
+        Some(MotorHandle::Hightorque(m)) => {
+            // Converged (2026-09-29): the gateway used to reject this, but
+            // the vendor has always supported the `05 B3` conf_write
+            // persist — aligned with ABI/Python.
+            m.store_parameters().map_err(|e| e.to_string())?;
         }
         Some(MotorHandle::Myactuator(_)) => {
             return Err("store_parameters is not supported for myactuator".to_string())

@@ -210,7 +210,175 @@ class Motor:
         )
 
     def request_feedback(self) -> None:
+        """请求电机反馈帧(统一入口, 各厂商语义):
+        HighTorque 2026-10-23 起为 **DM 语义非阻塞**; 2026-10-24 起连发
+        **两帧** 2 字节查询——`17 01`(0x01-0x03 位置/速度/力矩)+
+        `16 0E`(0x0E 温度 + 0x0F 错误码, 地址连续并入一帧)——即返回,
+        回帧由后台收帧线程入缓存: `27 01` 回帧锚定一次状态计数
+        (sequence +1), `26 0E` 回帧就地补丁 t_mos/fault_code(不推进
+        计数, 两回帧合为一次状态更新), 之后 get_state /
+        get_state_snapshot 读取。掉线不表现为本方法报错(无回复即静默),
+        需要新鲜度判定用 get_state_snapshot 的 received_at; 需要"发同帧
+        并阻塞等回"用 hightorque_get_register(0x01, 3)。Damiao/
+        MyActuator 同为非阻塞; Robstride 为空操作(无单次状态查询命令);
+        Hexfellow 为阻塞查询(300ms)。"""
         _ok(self._abi.lib.motor_handle_request_feedback(self._require_open()), "request_feedback")
+
+    def hightorque_send_pos_vel_acc(self, pos: float, vlim: float, acc: float) -> None:
+        """HighTorque 梯形控制(07 2d, 固件 v4.6.0+): 目标位置(rad) +
+        速度上限(rad/s) + 加速度上限(rad/s²)。仅 HighTorque。"""
+        _ok(
+            self._abi.lib.motor_handle_hightorque_send_pos_vel_acc(
+                self._require_open(), pos, vlim, acc
+            ),
+            "hightorque_send_pos_vel_acc",
+        )
+
+    def hightorque_send_pos_classic(self, pos: float, tqe: float | None = None) -> None:
+        """HighTorque 普通位置模式(07 07): 目标位置(rad) + 力矩上限(Nm)。
+        tqe=None 表示力矩无限制(0x8000 哨兵); 力矩按型号自适应补偿。仅 HighTorque。"""
+        _ok(
+            self._abi.lib.motor_handle_hightorque_send_pos_classic(
+                self._require_open(), pos, float("nan") if tqe is None else tqe
+            ),
+            "hightorque_send_pos_classic",
+        )
+
+    def hightorque_get_register(
+        self, addr: int, count: int = 1, timeout_ms: int = 500
+    ) -> list[float]:
+        """HighTorque 通用寄存器读(17 族): 从 addr 连续读 count(1-3) 个寄存器。
+        2026-10-22 起读取固定按 Int16(ty 参数已删除), 返回**换算后物理量**
+        (位置/速度/加速度 → rad 族, 力矩套型号 k 系数, 电流/电压/温度/PWM/
+        PID 按各自 scale; 无换算关系的寄存器 1:1 返回原值)。仅 HighTorque。
+
+        地址准入(同日追补决策): addr 及 count 覆盖的每个地址都必须在
+        HighTorque 寄存器表内(0x00-0x45 中 xlsx 列出的 43 个)——缺号与
+        表外地址(0x46-0xFF)一律报错(整段拒绝, 不发帧); write 同此规则。
+
+        ⚠ 签名变更(旧 (addr, ty, count)): 旧的按位置传参调用
+        `get_register(0x01, 1, 3)` 会静默变成 (addr=0x01, count=1,
+        timeout_ms=3)——升级脚本时请核对参数位置。"""
+        if not 1 <= int(count) <= 3:
+            raise ValueError(f"count must be in 1..3, got {count}")
+        out = (c_float * count)()
+        _ok(
+            self._abi.lib.motor_handle_hightorque_get_register(
+                self._require_open(), int(addr), int(count), int(timeout_ms), out
+            ),
+            "hightorque_get_register",
+        )
+        return [float(v) for v in out]
+
+    def hightorque_request_register(self, addr: int, count: int = 1) -> None:
+        """HighTorque 非阻塞寄存器查询(DM 风格"请求即发送"): 只发 17 族
+        读请求帧(2026-10-22 起固定 Int16, ty 参数已删除), 立即返回不等
+        回帧。地址准入同 hightorque_get_register(须在寄存器表内, 缺号/
+        表外报错)。回复由 Rust 后台接收线程解码, 按地址写入电机寄存器缓存;
+        之后 hightorque_get_cached_register 读最近值(非阻塞, 已换算为
+        物理量), 或 hightorque_get_register 阻塞等新鲜值。适合固定频率
+        监测循环: 发完即走, 下一拍读缓存。仅 HighTorque。"""
+        if not 1 <= int(count) <= 3:
+            raise ValueError(f"count must be in 1..3, got {count}")
+        _ok(
+            self._abi.lib.motor_handle_hightorque_request_register(
+                self._require_open(), int(addr), int(count)
+            ),
+            "hightorque_request_register",
+        )
+
+    def hightorque_get_cached_register(self, addr: int) -> float | None:
+        """HighTorque 读寄存器缓存最近值(不发帧不等待, 已换算为物理量)。
+        None = 从未收到过该地址的回复, 或地址不在寄存器表内(缺号/表外
+        一律 None)。注意不区分新鲜/陈旧(电机掉线后停留在最后一值); 需要
+        新鲜值用 hightorque_get_register, 或先
+        hightorque_request_register 发查询、隔一拍回读本缓存。仅 HighTorque。"""
+        has = c_uint8(0)
+        val = c_float(0.0)
+        _ok(
+            self._abi.lib.motor_handle_hightorque_get_cached_register(
+                self._require_open(), int(addr), ctypes.byref(has), ctypes.byref(val)
+            ),
+            "hightorque_get_cached_register",
+        )
+        return float(val.value) if has.value else None
+
+    def hightorque_send_torque(self, torque_nm: float) -> None:
+        """HighTorque 力矩模式(05 13): 直接下发目标力矩(Nm, 物理量,
+        型号系数补偿)。无需预先切模式。仅 HighTorque。"""
+        _ok(
+            self._abi.lib.motor_handle_hightorque_send_torque(
+                self._require_open(), torque_nm
+            ),
+            "hightorque_send_torque",
+        )
+
+    def hightorque_send_dq_voltage(self, voltage_v: float) -> None:
+        """HighTorque DQ 电压模式(01 00 08 05 1B): Q 轴电压(V, 0.1 V/LSB),
+        模式写与寄存器写拼一帧。协议只定义 Q 分量。仅 HighTorque。"""
+        _ok(
+            self._abi.lib.motor_handle_hightorque_send_dq_voltage(
+                self._require_open(), voltage_v
+            ),
+            "hightorque_send_dq_voltage",
+        )
+
+    def hightorque_send_dq_current(self, current_a: float) -> None:
+        """HighTorque DQ 电流模式(01 00 09 05 1C): Q 轴电流(A, 0.1 A/LSB),
+        模式写与寄存器写拼一帧。仅 HighTorque。"""
+        _ok(
+            self._abi.lib.motor_handle_hightorque_send_dq_current(
+                self._require_open(), current_a
+            ),
+            "hightorque_send_dq_current",
+        )
+
+    def hightorque_brake(self) -> None:
+        """HighTorque 刹车(模式 15, 01 00 0F): 三相短接阻尼刹车。仅 HighTorque。"""
+        _ok(
+            self._abi.lib.motor_handle_hightorque_brake(self._require_open()),
+            "hightorque_brake",
+        )
+
+    def hightorque_set_run_mode(self, mode: int) -> None:
+        """HighTorque 运行模式切换(01 00 <mode> 写模式寄存器 0x000)。
+        mode 取 0-17(表2; 0=停止并清错, 8=DQ 电压, 9=DQ 电流, 10=位置,
+        15=刹车)。真发帧, 区别于 ensure_mode 的仅校验语义。仅 HighTorque。"""
+        if not 0 <= int(mode) <= 17:
+            raise ValueError(f"run mode must be in 0..17, got {mode}")
+        _ok(
+            self._abi.lib.motor_handle_hightorque_set_run_mode(
+                self._require_open(), int(mode)
+            ),
+            "hightorque_set_run_mode",
+        )
+
+    def hightorque_write_register(self, addr: int, value: int, config_class: bool = False) -> None:
+        """HighTorque 通用寄存器写(05 <addr> <val16>)。config_class=False 走
+        控制通道(控制目标类寄存器), True 走扩展 0x8000|id 帧(配置类)。
+        addr 须在 HighTorque 寄存器表内(0x00-0x45 中 xlsx 列出的 43 个,
+        缺号/表外地址报错且不发帧, 与读同规则)。
+        模式寄存器 0x000 不适用, 请用 hightorque_set_run_mode。仅 HighTorque。"""
+        if not -32768 <= int(value) <= 32767:
+            raise ValueError(f"value must fit int16, got {value}")
+        _ok(
+            self._abi.lib.motor_handle_hightorque_write_register(
+                self._require_open(), int(addr), int(value), 1 if config_class else 0
+            ),
+            "hightorque_write_register",
+        )
+
+    def hightorque_set_periodic_report(self, period_ms: int) -> None:
+        """HighTorque 周期上报配置(05 B4 02 <t_ms16>, 扩展帧)。
+        period_ms>=1 开启电机按周期主动发 27 01 状态帧; 0 停止上报。仅 HighTorque。"""
+        if not 0 <= int(period_ms) <= 65535:
+            raise ValueError(f"period_ms must fit uint16, got {period_ms}")
+        _ok(
+            self._abi.lib.motor_handle_hightorque_set_periodic_report(
+                self._require_open(), int(period_ms)
+            ),
+            "hightorque_set_periodic_report",
+        )
 
     def set_can_timeout_ms(self, timeout_ms: int) -> None:
         _ok(self._abi.lib.motor_handle_set_can_timeout_ms(self._require_open(), timeout_ms), "set_can_timeout_ms")
@@ -409,6 +577,7 @@ class Motor:
             torq=float(st.torq),
             t_mos=float(st.t_mos),
             t_rotor=float(st.t_rotor),
+            fault_code=int(st.fault_code),
         )
 
     def get_state_snapshot(self) -> MotorStateSnapshot | None:

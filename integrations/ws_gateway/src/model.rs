@@ -1,6 +1,6 @@
-use motor_core::bus::CanBus;
 use motor_vendor_damiao::{DamiaoController, DamiaoMotor};
 use motor_vendor_hexfellow::{HexfellowController, HexfellowMotor};
+use motor_vendor_hightorque::{HightorqueController, HightorqueMotor};
 use motor_vendor_myactuator::{MyActuatorController, MyActuatorMotor};
 use motor_vendor_robstride::{RobstrideController, RobstrideMotor};
 use std::sync::Arc;
@@ -110,6 +110,21 @@ pub(crate) enum ActiveCommand {
         pos: f32,
         vlim: f32,
     },
+    /// HighTorque trapezoid control (07 2d): position + velocity limit +
+    /// acceleration limit. No other vendor protocol has an equivalent command;
+    /// apply_active returns unsupported.
+    PosVelAcc {
+        pos: f32,
+        vlim: f32,
+        acc: f32,
+    },
+    /// HighTorque torque mode (05 13): target torque (N·m, physical value
+    /// with model coefficient compensation). No other vendor protocol has a
+    /// standalone torque-target command; apply_active returns unsupported
+    /// (MIT feedforward torque goes through the `mit` op).
+    Torque {
+        tau: f32,
+    },
     Vel {
         vel: f32,
     },
@@ -123,7 +138,10 @@ pub(crate) enum ActiveCommand {
 pub(crate) enum ControllerHandle {
     Damiao(DamiaoController),
     Hexfellow(HexfellowController),
-    Hightorque(Arc<dyn CanBus>),
+    /// Converged (2026-09-29): HT is structurally identical to the other
+    /// four vendors, holding a vendor controller (CoreController + background
+    /// receive thread) instead of a raw bus with hand-written frames.
+    Hightorque(HightorqueController),
     Myactuator(MyActuatorController),
     Robstride(RobstrideController),
 }
@@ -131,7 +149,7 @@ pub(crate) enum ControllerHandle {
 pub(crate) enum MotorHandle {
     Damiao(Arc<DamiaoMotor>),
     Hexfellow(Arc<HexfellowMotor>),
-    Hightorque(u16),
+    Hightorque(Arc<HightorqueMotor>),
     Myactuator(Arc<MyActuatorMotor>),
     Robstride(Arc<RobstrideMotor>),
 }

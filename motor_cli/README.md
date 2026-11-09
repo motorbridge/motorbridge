@@ -40,7 +40,7 @@ motor_cli -h
 ## HighTorque Notes
 
 - Protocol analysis (Chinese): `../docs/zh/hightorque_protocol_analysis.md`
-- Current `vendor=hightorque` is a native ht_can v1.5.5 direct-CAN mode, not the official serial-CANboard transport.
+- Current `vendor=hightorque` is a native ht_can v2.0.0 direct-CAN mode, not the official serial-CANboard transport.
 
 ## CAN Debugging Entry
 
@@ -59,7 +59,7 @@ motor_cli -h
 
 Current status:
 - Hexfellow: validated on `socketcanfd` with unified `mit` / `pos-vel`.
-- HighTorque: validated on standard CAN with unified `mit` / `vel` (`kp/kd` ignored by protocol).
+- HighTorque: validated on standard CAN with unified `mit` / `vel` (`mit` = v2.0.0 bit-packed frame with `kp/kd`).
 - Damiao: baseline implementation for unified `mit` / `pos-vel` / `vel` / `force-pos`;
   `dm-device` scan verified on USB2CANFD_DUAL channel 0/1 and LINKX4C SDK
   channel `0..3`.
@@ -538,18 +538,27 @@ motor_cli \
   --vendor all --channel can0 --mode scan --start-id 1 --end-id 255
 ```
 
-## 8. Vendor = `hightorque` (native `ht_can` v1.5.5)
+## 8. Vendor = `hightorque` (native `ht_can` v2.0.0 direct-CAN)
 
-- This path uses native HighTorque `ht_can` v1.5.5 direct-CAN protocol.
+- Control, status, and parameter commands all go through `motor_vendor_hightorque` (single shared implementation with the ABI/Python/gateway layers); `mit` follows the v2.0.0 bit-packed MIT frame (`0x18000 | id`, motor firmware v4.6.0+).
+- Broadcast `scan` is the only remaining raw-bus HT code path in the CLI (the vendor has no scan API); the legacy diag-frame path (diag_bus) was removed — `tqe`/`volt`/`cur`/`brake`/periodic-report now all use vendor physical-unit primitives.
 - It is intended for setups where motors are exposed directly on SocketCAN (`can0` etc.).
 - Official Panthera/HighTorque SDK serial chain (`USB serial -> CANboard -> motors`) is separate from this CLI direct-CAN path.
-- Supported modes: `scan | read | ping | mit | pos | vel | tqe | pos-vel-tqe | volt | cur | stop | brake | rezero | conf-write | timed-read`.
+- Supported modes: `scan | read | ping | mit | pos | vel | tqe | volt | cur | set-mode | pos-vel-tqe | pos-vel-acc | version | read-reg | write-reg | stop | brake | rezero | conf-write | periodic-report`.
+- `--model` is now live: it is validated when the motor is registered and selects the torque-coeff correction for physical torque values (`hightorque`/`ht`/`auto` placeholders or concrete model codes such as `5036-36`).
+- `read`/`ping` print vendor-decoded physical state (`pos`/`vel`/`torq` plus `status`/`fault`/temperatures, torque-coeff corrected).
 - Unified unit interface:
-  - `--pos` in `rad`
-  - `--vel` in `rad/s`
-  - `--tau` in `Nm`
-  - `--kp`, `--kd` are accepted for MIT signature compatibility but ignored by `ht_can`.
-  - Raw debug parameters: `--raw-pos`, `--raw-vel`, `--raw-tqe`.
+  - `--pos` in `rad`, `--vel` in `rad/s`, `--tau` in `Nm`, `--volt` in `V`, `--cur` in `A`
+  - `--kp`, `--kd` are bit-packed into the v2.0.0 MIT frame (ranges: pos ±3.2768 turns, vel ±2.0 turns/s, tau ±10 Nm, kp ±400, kd ±100; saturated beyond range).
+  - Raw debug parameters: `--raw-pos`/`--raw-vel` (converted to physical and re-encoded by the vendor); torque/voltage/current are physical-only (`--tau`/`--volt`/`--cur`) — `--raw-tqe`/`--raw-vol`/`--raw-cur` are no longer accepted, encoding (model torque coeff, 0.1 V/A scale) is vendor-side.
+- `tqe` (torque mode `05 13`): `--tau <Nm>`, direct physical torque target, no mode pre-switch needed.
+- `volt` (DQ voltage `01 00 08 05 1B`, mode write + register write combined in one frame): `--volt <V>` (0.1 V/LSB, Q component only per protocol).
+- `cur` (DQ current `01 00 09 05 1C`): `--cur <A>` (0.1 A/LSB).
+- `set-mode` (run mode switch `01 00 <mode>`): `--run-mode <0-17>` (table 2; 0 = stop & clear error, 8 = DQ voltage, 9 = DQ current, 10 = position, 15 = brake).
+- `periodic-report` (periodic status report `05 B4 02 <t_ms>`): `--period-ms <ms>` (>=1 enables the motor-initiated `27 01` status stream, 0 stops; `timed-read` remains a legacy alias).
+- `pos-vel-acc` (trapezoid `07 2d`, firmware v4.6.0+): `--pos <rad> --vlim <rad/s> --acc <rad/s^2>`.
+- `read-reg`: generic register read (`17` family). `--addr <hex|dec>` required, `--count` (1-3, default 1), `--ty` (`0|i8`/`1|i16`/`2|i32`/`3|f32`) falls back to the vendor register table when omitted and is required when the table has no verified type. Prints raw values plus the register name; physical scaling per the register table is left to the caller.
+- `write-reg`: generic register write (`05 <addr> <val16>`). `--addr` required, `--value <int16>`, `--config` (0/1; 1 = config class via the extended `0x8000|id` frame, default 0 via the control channel). For the mode register 0x000 use `set-mode` instead. `--store` (0/1, default 0; 1 = append a `conf-write` `05 B3` flash save after the write, matching the Damiao/RobStride `write-param --store` convenience; the save is whole-config and a power cycle is advised).
 
 ## 9. Vendor = `myactuator`
 

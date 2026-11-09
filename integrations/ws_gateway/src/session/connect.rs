@@ -1,8 +1,9 @@
 use crate::model::{ControllerHandle, MotorHandle, Transport, Vendor};
-use crate::vendors::hightorque_ws::open_hightorque_bus;
+use crate::vendors::transport_ws::open_hightorque_bus;
 use motor_core::dm_device::DmDeviceType;
 use motor_vendor_damiao::DamiaoController;
 use motor_vendor_hexfellow::HexfellowController;
+use motor_vendor_hightorque::HightorqueController;
 use motor_vendor_myactuator::MyActuatorController;
 use motor_vendor_robstride::RobstrideController;
 
@@ -96,9 +97,22 @@ impl SessionCtx {
                 self.motor = Some(MotorHandle::Hexfellow(motor));
             }
             Vendor::Hightorque => {
-                let bus = open_hightorque_bus(&self.target)?;
-                self.controller = Some(ControllerHandle::Hightorque(bus));
-                self.motor = Some(MotorHandle::Hightorque(self.target.motor_id));
+                // Converged (2026-09-29): structurally identical to the other
+                // four vendors — the vendor controller wraps CoreController
+                // (background receive thread), motors register into the device
+                // table via add_motor, and all send/decode/convert goes through
+                // the vendor crate; no more hand-written frames.
+                let bus = open_hightorque_bus(&self.target, self.target.transport)?;
+                let ctrl = HightorqueController::new(bus);
+                let motor = ctrl
+                    .add_motor(
+                        self.target.motor_id,
+                        self.target.feedback_id,
+                        &self.target.model,
+                    )
+                    .map_err(|e| format!("add motor failed: {e}"))?;
+                self.controller = Some(ControllerHandle::Hightorque(ctrl));
+                self.motor = Some(MotorHandle::Hightorque(motor));
             }
             Vendor::Myactuator => {
                 let p = motor_core::bus::TransportParams {
@@ -205,8 +219,8 @@ impl SessionCtx {
                         let _ = c.close_bus();
                     }
                 }
-                ControllerHandle::Hightorque(bus) => {
-                    let _ = bus.shutdown();
+                ControllerHandle::Hightorque(c) => {
+                    let _ = c.shutdown();
                 }
                 ControllerHandle::Myactuator(c) => {
                     if shutdown {

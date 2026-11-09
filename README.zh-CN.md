@@ -127,8 +127,8 @@ DM_Device_SDK 是用于控制 CAN/CAN FD 设备的软件开发工具包。motorb
   - 型号: `X8`（运行时字符串，协议按 ID 通信）
   - 模式: `scan`, `enable`, `disable`, `stop`, `set-zero`, `status`, `current`, `vel`, `pos`, `version`, `mode-query`
 - HighTorque:
-  - 型号: `hightorque`（运行时字符串，原生 `ht_can v1.5.5`）
-  - 模式: `scan`, `read`, `mit`, `pos-vel`, `vel`, `stop`, `brake`, `rezero`
+  - 型号: `hightorque`（运行时字符串，原生 `ht_can v2.0.0`）
+  - 模式: `scan`, `read`, `mit`, `pos`, `vel`, `tqe`, `volt`, `cur`, `set-mode`, `pos-vel-tqe`, `pos-vel-acc`, `version`, `read-reg`, `write-reg`, `periodic-report`, `stop`, `brake`, `rezero`, `conf-write`（力矩/电压/电流为物理量 Nm/V/A，vendor 侧编码）
 - Hexfellow:
   - 型号: `hexfellow`（运行时字符串，CANopen 配置）
   - 模式: `scan`, `status`, `enable`, `disable`, `pos-vel`, `mit`（通过 `socketcanfd`）
@@ -291,7 +291,7 @@ cargo run -p motor_cli --release -- \
   --mode read-param --param-id 0x7019
 ```
 
-HighTorque CLI（原生 ht_can v1.5.5）:
+HighTorque CLI（原生 ht_can v2.0.0）:
 
 ```bash
 cargo run -p motor_cli --release -- \
@@ -569,7 +569,7 @@ cargo run -p motor_cli --release -- --vendor damiao \
 - `vendor=damiao id=<n>`：发现一个 Damiao 电机，电机 ID 为 `<n>`。
 - `vendor=robstride ... probe=<n> ... device_id=<n>`：发现一个 RobStride 电机，电机 ID 为 `<n>`。
 - RobStride 输出中的 `feedback_id` / `host_id`（如 `0xFD`、`0xFE`）不是电机 ID。
-- `vendor=hightorque ... [hit] id=<n> ...`：通过原生 ht_can v1.5.5 发现一个 HighTorque 电机。
+- `vendor=hightorque ... [hit] id=<n> ...`：通过原生 ht_can v2.0.0 发现一个 HighTorque 电机。
 - `vendor=myactuator id=<n>`：发现一个 MyActuator 电机并返回版本响应。
 - 每段扫描结尾的 `hits=<k>` 表示该厂商命中的在线设备数量。
 

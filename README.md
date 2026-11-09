@@ -153,7 +153,7 @@ available.
 | RobStride CiA402 | `robstride_cia402` | CANopen/CiA402 `F_CMD=1`, mostly 11-bit standard CAN; experimental/incomplete |
 | RobStride MIT | `robstride_mit` | MIT `F_CMD=2`, 11-bit standard CAN; experimental/incomplete |
 | MyActuator | `myactuator` | MyActuator standard CAN protocol |
-| HighTorque | `hightorque` | Native `ht_can v1.5.5` direct CAN path |
+| HighTorque | `hightorque` | Native `ht_can v2.0.0` direct CAN path |
 | Hexfellow | `hexfellow` | CANopen-over-CAN-FD path |
 
 ### CAN Adapters And Bridge Modules
@@ -194,8 +194,8 @@ files there when new hardware photos become available.
   - models: `X8` (runtime string; protocol is ID-based)
   - modes: `scan`, `enable`, `disable`, `stop`, `set-zero`, `status`, `current`, `vel`, `pos`, `version`, `mode-query`
 - HighTorque:
-  - models: `hightorque` (runtime string; native `ht_can v1.5.5`)
-  - modes: `scan`, `read`, `mit`, `pos-vel`, `vel`, `stop`, `brake`, `rezero`
+  - models: `hightorque` (runtime string; native `ht_can v2.0.0`)
+  - modes: `scan`, `read`, `mit`, `pos`, `vel`, `tqe`, `volt`, `cur`, `set-mode`, `pos-vel-tqe`, `pos-vel-acc`, `version`, `read-reg`, `write-reg`, `periodic-report`, `stop`, `brake`, `rezero`, `conf-write` (torque/voltage/current are physical Nm/V/A, encoded vendor-side)
 - Hexfellow:
   - models: `hexfellow` (runtime string; CANopen profile)
   - modes: `scan`, `status`, `enable`, `disable`, `pos-vel`, `mit` (via `socketcanfd`)
@@ -415,7 +415,7 @@ cargo run -p motor_cli --release -- \
   --mode pos-vel --pos 1.57 --vlim 1.0 --loop 1
 ```
 
-HighTorque CLI (native ht_can v1.5.5):
+HighTorque CLI (native ht_can v2.0.0):
 
 ```bash
 cargo run -p motor_cli --release -- \
@@ -688,7 +688,7 @@ Interpretation:
 - `vendor=damiao id=<n>` means one Damiao motor is online at motor ID `<n>`.
 - `vendor=robstride ... probe=<n> ... device_id=<n>` means one RobStride motor responded at motor/device ID `<n>`.
 - In RobStride output, `feedback_id` / `host_id` such as `0xFD` or `0xFE` is not the motor ID.
-- `vendor=hightorque ... [hit] id=<n> ...` means one HighTorque motor responded via native ht_can v1.5.5.
+- `vendor=hightorque ... [hit] id=<n> ...` means one HighTorque motor responded via native ht_can v2.0.0.
 - `vendor=myactuator id=<n>` means one MyActuator motor responded.
 - `hits=<k>` at the end of each scan block is the count of discovered devices.
 

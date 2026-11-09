@@ -8,7 +8,10 @@ fn snapshot_metadata<T>(snapshot: &FeedbackSnapshot<T>) -> MotorStateMetadata {
     }
 }
 
-fn robstride_status_code(state: &motor_vendor_robstride::MotorFeedbackState) -> u8 {
+/// Robstride 状态帧六故障标志拼位域(bit5..bit0:未标定/堵转/编码器
+/// 故障/过温/过流/欠压),作为 fault_code 的值;status_code 承载
+/// 协议原生 mode_state。可多故障并存,0=无故障。
+fn robstride_fault_code(state: &motor_vendor_robstride::MotorFeedbackState) -> u8 {
     let mut status = 0u8;
     if state.uncalibrated {
         status |= 1 << 5;
@@ -31,6 +34,23 @@ fn robstride_status_code(state: &motor_vendor_robstride::MotorFeedbackState) -> 
     status
 }
 
+/// Damiao 协议状态枚举的 0x08–0x0E 段为故障码。该枚举状态与故障
+/// 混装在同一字节,无法完全切开——status_code 保留原始枚举值,
+/// 故障段抽出为 fault_code,0=无故障。
+fn damiao_fault_code(state: &motor_vendor_damiao::MotorFeedbackState) -> u8 {
+    if (0x08..=0x0E).contains(&state.status_code) {
+        state.status_code
+    } else {
+        0
+    }
+}
+
+/// 统一契约:status_code = 电机状态(各厂商状态字节),fault_code =
+/// 错误码(0=无故障)。各厂商错误码来源:
+/// - Hightorque: 表3 故障码(反馈帧 byte1,vendor 解码后 `state.fault_code`)。
+/// - Robstride: 状态帧六故障标志拼位域(`robstride_fault_code`)。
+/// - Damiao: 协议状态枚举 0x08–0x0E 故障段(`damiao_fault_code`)。
+/// - Hexfellow / MyActuator: 协议无故障码,恒 0。
 fn latest_snapshot(
     motor: &MotorHandleInner,
 ) -> Result<Option<(MotorState, MotorStateMetadata)>, String> {
@@ -48,6 +68,7 @@ fn latest_snapshot(
                     torq: state.torq,
                     t_mos: state.t_mos,
                     t_rotor: state.t_rotor,
+                    fault_code: damiao_fault_code(&state),
                 },
                 snapshot_metadata(&snapshot),
             )
@@ -70,6 +91,7 @@ fn latest_snapshot(
                     torq: state.torque_permille as f32 / 1000.0,
                     t_mos: 0.0,
                     t_rotor: 0.0,
+                    fault_code: 0,
                 },
                 snapshot_metadata(&snapshot),
             )))
@@ -87,6 +109,7 @@ fn latest_snapshot(
                     torq: state.current_a,
                     t_mos: f32::from(state.temperature_c),
                     t_rotor: 0.0,
+                    fault_code: 0,
                 },
                 snapshot_metadata(&snapshot),
             )
@@ -98,12 +121,15 @@ fn latest_snapshot(
                     has_value: 1,
                     can_id: state.device_id,
                     arbitration_id: state.arbitration_id,
-                    status_code: robstride_status_code(&state),
+                    status_code: state.mode_state,
                     pos: state.position,
                     vel: state.velocity,
                     torq: state.torque,
                     t_mos: state.temperature_c,
                     t_rotor: 0.0,
+                    // 状态帧六故障标志拼位域(bit5..bit0:未标定/堵转/
+                    // 编码器故障/过温/过流/欠压),可多故障并存。
+                    fault_code: robstride_fault_code(&state),
                 },
                 snapshot_metadata(&snapshot),
             )
@@ -121,6 +147,7 @@ fn latest_snapshot(
                     torq: state.torq,
                     t_mos: state.t_mos,
                     t_rotor: state.t_rotor,
+                    fault_code: state.fault_code,
                 },
                 snapshot_metadata(&snapshot),
             )
