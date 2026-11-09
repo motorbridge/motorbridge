@@ -19,6 +19,7 @@ pub extern "C" fn motor_handle_enable(motor: *mut MotorHandle) -> i32 {
             MotorHandleInner::MyActuator(m) => m.release_brake().map_err(|e| e.to_string()),
             MotorHandleInner::Robstride(m) => m.enable().map_err(|e| e.to_string()),
             MotorHandleInner::Hightorque(m) => m.enable().map_err(|e| e.to_string()),
+            MotorHandleInner::Fashionstar(m) => m.enable().map_err(|e| e.to_string()),
         }
     })
 }
@@ -34,6 +35,7 @@ pub extern "C" fn motor_handle_disable(motor: *mut MotorHandle) -> i32 {
             MotorHandleInner::MyActuator(m) => m.shutdown_motor().map_err(|e| e.to_string()),
             MotorHandleInner::Robstride(m) => m.disable().map_err(|e| e.to_string()),
             MotorHandleInner::Hightorque(m) => m.disable().map_err(|e| e.to_string()),
+            MotorHandleInner::Fashionstar(m) => m.disable().map_err(|e| e.to_string()),
         }
     })
 }
@@ -49,6 +51,9 @@ pub extern "C" fn motor_handle_clear_error(motor: *mut MotorHandle) -> i32 {
             MotorHandleInner::MyActuator(m) => m.stop_motor().map_err(|e| e.to_string()),
             MotorHandleInner::Robstride(m) => m.clear_error().map_err(|e| e.to_string()),
             MotorHandleInner::Hightorque(m) => m.clear_error().map_err(|e| e.to_string()),
+            MotorHandleInner::Fashionstar(_) => {
+                Err("clear_error is not supported for FashionStar".to_string())
+            }
         }
     })
 }
@@ -66,6 +71,7 @@ pub extern "C" fn motor_handle_set_zero_position(motor: *mut MotorHandle) -> i32
             }
             MotorHandleInner::Robstride(m) => m.set_zero_position().map_err(|e| e.to_string()),
             MotorHandleInner::Hightorque(m) => m.set_zero_position().map_err(|e| e.to_string()),
+            MotorHandleInner::Fashionstar(m) => m.set_zero_position().map_err(|e| e.to_string()),
         }
     })
 }

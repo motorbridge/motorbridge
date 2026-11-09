@@ -143,6 +143,7 @@ Packaging note:
   - MyActuator: `add_myactuator_motor(...)`
   - RobStride: `add_robstride_motor(...)`
   - HighTorque: `add_hightorque_motor(...)`
+  - FashionStar: `add_fashionstar_motor(...)`
 - Unified state-query pattern:
   - Recommended flow: `request_feedback() -> poll_feedback_once() -> get_state()`.
   - Use `get_state_snapshot()` when control or safety logic also needs the
@@ -153,12 +154,12 @@ Packaging note:
 
 ## Unified Mode Mapping Summary (Top-Level -> Vendor Native)
 
-| Unified Mode | Damiao | RobStride | Hexfellow | MyActuator | HighTorque |
-| --- | --- | --- | --- | --- | --- |
-| `Mode.MIT` | native MIT | native MIT | native MIT (mode 5) | unsupported | maps to native pos+vel+tqe |
-| `Mode.POS_VEL` | native POS_VEL | maps to native Position (`run_mode=1` + `vel_max(0x7024)` + `loc_ref(0x7016)`) | native POS_VEL (mode 1) | Position setpoint flow | maps to native pos+vel+tqe |
-| `Mode.VEL` | native VEL | native Velocity | unsupported | native velocity setpoint flow | native velocity command |
-| `Mode.FORCE_POS` | native FORCE_POS | unsupported | unsupported | unsupported | maps to native pos+vel+tqe |
+| Unified Mode | Damiao | RobStride | Hexfellow | MyActuator | HighTorque | FashionStar |
+| --- | --- | --- | --- | --- | --- | --- |
+| `Mode.MIT` | native MIT | native MIT | native MIT (mode 5) | unsupported | maps to native pos+vel+tqe | currently unsupported |
+| `Mode.POS_VEL` | native POS_VEL | maps to native Position (`run_mode=1` + `vel_max(0x7024)` + `loc_ref(0x7016)`) | native POS_VEL (mode 1) | Position setpoint flow | maps to native pos+vel+tqe | native mode 2 (target angle + speed limit) |
+| `Mode.VEL` | native VEL | native Velocity | unsupported | native velocity setpoint flow | native velocity command | currently unsupported |
+| `Mode.FORCE_POS` | native FORCE_POS | unsupported | unsupported | unsupported | maps to native pos+vel+tqe | currently unsupported |
 
 Note:
 
@@ -441,6 +442,7 @@ uses only the arguments that its native protocol understands.
 | HighTorque | `mit` | `--pos --vel --kp --kd --tau` | v2.0.0 bit-packed MIT frame (`0x18000 \| id`, firmware v4.6.0+); values beyond the packed range saturate |
 | Hexfellow | `mit` | `--pos --vel --kp --kd --tau` | CAN-FD path |
 | Hexfellow | `pos-vel` | `--pos --vlim` | CAN-FD path |
+| FashionStar | `pos-vel` | `--pos --vlim` | native mode 2; configuration requires a power cycle |
 
 For RobStride `pos-vel`, `--vel`, `--kd`, and `--tau` are intentionally
 ignored because the firmware path is parameter-based (`limit_spd`, `loc_kp`,
@@ -490,7 +492,7 @@ python3 bindings/python/examples/robstride_wrapper_demo.py \
 
 ## Notes
 
-- `id-dump` is a Damiao workflow; `id-set` supports Damiao and RobStride; `scan` supports `damiao|hexfellow|myactuator|robstride|hightorque|all`.
+- `id-dump` is a Damiao workflow; `id-set` supports Damiao, RobStride and FashionStar; `scan` supports `damiao|hexfellow|myactuator|robstride|hightorque|fashionstar|all`.
 - For RobStride `id-set`, `--new-motor-id` changes `device_id`; `--feedback-id` remains the host-side ID.
 - RobStride `motor_id` / `device_id` is validated as `1..255`; `feedback_id` / `host_id` is validated as `0..255` to prevent silent `ctypes` truncation.
 - RobStride scan probes each `--feedback-ids` host_id exactly through host-id-specific ABI helpers; invalid host IDs are rejected instead of silently falling back.
@@ -500,6 +502,7 @@ python3 bindings/python/examples/robstride_wrapper_demo.py \
 - Full Damiao tuning reference stays in:
   - [DAMIAO_API.md](DAMIAO_API.md)
   - [DAMIAO_API.zh-CN.md](DAMIAO_API.zh-CN.md)
+- FashionStar: [FASHIONSTAR_API.md](FASHIONSTAR_API.md).
 
 ## PyPI Auto Publish (GitHub Actions)
 

@@ -101,7 +101,7 @@ motorbridge-gateway -- --bind 127.0.0.1:9002 --vendor robstride --channel can0@1
 | 参数 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- |
 | `--bind` | string | `127.0.0.1:9002` | WebSocket 监听地址 |
-| `--vendor` | enum | `damiao` | 默认厂商：`damiao` / `robstride` / `hexfellow` / `myactuator` / `hightorque` |
+| `--vendor` | enum | `damiao` | 默认厂商：`damiao` / `robstride` / `hexfellow` / `myactuator` / `hightorque` / `fashionstar` |
 | `--transport` | enum | `auto` | 链路：`auto` / `socketcan` / `socketcanfd` / `dm-serial` / `dm-device` |
 | `--channel` | string | `can0` | CAN 通道。Linux 通常 `can0`；Windows PCAN 可用 `can0@1000000` |
 | `--serial-port` | string | `/dev/ttyACM0` | Damiao `dm-serial` 串口设备 |
@@ -332,6 +332,7 @@ RobStride：
 | Hexfellow | `enable_all()` |
 | MyActuator | `enable_all()` |
 | HighTorque | 语义空操作（方案 B，2026-10-08）：协议无使能帧且命令即执行，不发帧直接返回成功，与统一 enable 流程及混总线 `enable_all()` 兼容；清错/停机走 `disable`/`stop` |
+| FashionStar | 当前位置锁力（`0x7B=0x11`） |
 
 请求：
 
@@ -375,6 +376,7 @@ RobStride：
 | Hexfellow | 发送零 MIT |
 | MyActuator | `stop_motor()` |
 | HighTorque | 发送停止帧（vendor `disable`，同 stop/clear_error） |
+| FashionStar | 停止锁力（`0x7B=0x11`）；disable 卸力 |
 
 请求：
 
@@ -668,6 +670,7 @@ Damiao 周期推送：
 | Hexfellow | 是 | 转成 rev / rev/s |
 | HighTorque | 是 | v2.0.0 位打包 MIT 帧（`0x18000 \| id`，固件 v4.6.0+），`kp/kd` 打包进帧；超量程饱和 |
 | MyActuator | 否 | 返回 unsupported |
+| FashionStar | 暂不支持 | 定量力矩 CAN 编码尚未映射 |
 
 参数：
 
@@ -706,6 +709,7 @@ Damiao 周期推送：
 | Hexfellow | 是 | 转成 rev / rev/s |
 | HighTorque | 是 | vendor `send_cmd_pos_vel`（`0x07 0x35` 协同帧，与 ABI/Python 能力对齐） |
 | MyActuator | 当前 handler 返回不支持 | 可用 `pos` 原生 op |
+| FashionStar | 是 | 原生模式 2：目标角度 + 速度限制 |
 
 参数：
 
@@ -749,6 +753,7 @@ RobStride：
 | MyActuator | 是 | rad/s 转 deg/s |
 | HighTorque | 是 | vendor `send_cmd_vel`（`0x07 0x07`，力矩 0x8000 无限制） |
 | Hexfellow | 否 | 用 `pos_vel` 或 `mit` |
+| FashionStar | 暂不支持 | 连续速度 CAN 编码尚未映射 |
 
 参数：
 
@@ -783,6 +788,7 @@ RobStride：
 | Hexfellow | 否 |
 | MyActuator | 否 |
 | HighTorque | 当前 handler 返回不支持 |
+| FashionStar | 暂不支持 |
 
 参数：
 
@@ -904,6 +910,7 @@ RobStride：
 | MyActuator | `set_current_position_as_zero()` |
 | Hexfellow | 不支持 |
 | HighTorque | `set_zero_position()`（0x40 置零帧，vendor 自动落盘） |
+| FashionStar | 卸力，等待 50 ms 后设置当前位置为零 |
 ```
 
 返回：
@@ -977,6 +984,7 @@ Hexfellow mode：
 | Hexfellow | poll feedback once |
 | MyActuator | request status 后 poll |
 | HighTorque | vendor `request_motor_feedback` + `latest_state`（2026-10-24 起连发两帧：17 01 位置/速度/力矩 + 16 0E 温度/错误码，非阻塞；回帧物理量带力矩系数补偿，26 0E 回帧就地补丁 t_mos/fault_code 不推进状态计数） |
+| FashionStar | 主动查询位置 `0x15/0x16`、状态 `0x14`、温度 `0x13` 和电流 `0x11`；速度由相邻位置采样估算；`torq` 为电流 A |
 
 请求：
 
@@ -1676,6 +1684,7 @@ RobStride：
 | Hexfellow | 否 | 不支持 |
 | MyActuator | 否 | 不支持 |
 | HighTorque | 否 | 不支持 |
+| FashionStar | 是 | 写 `0x81`，重新上电后以新 ID 验证 |
 
 Damiao 参数：
 

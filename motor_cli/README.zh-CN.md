@@ -725,7 +725,11 @@ motor_cli \
   --mode mit --pos 0.0 --vel 0.0 --kp 1000 --kd 100 --tau 0
 ```
 
-## 11. 实用建议
+## 11. 厂商 = `fashionstar`
+
+经典 CAN，ServoID 0..254，`feedback_id` 固定为 `0x321`。支持 POS_VEL、锁力/卸力、停止、设零、整数寄存器、位置/状态/温度/电流查询与估算速度反馈；`torq` 表示电流 A；配置修改需重新上电生效。连续速度与 MIT/定量力矩暂不支持。参数和命令示例见 [FASHIONSTAR_API.zh-CN.md](FASHIONSTAR_API.zh-CN.md)。
+
+## 12. 实用建议
 
 - Damiao 改 ID 建议始终使用 `--store 1 --verify-id 1`。
 - 若扫描偶发漏检，重启 CAN 后重试。

@@ -18,6 +18,7 @@ motor_vendor_hexfellow = { path = "../../motor_vendors/hexfellow" }
 motor_vendor_hightorque = { path = "../../motor_vendors/hightorque" }
 motor_vendor_myactuator = { path = "../../motor_vendors/myactuator" }
 motor_vendor_robstride = { path = "../../motor_vendors/robstride" }
+motor_vendor_fashionstar = { path = "../../motor_vendors/fashionstar" }
 motor_core = { path = "../../motor_core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

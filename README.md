@@ -155,6 +155,7 @@ available.
 | MyActuator | `myactuator` | MyActuator standard CAN protocol |
 | HighTorque | `hightorque` | Native `ht_can v2.0.0` direct CAN path |
 | Hexfellow | `hexfellow` | CANopen-over-CAN-FD path |
+| FashionStar | `fashionstar` | Classic CAN, fixed arbitration ID `0x321`, POS_VEL / raw integer registers |
 
 ### CAN Adapters And Bridge Modules
 
@@ -199,6 +200,10 @@ files there when new hardware photos become available.
 - Hexfellow:
   - models: `hexfellow` (runtime string; CANopen profile)
   - modes: `scan`, `status`, `enable`, `disable`, `pos-vel`, `mit` (via `socketcanfd`)
+- FashionStar:
+  - models: `fashionstar` (runtime string; currently ignored)
+  - modes: `scan`, `ping`, `status`, `enable`, `disable`, `stop`, `pos-vel`, `zero`, parameter read/write; ID changes use `--set-motor-id`
+  - note: configuration requires a power cycle; VEL, MIT/quantitative torque and FORCE_POS are currently unsupported
 
 ## RobStride Protocol Paths
 
@@ -308,12 +313,14 @@ flowchart TB
 - [`motor_vendors/robstride_cia402`](motor_vendors/robstride_cia402): RobStride CANopen/CiA402 over classic CAN
 - [`motor_vendors/robstride_mit`](motor_vendors/robstride_mit): RobStride F_CMD=2 MIT protocol over classic CAN standard frames
 - [`motor_vendors/myactuator`](motor_vendors/myactuator): MyActuator CAN protocol implementation
+- [`motor_vendors/fashionstar`](motor_vendors/fashionstar): FashionStar classic CAN adapter
 - [`motor_cli`](motor_cli): unified Rust CLI
   - full parameters (English): [`motor_cli/README.md`](motor_cli/README.md)
   - full parameters (Chinese): [`motor_cli/README.zh-CN.md`](motor_cli/README.zh-CN.md)
   - Damiao command/register guide: [`motor_cli/DAMIAO_API.md`](motor_cli/DAMIAO_API.md), [`motor_cli/DAMIAO_API.zh-CN.md`](motor_cli/DAMIAO_API.zh-CN.md)
   - RobStride command/parameter guide: [`motor_cli/ROBSTRIDE_API.md`](motor_cli/ROBSTRIDE_API.md), [`motor_cli/ROBSTRIDE_API.zh-CN.md`](motor_cli/ROBSTRIDE_API.zh-CN.md)
   - MyActuator command/mode guide: [`motor_cli/MYACTUATOR_API.md`](motor_cli/MYACTUATOR_API.md), [`motor_cli/MYACTUATOR_API.zh-CN.md`](motor_cli/MYACTUATOR_API.zh-CN.md)
+  - FashionStar command/mode guide: [`motor_cli/FASHIONSTAR_API.md`](motor_cli/FASHIONSTAR_API.md), [`motor_cli/FASHIONSTAR_API.zh-CN.md`](motor_cli/FASHIONSTAR_API.zh-CN.md)
 - [`motor_abi`](motor_abi): stable C ABI
 - [`bindings/python`](bindings/python): Python SDK + `motorbridge-cli`
 - [`bindings/cpp`](bindings/cpp): C++ RAII wrapper
@@ -705,6 +712,7 @@ Interpretation:
   - RobStride: `motor_controller_add_robstride_motor(...)`
   - MyActuator: `motor_controller_add_myactuator_motor(...)`
   - HighTorque: `motor_controller_add_hightorque_motor(...)`
+  - FashionStar: `motor_controller_add_fashionstar_motor(...)`
 - Python:
   - `motorbridge.abi_version()`
   - `motorbridge.abi_capabilities()`
@@ -716,6 +724,7 @@ Interpretation:
   - `Controller.add_robstride_motor(...)`
   - `Controller.add_myactuator_motor(...)`
   - `Controller.add_hightorque_motor(...)`
+  - `Controller.add_fashionstar_motor(...)`
 - C++:
   - `motorbridge::abi_version()`
   - `motorbridge::abi_capabilities_json()`
@@ -726,6 +735,7 @@ Interpretation:
   - `Controller::add_robstride_motor(...)`
   - `Controller::add_myactuator_motor(...)`
   - `Controller::add_hightorque_motor(...)`
+  - `Controller::add_fashionstar_motor(...)`
 
 Unified mode IDs for ABI/Bindings (`ensure_mode`):
 

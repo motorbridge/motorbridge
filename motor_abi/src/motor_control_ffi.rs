@@ -33,6 +33,9 @@ pub extern "C" fn motor_handle_ensure_mode(
             MotorHandleInner::Hightorque(m) => m
                 .ensure_control_mode(mode, Duration::from_millis(timeout_ms as u64))
                 .map_err(|e| e.to_string()),
+            MotorHandleInner::Fashionstar(m) => m
+                .ensure_control_mode(mode, Duration::from_millis(timeout_ms as u64))
+                .map_err(|e| e.to_string()),
         }
     })
 }
@@ -94,6 +97,9 @@ pub extern "C" fn motor_handle_send_mit(
                     feedforward_torque,
                 )
                 .map_err(|e| e.to_string()),
+            MotorHandleInner::Fashionstar(_) => {
+                Err("send_mit is not supported for FashionStar".to_string())
+            }
         }
     })
 }
@@ -143,6 +149,9 @@ pub extern "C" fn motor_handle_send_pos_vel(
                 })
             }
             MotorHandleInner::Hightorque(m) => m
+                .send_cmd_pos_vel(target_position, velocity_limit)
+                .map_err(|e| e.to_string()),
+            MotorHandleInner::Fashionstar(m) => m
                 .send_cmd_pos_vel(target_position, velocity_limit)
                 .map_err(|e| e.to_string()),
         }
@@ -201,6 +210,9 @@ pub extern "C" fn motor_handle_send_vel(motor: *mut MotorHandle, target_velocity
             MotorHandleInner::Hightorque(m) => {
                 m.send_cmd_vel(target_velocity).map_err(|e| e.to_string())
             }
+            MotorHandleInner::Fashionstar(_) => {
+                Err("send_vel is not supported for FashionStar".to_string())
+            }
         }
     })
 }
@@ -229,6 +241,9 @@ pub extern "C" fn motor_handle_send_force_pos(
             MotorHandleInner::Hightorque(m) => m
                 .send_cmd_force_pos(target_position, velocity_limit, torque_limit_ratio)
                 .map_err(|e| e.to_string()),
+            MotorHandleInner::Fashionstar(_) => {
+                Err("send_force_pos is not supported for FashionStar".to_string())
+            }
         }
     })
 }
@@ -246,6 +261,9 @@ pub extern "C" fn motor_handle_store_parameters(motor: *mut MotorHandle) -> i32 
             }
             MotorHandleInner::Robstride(m) => m.save_parameters().map_err(|e| e.to_string()),
             MotorHandleInner::Hightorque(m) => m.store_parameters().map_err(|e| e.to_string()),
+            MotorHandleInner::Fashionstar(_) => {
+                Err("store_parameters is not supported for FashionStar".to_string())
+            }
         }
     })
 }
@@ -278,6 +296,9 @@ pub extern "C" fn motor_handle_request_feedback(motor: *mut MotorHandle) -> i32 
             MotorHandleInner::Hightorque(m) => {
                 m.request_motor_feedback().map_err(|e| e.to_string())
             }
+            MotorHandleInner::Fashionstar(m) => m
+                .request_motor_feedback(Duration::from_millis(500))
+                .map_err(|e| e.to_string()),
         }
     })
 }
@@ -317,6 +338,7 @@ pub extern "C" fn motor_handle_stop(motor: *mut MotorHandle) -> i32 {
                 .map(|_| ())
                 .map_err(|e| e.to_string()),
             MotorHandleInner::Hightorque(m) => m.disable().map_err(|e| e.to_string()),
+            MotorHandleInner::Fashionstar(m) => m.stop().map_err(|e| e.to_string()),
         }
     })
 }

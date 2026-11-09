@@ -25,7 +25,8 @@
       "motor_controller_add_hexfellow_motor",
       "motor_controller_add_myactuator_motor",
       "motor_controller_add_robstride_motor",
-      "motor_controller_add_hightorque_motor"
+      "motor_controller_add_hightorque_motor",
+      "motor_controller_add_fashionstar_motor"
     ],
     "motor_lifecycle": [
       "motor_handle_free",
@@ -96,7 +97,8 @@
       "Controller.add_hexfellow_motor(motor_id, feedback_id, model)",
       "Controller.add_myactuator_motor(motor_id, feedback_id, model)",
       "Controller.add_robstride_motor(motor_id, feedback_id, model)",
-      "Controller.add_hightorque_motor(motor_id, feedback_id, model)"
+      "Controller.add_hightorque_motor(motor_id, feedback_id, model)",
+      "Controller.add_fashionstar_motor(motor_id, feedback_id, model)"
     ],
     "motor_methods": [
       "Motor.close()",
@@ -169,6 +171,7 @@
     "robstride",
     "myactuator",
     "hexfellow",
-    "hightorque"
+    "hightorque",
+    "fashionstar"
   ]
 }

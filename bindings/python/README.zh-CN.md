@@ -128,18 +128,19 @@
   - MyActuator: `add_myactuator_motor(...)`
   - RobStride: `add_robstride_motor(...)`
   - HighTorque: `add_hightorque_motor(...)`
+  - FashionStar: `add_fashionstar_motor(...)`
 - 状态查询统一范式：
   - 推荐统一使用 `request_feedback() -> poll_feedback_once() -> get_state()`。
   - RobStride 私有协议没有单次“请求状态帧”命令；RobStride 的 `request_feedback()` 是非阻塞 no-op。连通性检查请用 `robstride_ping()`，连续状态请用主动上报，需要新鲜位置/速度请读类型化参数。
 
 ## 统一模式映射摘要（顶层协议 -> 厂商原生）
 
-| 顶层统一模式 | Damiao | RobStride | Hexfellow | MyActuator | HighTorque |
-| --- | --- | --- | --- | --- | --- |
-| `Mode.MIT` | 原生 MIT | 原生 MIT | 原生 MIT（模式 5） | 不支持 | 映射到原生 pos+vel+tqe |
-| `Mode.POS_VEL` | 原生 POS_VEL | 映射到原生 Position（`run_mode=1` + `vel_max(0x7024)` + `loc_ref(0x7016)`） | 原生 POS_VEL（模式 1） | Position 设定流程 | 映射到原生 pos+vel+tqe |
-| `Mode.VEL` | 原生 VEL | 原生 Velocity | 不支持 | 原生 Velocity 设定流程 | 原生速度命令 |
-| `Mode.FORCE_POS` | 原生 FORCE_POS | 不支持 | 不支持 | 不支持 | 映射到原生 pos+vel+tqe |
+| 顶层统一模式 | Damiao | RobStride | Hexfellow | MyActuator | HighTorque | FashionStar |
+| --- | --- | --- | --- | --- | --- | --- |
+| `Mode.MIT` | 原生 MIT | 原生 MIT | 原生 MIT（模式 5） | 不支持 | 映射到原生 pos+vel+tqe | 暂不支持 |
+| `Mode.POS_VEL` | 原生 POS_VEL | 映射到原生 Position（`run_mode=1` + `vel_max(0x7024)` + `loc_ref(0x7016)`） | 原生 POS_VEL（模式 1） | Position 设定流程 | 映射到原生 pos+vel+tqe | 原生模式 2（目标角度+速度限制） |
+| `Mode.VEL` | 原生 VEL | 原生 Velocity | 不支持 | 原生 Velocity 设定流程 | 原生速度命令 | 暂不支持 |
+| `Mode.FORCE_POS` | 原生 FORCE_POS | 不支持 | 不支持 | 不支持 | 映射到原生 pos+vel+tqe | 暂不支持 |
 
 说明：
 
@@ -453,6 +454,7 @@ Python 示例中 Damiao 用法已覆盖到位：
 | HighTorque | `mit` | `--pos --vel --kp --kd --tau` | v2.0.0 位打包 MIT 帧（`0x18000 \| id`，固件 v4.6.0+）；超出打包量程的值饱和 |
 | Hexfellow | `mit` | `--pos --vel --kp --kd --tau` | CAN-FD 路径 |
 | Hexfellow | `pos-vel` | `--pos --vlim` | CAN-FD 路径 |
+| FashionStar | `pos-vel` | `--pos --vlim` | 原生模式 2；配置需重新上电后生效 |
 
 RobStride `pos-vel` 的 `--vel`、`--kd`、`--tau` 是无效参数：该路径实际写入
 `limit_spd`、`loc_kp`、`loc_ref`。Rust CLI 和 Python CLI 在用户显式传入这些参数时会输出 warning。
@@ -500,7 +502,7 @@ python3 bindings/python/examples/robstride_wrapper_demo.py \
 
 ## 说明
 
-- `id-dump` 仍是 Damiao 工作流；`id-set` 支持 Damiao 和 RobStride；`scan` 支持 `damiao|hexfellow|myactuator|robstride|hightorque|all`。
+- `id-dump` 仍是 Damiao 工作流；`id-set` 支持 Damiao、RobStride 和 FashionStar；`scan` 支持 `damiao|hexfellow|myactuator|robstride|hightorque|fashionstar|all`。
 - RobStride `id-set` 中，`--new-motor-id` 修改 `device_id`；`--feedback-id` 仍是上位机侧 host_id。
 - RobStride `motor_id` / `device_id` 会校验为 `1..255`；`feedback_id` / `host_id` 会校验为 `0..255`，避免 `ctypes` 静默截断。
 - Python CLI 与 Rust CLI 在生产常用的 Damiao / RobStride 工作流上已经对齐：扫描、使能/失能、控制、改 ID、参数读写、RobStride 清故障和主动上报。Rust CLI 仍保留更多 HighTorque/MyActuator/Hexfellow 的底层调试入口。
@@ -510,6 +512,7 @@ python3 bindings/python/examples/robstride_wrapper_demo.py \
 - Damiao 的完整调参参考仍保留在:
   - [DAMIAO_API.md](DAMIAO_API.md)
   - [DAMIAO_API.zh-CN.md](DAMIAO_API.zh-CN.md)
+- FashionStar: [FASHIONSTAR_API.zh-CN.md](FASHIONSTAR_API.zh-CN.md).
 
 ## PyPI 自动发布（GitHub Actions）
 

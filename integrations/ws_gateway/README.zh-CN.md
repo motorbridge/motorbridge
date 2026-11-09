@@ -69,6 +69,7 @@ WS API 主链路已实现。
 | hexfellow | 原生 MIT | 原生 POS_VEL | 不支持 | 不支持 | `mit` 支持 `kp/kd/tau`，无独立 `vel` | CAN-FD 链路 |
 | myactuator | 不支持 | Position 设定流程 | 原生速度设定 | 不支持 | `pos_vel` 通过 position setpoint 实现；基线里 `vel` 可用 | 强项是 current/position/version/mode-query |
 | hightorque | 原生 MIT（v2.0.0 位打包帧） | 原生 POS_VEL（`0x07 0x35` 协同） | 原生速度帧 | 不支持 | 全部命令经 `motor_vendor_hightorque`（唯一实现）；回帧为物理量并带型号力矩系数补偿 | 另有 `pos_vel_acc`（梯形 `07 2d`）与 `torque`（`05 13`，物理量 Nm）模式，以及 `pos_classic`/`dq_voltage`/`dq_current`/`brake`/`run_mode`/`write_register`/`periodic_report`/`read_register` 专属 op；`enable` 为语义空操作（方案 B，2026-10-08，不发帧直接成功） |
+| fashionstar | 暂不支持 | 原生模式 2（目标角度+速度限制） | 暂不支持 | 暂不支持 | `pos` rad，`vlim` rad/s；u32 原始寄存器 | 配置重新上电后生效 |
 
 ### 统一核心操作支持矩阵
 
@@ -79,6 +80,7 @@ WS API 主链路已实现。
 | hexfellow | 支持 | 不支持 | 支持 | 支持 | 支持 | 支持 |
 | myactuator | 支持 | 不支持 | 支持 | 支持 | 支持 | 支持 |
 | hightorque | 支持 | 不支持 | 如实拒绝 | 支持（停止帧） | 支持 | 支持 |
+| fashionstar | 支持 | 支持（重新上电后验证） | 锁力 | 卸力 | 停止锁力 | 支持 |
 
 ### 模式参数差异说明
 
@@ -133,6 +135,12 @@ WS API 主链路已实现。
         "modes": ["mit", "pos_vel", "pos_vel_acc", "vel", "torque"],
         "ops_unified": ["scan", "disable", "stop", "state_once", "status", "verify"],
         "ops_vendor_native": ["read", "pos_classic", "read_register", "dq_voltage", "dq_current", "brake", "run_mode", "write_register", "periodic_report", "set_zero_position", "store_parameters"]
+      },
+      "fashionstar": {
+        "transports": ["auto", "socketcan", "mcu-serial"],
+        "modes": ["pos_vel"],
+        "ops_unified": ["scan", "set_id", "enable", "disable", "stop", "state_once", "status", "verify"],
+        "ops_vendor_native": ["get_register_u32", "write_register_u32"]
       }
     },
     "unsupported_behavior": "return {ok:false,error:'unsupported ...'}"
@@ -331,7 +339,7 @@ or offline joints return `has_value:false` instead of failing the whole request.
 
 ## 说明
 
-- `--vendor damiao|robstride|hexfellow|myactuator|hightorque` 用于设置会话默认厂商。
+- `--vendor damiao|robstride|hexfellow|myactuator|hightorque|fashionstar` 用于设置会话默认厂商。
 - `set_target` 可在单个会话中动态切换厂商/transport/通道/串口/型号/ID。
 - `continuous=true` 会在每个 tick 持续发送该控制命令。
 - `stop` 用于清除持续控制并请求厂商感知的受控停车。RobStride 会读取
@@ -340,11 +348,12 @@ or offline joints return `has_value:false` instead of failing the whole request.
 - `set_id` 按厂商处理：
   - Damiao：先写 `MST_ID`，再写 `ESC_ID`。
   - RobStride：使用 `SET_DEVICE_ID` 更新设备 ID。
-- Damiao 专属操作：`write/get_register_*` 与 `dm-serial` transport。
-- 参数流：`param_stream` 支持 Damiao 与 RobStride；`damiao_param_stream` / `robstride_param_stream` 是厂商专用别名。
+- Damiao 专属操作：`write/get_register_f32` 与 `dm-serial` transport；u32 原始寄存器也支持 FashionStar。
+- 参数流：`param_stream` 支持 Damiao、RobStride 与 FashionStar；`damiao_param_stream` / `robstride_param_stream` 是厂商专用别名。
 - RobStride 专属操作：`robstride_ping`、`robstride_read_param`、`robstride_write_param`、`set_active_report`。
 - MyActuator 专属操作：`current`、`pos`、`version`、`mode-query`。
 - HighTorque 专属操作：`read`、`pos_classic`（经典位置 `07 07`，`tqe` 可缺省=无限制）、`version`（固件版本，MyActuator 亦支持）、`read_register`（`17` 族通用寄存器读，`addr/count`，2026-10-22 起固定 Int16 并返回换算后物理量）、`torque`（`05 13`，物理量 Nm，支持 continuous）、`dq_voltage`/`dq_current`（模式写+寄存器写拼一帧）、`brake`（模式 15）、`run_mode`（表2 模式切换，真发帧）、`write_register`（`05 <addr> <val16>`）、`periodic_report`（`05 B4`，电机主动状态流）。
+- FashionStar：复用 `pos_vel`、状态和 u32 寄存器接口；配置修改需重新上电后生效。参见 [FashionStar 参考](../../motor_cli/FASHIONSTAR_API.zh-CN.md)。
 - 后续 V2 可升级为二进制帧，同时保留同一语义。
 
 ## 简易上位机（快速联调）

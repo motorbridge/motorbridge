@@ -46,6 +46,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "                    (SDK-only; CLI exposes mit/pos-vel/vel)\n"
             "  hexfellow mit:    --pos --vel --kp --kd --tau\n"
             "  hexfellow pos-vel: --pos --vlim\n"
+            "  fashionstar pos-vel: --pos --vlim; continuous velocity/quantitative torque currently unsupported\n"
             "\n"
             "Examples:\n"
             "  motorbridge-cli scan --vendor robstride --channel can0 --start-id 1 --end-id 127\n"
@@ -76,7 +77,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     set_id = sub.add_parser(
         "id-set",
-        help="change motor ID; Damiao supports ESC_ID/MST_ID, RobStride supports device_id",
+        help="change motor ID; Damiao supports ESC_ID/MST_ID, RobStride supports device_id, FashionStar requires a power cycle",
     )
     _add_common_args(set_id)
     set_id.add_argument("--new-motor-id", default="", help="new command/device ID, hex or decimal")
@@ -93,7 +94,7 @@ def _build_parser() -> argparse.ArgumentParser:
     scan.add_argument(
         "--vendor",
         default="damiao",
-        choices=["damiao", "myactuator", "robstride", "hightorque", "hexfellow", "all"],
+        choices=["damiao", "myactuator", "robstride", "hightorque", "hexfellow", "fashionstar", "all"],
         help="vendor/protocol to scan, or all for combined scan",
     )
     scan.add_argument("--channel", default="can0", help="SocketCAN/CAN-FD channel")

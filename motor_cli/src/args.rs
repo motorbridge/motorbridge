@@ -209,6 +209,7 @@ Vendors:\n\
   --vendor robstride_cia402 (RobStride CANopen/CiA402 over classic CAN; experimental/incomplete)\n\
   --vendor robstride_mit (RobStride F_CMD=2 MIT protocol over classic CAN standard frames; experimental/incomplete)\n\
   --vendor myactuator\n\
+  --vendor fashionstar (classic CAN, fixed CAN ID 0x321)\n\
   --vendor all       scan all vendors\n\n\
 Damiao modes:\n\
   --mode scan | enable | disable | mit | pos-vel | vel | force-pos | read-param | write-param\n\n\
@@ -226,6 +227,9 @@ MyActuator modes:\n\
 Hexfellow modes:\n\
   --mode scan | status | enable | disable | pos-vel | mit\n\n\
 \n\
+FashionStar modes:\n\
+  --mode scan | ping | enable | disable | stop | status | pos-vel | zero | read-param | write-param\n\
+  Configuration changes require a power cycle; continuous velocity and quantitative torque control are currently unsupported.\n\n\
 Common args:\n\
   --transport   auto|socketcan|socketcanfd|mcu-serial|dm-serial|dm-device (default auto; dm-serial/dm-device are Damiao-only, mcu-serial is classic-CAN-only)\n\
   --channel      default can0\n\
@@ -233,16 +237,17 @@ Common args:\n\
   --serial-baud  default 921600 (used when --transport mcu-serial or dm-serial)\n\
   --dm-device-type  usb2canfd|usb2canfd-dual|linkx4c, default usb2canfd-dual (used when --transport dm-device)\n\
   --dm-channel      SDK channel number: usb2canfd=0, usb2canfd-dual=0|1, linkx4c=0|1|2|3 (control default 0; scan omitted scans all)\n\
-  --model        default depends on vendor (damiao=4340, robstride=rs-00, robstride_cia402=rs-00, robstride_mit=rs-00, hightorque=hightorque[hint only], myactuator=X8)\n\
+  --model        default depends on vendor (damiao=4340, robstride=rs-00, robstride_cia402=rs-00, robstride_mit=rs-00, hightorque=hightorque[hint only], myactuator=X8, fashionstar=fashionstar)\n\
   --motor-id     default 0x01\n\
-  --feedback-id  default 0x11 for Damiao, 0xFD for RobStride/RobStride MIT host_id, ignored/0 for RobStride CiA402, 0x01 for HighTorque, 0x241 for MyActuator\n\
+  --feedback-id  default 0x11 for Damiao, 0xFD for RobStride/RobStride MIT host_id, ignored/0 for RobStride CiA402, 0x01 for HighTorque, 0x241 for MyActuator, 0x321 for FashionStar\n\
   --loop         send cycles, default 1\n\
   --dt-ms        period ms, default 20\n\
   --ensure-mode  1/0, default 1\n\n\
 ID change support by vendor:\n\
   Damiao: supported (`--set-motor-id` and optional `--set-feedback-id`)\n\
   RobStride: supported (`--set-motor-id`)\n\
-  HighTorque / Hexfellow / MyActuator: not supported in unified CLI path\n\n\
+  HighTorque / Hexfellow / MyActuator: not supported in unified CLI path\n\
+  FashionStar: supported (`--set-motor-id`); power-cycle required\n\n\
 Damiao extras:\n\
   --verify-model 1/0, default 1\n\
   --verify-timeout-ms  default 500\n\
@@ -327,7 +332,7 @@ HighTorque extras:\n\
   --loop/--dt-ms are supported for repeated send cadence\n\
 \n\
 All-vendor scan:\n\
-  --vendor all --mode scan   run Damiao + RobStride + HighTorque + MyActuator scan in one command\n\
+  --vendor all --mode scan   run Damiao + RobStride + HighTorque + MyActuator + FashionStar scan in one command\n\
   optional model hints: --damiao-model ... --robstride-model ... --hightorque-model(hint only) ... --myactuator-model ...\n\
 \n\
 Examples:\n\

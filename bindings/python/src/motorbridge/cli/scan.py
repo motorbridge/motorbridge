@@ -6,6 +6,7 @@ from copy import copy
 
 from ..core import Controller
 from .common import _open_controller, _parse_id, _parse_rids, _vendor_defaults
+from .fashionstar import _fashionstar_controller, _parse_unsigned
 from .robstride import _robstride_host_id
 
 
@@ -264,6 +265,35 @@ def _scan_hightorque(args: argparse.Namespace, start_id: int, end_id: int) -> li
         ctrl.close()
     return found
 
+def _scan_fashionstar(args: argparse.Namespace, start_id: int, end_id: int) -> list[tuple[int, str]]:
+    if args.vendor == "all":
+        end_id = min(end_id, 254)
+        if start_id > end_id:
+            return []
+    if not 0 <= start_id <= end_id <= 254:
+        raise ValueError("FashionStar scan range must be within 0..254")
+    timeout_ms = _parse_unsigned(str(args.timeout_ms), "timeout_ms")
+    found: list[tuple[int, str]] = []
+    print(
+        f"[scan:fashionstar] {_bus_hint(args)} model={args.model} "
+        f"id_range=[0x{start_id:X},0x{end_id:X}] timeout_ms={args.timeout_ms}"
+    )
+    with _fashionstar_controller(args) as ctrl:
+        for mid in range(start_id, end_id + 1):
+            motor = ctrl.add_fashionstar_motor(mid, 0x321, args.model)
+            try:
+                model_code = motor.get_register_u32(1, timeout_ms)
+                meta = f"vendor=fashionstar feedback_id=0x321 model_code={model_code}"
+                found.append((mid, meta))
+                print(f"[hit] probe=0x{mid:02X} {meta}")
+            except Exception as e:
+                if "timeout" not in str(e).lower():
+                    raise
+                print(f"[.. ] vendor=fashionstar probe=0x{mid:02X} no reply")
+            finally:
+                motor.close()
+    return found
+
 def _scan_command(args: argparse.Namespace) -> None:
     start_id = _parse_id(args.start_id)
     end_id = _parse_id(args.end_id)
@@ -283,6 +313,7 @@ def _scan_command(args: argparse.Namespace) -> None:
     myactuator_model = "X8" if args.model == "4340" else args.model
     robstride_model = "rs-00" if args.model == "4340" else args.model
     hightorque_model = "hightorque" if args.model == "4340" else args.model
+    fashionstar_model = "fashionstar" if args.model == "4340" else args.model
     if args.vendor in ("damiao", "all"):
         args.model = damiao_model
         found.extend(_scan_damiao(args, start_id, end_id))
@@ -295,6 +326,9 @@ def _scan_command(args: argparse.Namespace) -> None:
     if args.vendor in ("hightorque", "all"):
         args.model = hightorque_model
         found.extend(_scan_hightorque(args, start_id, end_id))
+    if args.vendor in ("fashionstar", "all"):
+        args.model = fashionstar_model
+        found.extend(_scan_fashionstar(args, start_id, end_id))
 
     print(f"scan done: {len(found)} motor(s) found")
     for probe, meta in found:

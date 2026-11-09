@@ -1,4 +1,5 @@
 use motor_vendor_damiao::{DamiaoController, DamiaoMotor};
+use motor_vendor_fashionstar::{FashionstarController, FashionstarMotor};
 use motor_vendor_hexfellow::{HexfellowController, HexfellowMotor};
 use motor_vendor_hightorque::{HightorqueController, HightorqueMotor};
 use motor_vendor_myactuator::{MyActuatorController, MyActuatorMotor};
@@ -12,6 +13,7 @@ pub(crate) enum Vendor {
     Hightorque,
     Myactuator,
     Robstride,
+    Fashionstar,
 }
 
 impl Vendor {
@@ -24,6 +26,7 @@ impl Vendor {
             "hightorque" => Ok(Self::Hightorque),
             "myactuator" => Ok(Self::Myactuator),
             "robstride" => Ok(Self::Robstride),
+            "fashionstar" => Ok(Self::Fashionstar),
             _ => Err(format!("unsupported vendor: {s}")),
         }
     }
@@ -35,6 +38,7 @@ impl Vendor {
             Self::Hightorque => "hightorque",
             Self::Myactuator => "myactuator",
             Self::Robstride => "robstride",
+            Self::Fashionstar => "fashionstar",
         }
     }
 }
@@ -144,6 +148,7 @@ pub(crate) enum ControllerHandle {
     Hightorque(HightorqueController),
     Myactuator(MyActuatorController),
     Robstride(RobstrideController),
+    Fashionstar(FashionstarController),
 }
 
 pub(crate) enum MotorHandle {
@@ -152,4 +157,5 @@ pub(crate) enum MotorHandle {
     Hightorque(Arc<HightorqueMotor>),
     Myactuator(Arc<MyActuatorMotor>),
     Robstride(Arc<RobstrideMotor>),
+    Fashionstar(Arc<FashionstarMotor>),
 }

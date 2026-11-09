@@ -2,6 +2,7 @@ use crate::commands::{as_bool, as_u16, as_u64, parse_transport_in_msg, parse_ven
 use crate::model::{ControllerHandle, MotorHandle, Vendor};
 use crate::router::stream::ParamStream;
 use crate::session::SessionCtx;
+use crate::vendors::fashionstar_ws::parse_fashionstar_target;
 use motor_core::MotorDevice;
 use serde_json::{json, Value};
 
@@ -105,6 +106,12 @@ fn handle_capabilities(ctx: &SessionCtx) -> Result<Value, String> {
                     "set_zero_position", "store_parameters",
                 ],
             },
+            "fashionstar": {
+                "transports": ["auto", "socketcan", "mcu-serial"],
+                "modes": ["pos_vel"],
+                "ops_unified": ["scan", "set_id", "enable", "disable", "stop", "state_once", "status", "verify"],
+                "ops_vendor_native": ["get_register_u32", "write_register_u32"]
+            }
         },
         "unsupported_behavior": "return {ok:false,error:'unsupported ...'}"
     }))
@@ -133,6 +140,16 @@ fn handle_ping(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         Vendor::Hexfellow => Ok(json!({"pong": true, "vendor":"hexfellow"})),
         Vendor::Myactuator => Ok(json!({"pong": true, "vendor":"myactuator"})),
         Vendor::Hightorque => Ok(json!({"pong": true, "vendor":"hightorque"})),
+        Vendor::Fashionstar => {
+            ctx.ensure_connected()?;
+            let Some(MotorHandle::Fashionstar(motor)) = ctx.motor.as_ref() else {
+                return Err("motor not connected".to_string());
+            };
+            let code = motor
+                .get_register_u32(1, std::time::Duration::from_millis(500))
+                .map_err(|e| e.to_string())?;
+            Ok(json!({"pong":true,"vendor":"fashionstar","model_code":code}))
+        }
     }
 }
 
@@ -199,6 +216,8 @@ fn handle_set_target(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         if next.feedback_id == 0x11 {
             next.feedback_id = 0x01;
         }
+    } else if next.vendor == Vendor::Fashionstar {
+        next = parse_fashionstar_target(v, &next)?;
     }
 
     ctx.disconnect(false);
@@ -242,6 +261,10 @@ fn handle_enable(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         }
         Some(MotorHandle::Myactuator(m)) => m.enable().map_err(|e| e.to_string())?,
         Some(MotorHandle::Robstride(m)) => m.enable().map_err(|e| e.to_string())?,
+        Some(MotorHandle::Fashionstar(m)) => {
+            ctx.active = None;
+            m.enable().map_err(|e| e.to_string())?;
+        }
         None => return Err("motor not connected".to_string()),
     }
     ctx.active = None;
@@ -272,6 +295,10 @@ fn handle_disable(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         }
         Some(MotorHandle::Myactuator(m)) => m.disable().map_err(|e| e.to_string())?,
         Some(MotorHandle::Robstride(m)) => m.disable().map_err(|e| e.to_string())?,
+        Some(MotorHandle::Fashionstar(m)) => {
+            ctx.active = None;
+            m.disable().map_err(|e| e.to_string())?;
+        }
         None => return Err("motor not connected".to_string()),
     }
     ctx.active = None;
@@ -324,6 +351,7 @@ fn handle_stop(ctx: &mut SessionCtx) -> Result<Value, String> {
                     "strategy": strategy
                 }));
             }
+            MotorHandle::Fashionstar(motor) => motor.stop().map_err(|e| e.to_string())?,
         }
     }
     Ok(json!({"stopped": true}))
@@ -501,6 +529,7 @@ fn handle_param_stream(
     let vendor = match ctx.motor.as_ref() {
         Some(MotorHandle::Damiao(_)) => Vendor::Damiao,
         Some(MotorHandle::Robstride(_)) => Vendor::Robstride,
+        Some(MotorHandle::Fashionstar(_)) => Vendor::Fashionstar,
         Some(_) => return Err("param_stream is supported for damiao and robstride".to_string()),
         None => return Err("motor not connected".to_string()),
     };
@@ -534,7 +563,8 @@ fn handle_status(ctx: &mut SessionCtx) -> Result<Value, String> {
         (Some(ControllerHandle::Hexfellow(_)), Some(MotorHandle::Hexfellow(_)))
         | (Some(ControllerHandle::Damiao(_)), Some(MotorHandle::Damiao(_)))
         | (Some(ControllerHandle::Robstride(_)), Some(MotorHandle::Robstride(_)))
-        | (Some(ControllerHandle::Hightorque(_)), Some(MotorHandle::Hightorque(_))) => {}
+        | (Some(ControllerHandle::Hightorque(_)), Some(MotorHandle::Hightorque(_)))
+        | (Some(ControllerHandle::Fashionstar(_)), Some(MotorHandle::Fashionstar(_))) => {}
         _ => return Err("motor not connected".to_string()),
     }
     Ok(json!({"state": ctx.build_state_snapshot()?}))
@@ -559,6 +589,9 @@ fn handle_poll_feedback_once(ctx: &mut SessionCtx) -> Result<Value, String> {
             ControllerHandle::Robstride(ctrl) => {
                 ctrl.poll_feedback_once().map_err(|e| e.to_string())?
             }
+            ControllerHandle::Fashionstar(ctrl) => {
+                ctrl.poll_feedback_once().map_err(|e| e.to_string())?
+            }
         }
     }
     Ok(json!({"polled": true}))
@@ -572,6 +605,7 @@ fn handle_shutdown(ctx: &mut SessionCtx) -> Result<Value, String> {
             ControllerHandle::Hightorque(ctrl) => ctrl.shutdown().map_err(|e| e.to_string())?,
             ControllerHandle::Myactuator(ctrl) => ctrl.shutdown().map_err(|e| e.to_string())?,
             ControllerHandle::Robstride(ctrl) => ctrl.shutdown().map_err(|e| e.to_string())?,
+            ControllerHandle::Fashionstar(ctrl) => ctrl.shutdown().map_err(|e| e.to_string())?,
         }
     }
     ctx.active = None;

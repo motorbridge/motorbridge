@@ -142,6 +142,18 @@ class Controller:
             raise CallError(f"add_hightorque_motor failed: {_err_text()}")
         return Motor(m)
 
+    def add_fashionstar_motor(self, motor_id: int, feedback_id: int, model: str) -> "Motor":
+        if not 0 <= int(motor_id) <= 254:
+            raise ValueError(f"FashionStar motor_id must be in 0..254, got {motor_id}")
+        if int(feedback_id) != 0x321:
+            raise ValueError(f"FashionStar feedback_id is fixed at 0x321, got {feedback_id}")
+        m = self._abi.lib.motor_controller_add_fashionstar_motor(
+            self._require_open(), motor_id, feedback_id, model.encode()
+        )
+        if not m:
+            raise CallError(f"add_fashionstar_motor failed: {_err_text()}")
+        return Motor(m)
+
     def __enter__(self) -> "Controller":
         return self
 

@@ -24,6 +24,9 @@ pub extern "C" fn motor_handle_set_can_timeout_ms(motor: *mut MotorHandle, timeo
         MotorHandleInner::Hightorque(_) => {
             Err("set_can_timeout_ms is not supported for HighTorque".to_string())
         }
+        MotorHandleInner::Fashionstar(_) => {
+            Err("set_can_timeout_ms is not supported for FashionStar".to_string())
+        }
     };
     ffi_rc(rc)
 }
@@ -59,6 +62,9 @@ pub extern "C" fn motor_handle_write_register_u32(
     let motor = lock_motor_inner!(motor, "motor is null");
     let rc = match &*motor {
         MotorHandleInner::Damiao(m) => m.write_register_u32(rid, value).map_err(|e| e.to_string()),
+        MotorHandleInner::Fashionstar(m) => {
+            m.write_register_u32(rid, value).map_err(|e| e.to_string())
+        }
         _ => Err("Damiao register write is only available for Damiao motors".to_string()),
     };
     ffi_rc(rc)
@@ -105,6 +111,10 @@ pub extern "C" fn motor_handle_get_register_u32(
             .get_register_u32(rid, Duration::from_millis(timeout_ms as u64))
             .map_err(|e| e.to_string())
             .map(|v| *out = v),
+        MotorHandleInner::Fashionstar(m) => m
+            .get_register_u32(rid, Duration::from_millis(timeout_ms as u64))
+            .map_err(|e| e.to_string())
+            .map(|v| *out = v),
         _ => Err("Damiao register read is only available for Damiao motors".to_string()),
     };
     ffi_rc(rc)
@@ -128,7 +138,8 @@ pub extern "C" fn motor_handle_robstride_ping(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::Hightorque(_)
+        | MotorHandleInner::Fashionstar(_) => {
             Err("robstride_ping requires a RobStride motor".to_string())
         }
     };
@@ -167,7 +178,8 @@ pub extern "C" fn motor_handle_robstride_ping_host_id(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::Hightorque(_)
+        | MotorHandleInner::Fashionstar(_) => {
             Err("robstride_ping_host_id requires a RobStride motor".to_string())
         }
     };
@@ -214,7 +226,8 @@ pub extern "C" fn motor_handle_robstride_get_param_f32_host_id(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::Hightorque(_)
+        | MotorHandleInner::Fashionstar(_) => {
             Err("robstride_get_param_f32_host_id requires a RobStride motor".to_string())
         }
     };
@@ -244,7 +257,8 @@ pub extern "C" fn motor_handle_robstride_get_fault_report(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::Hightorque(_)
+        | MotorHandleInner::Fashionstar(_) => {
             set_last_error("robstride_get_fault_report requires a RobStride motor");
             -1
         }
@@ -266,7 +280,8 @@ pub extern "C" fn motor_handle_robstride_set_device_id(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::Hightorque(_)
+        | MotorHandleInner::Fashionstar(_) => {
             Err("robstride_set_device_id requires a RobStride motor".to_string())
         }
     };
@@ -290,7 +305,8 @@ pub extern "C" fn motor_handle_robstride_set_active_report(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::Hightorque(_)
+        | MotorHandleInner::Fashionstar(_) => {
             Err("robstride_set_active_report requires a RobStride motor".to_string())
         }
     };

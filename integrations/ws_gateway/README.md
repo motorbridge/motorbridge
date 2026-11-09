@@ -66,6 +66,7 @@ If a vendor does not support one of these four baseline modes, gateway returns `
 | hexfellow | native MIT | native POS_VEL | unsupported | unsupported | `mit` supports `kp/kd/tau`; no standalone `vel` | CAN-FD path |
 | myactuator | unsupported | Position setpoint flow | native velocity setpoint | unsupported | `pos_vel` via position setpoint; `vel` in baseline set | native strengths: current/position/version/mode-query |
 | hightorque | native MIT (v2.0.0 bit-packed frame) | native POS_VEL (`0x07 0x35`) | native velocity frame | unsupported | all commands go through `motor_vendor_hightorque` (single implementation); feedback is physical units with model torque-coeff correction | additionally `pos_vel_acc` (trapezoid `07 2d`) and `torque` (`05 13`, physical Nm) modes plus `pos_classic`/`dq_voltage`/`dq_current`/`brake`/`run_mode`/`write_register`/`periodic_report`/`read_register` vendor ops; `enable` is a semantic no-op (plan B, 2026-10-08: succeeds without sending any frame) |
+| fashionstar | currently unsupported | native mode 2 (target angle + speed limit) | currently unsupported | currently unsupported | `pos` rad, `vlim` rad/s; raw u32 registers | configuration requires a power cycle |
 
 ### Unified Core Ops Support Matrix
 
@@ -76,6 +77,7 @@ If a vendor does not support one of these four baseline modes, gateway returns `
 | hexfellow | supported | unsupported | supported | supported | supported | supported |
 | myactuator | supported | unsupported | supported | supported | supported | supported |
 | hightorque | supported | unsupported | rejected | supported (stop frame) | supported | supported |
+| fashionstar | supported | supported (verify after power cycle) | hold | release | hold | supported |
 
 ### Parameter Notes by Mode
 
@@ -130,6 +132,12 @@ Recommended: client calls `{"op":"capabilities"}` on connect and adapts UI/flows
         "modes": ["mit", "pos_vel", "pos_vel_acc", "vel", "torque"],
         "ops_unified": ["scan", "disable", "stop", "state_once", "status", "verify"],
         "ops_vendor_native": ["read", "pos_classic", "read_register", "dq_voltage", "dq_current", "brake", "run_mode", "write_register", "periodic_report", "set_zero_position", "store_parameters"]
+      },
+      "fashionstar": {
+        "transports": ["auto", "socketcan", "mcu-serial"],
+        "modes": ["pos_vel"],
+        "ops_unified": ["scan", "set_id", "enable", "disable", "stop", "state_once", "status", "verify"],
+        "ops_vendor_native": ["get_register_u32", "write_register_u32"]
       }
     },
     "unsupported_behavior": "return {ok:false,error:'unsupported ...'}"
@@ -332,7 +340,7 @@ RobStride parameter stream frame:
 
 ## Notes
 
-- `--vendor damiao|robstride|hexfellow|myactuator|hightorque` controls default target vendor.
+- `--vendor damiao|robstride|hexfellow|myactuator|hightorque|fashionstar` controls default target vendor.
 - `set_target` can switch vendor/transport/channel/serial/model/id on the fly per session.
 - `continuous=true` keeps sending that control command every tick.
 - `stop` clears continuous control and requests a vendor-aware controlled stop.
@@ -342,11 +350,12 @@ RobStride parameter stream frame:
 - `set_id` is vendor-aware:
   - Damiao: write `MST_ID` first, then `ESC_ID`.
   - RobStride: device ID update via `SET_DEVICE_ID`.
-- Damiao-only ops: `write/get_register_*` and `dm-serial` transport.
-- Parameter streams: `param_stream` supports Damiao and RobStride; `damiao_param_stream` and `robstride_param_stream` are vendor-specific aliases.
+- Damiao-only ops: `write/get_register_f32` and `dm-serial` transport; raw u32 register ops also support FashionStar.
+- Parameter streams: `param_stream` supports Damiao, RobStride and FashionStar; `damiao_param_stream` and `robstride_param_stream` are vendor-specific aliases.
 - RobStride-only ops: `robstride_ping`, `robstride_read_param`, `robstride_write_param`, `set_active_report`.
 - MyActuator-native ops: `current`, `pos`, `version`, `mode-query`.
 - HighTorque-native ops: `read`, `pos_classic` (classic position `07 07`, `tqe` optional = unlimited), `version` (firmware; MyActuator also supported), `read_register` (`17` family, `addr`/`count`; fixed Int16 since 2026-10-22, returns converted physical values), `torque` (`05 13`, physical Nm, continuous-capable), `dq_voltage` / `dq_current` (combined mode+register frames), `brake` (run mode 15), `run_mode` (table-2 mode switch, real frame), `write_register` (`05 <addr> <val16>`), `periodic_report` (`05 B4`, motor-initiated status stream).
+- FashionStar: existing `pos_vel`, state and raw u32 register interfaces; configuration requires a power cycle. See the [FashionStar reference](../../motor_cli/FASHIONSTAR_API.md).
 - V2 plan can switch to binary frames while preserving operation semantics.
 
 ## Simple HMI (for quick testing)

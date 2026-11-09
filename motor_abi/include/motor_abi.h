@@ -81,6 +81,7 @@ MotorHandle* motor_controller_add_hexfellow_motor(MotorController* controller, u
 MotorHandle* motor_controller_add_myactuator_motor(MotorController* controller, uint16_t motor_id, uint16_t feedback_id, const char* model);
 MotorHandle* motor_controller_add_robstride_motor(MotorController* controller, uint16_t motor_id, uint16_t feedback_id, const char* model);
 MotorHandle* motor_controller_add_hightorque_motor(MotorController* controller, uint16_t motor_id, uint16_t feedback_id, const char* model);
+MotorHandle* motor_controller_add_fashionstar_motor(MotorController* controller, uint16_t motor_id, uint16_t feedback_id, const char* model);
 void motor_handle_free(MotorHandle* motor);
 
 int32_t motor_handle_enable(MotorHandle* motor);

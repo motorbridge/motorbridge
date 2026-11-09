@@ -162,6 +162,8 @@ class Abi:
         lib.motor_controller_add_robstride_motor.restype = c_void_p
         lib.motor_controller_add_hightorque_motor.argtypes = [c_void_p, c_uint16, c_uint16, c_char_p]
         lib.motor_controller_add_hightorque_motor.restype = c_void_p
+        lib.motor_controller_add_fashionstar_motor.argtypes = [c_void_p, c_uint16, c_uint16, c_char_p]
+        lib.motor_controller_add_fashionstar_motor.restype = c_void_p
 
         lib.motor_handle_free.argtypes = [c_void_p]
         lib.motor_handle_enable.argtypes = [c_void_p]

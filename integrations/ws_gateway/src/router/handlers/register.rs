@@ -5,6 +5,7 @@ use crate::commands::{
 use crate::model::{ControllerHandle, MotorHandle};
 use crate::session::SessionCtx;
 use crate::vendors::damiao_ws::ensure_control_mode_soft;
+use crate::vendors::fashionstar_ws::parse_fashionstar_u64;
 use motor_vendor_robstride::ParameterValue as RobstrideParameterValue;
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -59,6 +60,9 @@ fn handle_clear_error(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> 
         Some(MotorHandle::Myactuator(_)) => {
             return Err("clear_error is not supported for myactuator".to_string())
         }
+        Some(MotorHandle::Fashionstar(_)) => {
+            return Err("clear_error is not supported for fashionstar".to_string())
+        }
         None => return Err("motor not connected".to_string()),
     }
     Ok(json!({"cleared": true}))
@@ -90,6 +94,10 @@ fn handle_set_zero_position(v: &Value, ctx: &mut SessionCtx) -> Result<Value, St
             // Converged (2026-09-29): the gateway used to reject this, but
             // the vendor has always supported the 0x40 zero-position frame
             // (auto-persists internally) — aligned with ABI/Python.
+            m.set_zero_position().map_err(|e| e.to_string())?;
+        }
+        Some(MotorHandle::Fashionstar(m)) => {
+            ctx.active = None;
             m.set_zero_position().map_err(|e| e.to_string())?;
         }
         None => return Err("motor not connected".to_string()),
@@ -134,6 +142,18 @@ fn handle_ensure_mode(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> 
         }
         Some(MotorHandle::Hightorque(_)) => {
             return Err("ensure_mode is not supported for hightorque".to_string())
+        }
+        Some(MotorHandle::Fashionstar(m)) => {
+            let mode = match v.get("mode") {
+                Some(Value::String(mode)) => mode.to_lowercase(),
+                Some(Value::Number(mode)) => mode.to_string(),
+                _ => String::new(),
+            };
+            if !matches!(mode.as_str(), "pos_vel" | "pos-vel" | "2") {
+                return Err("fashionstar mode must be pos_vel".to_string());
+            }
+            m.ensure_control_mode(2, Duration::from_millis(timeout_ms))
+                .map_err(|e| e.to_string())?;
         }
         None => return Err("motor not connected".to_string()),
     }
@@ -181,6 +201,9 @@ fn handle_request_feedback(v: &Value, ctx: &mut SessionCtx) -> Result<Value, Str
             // cached_register can all read it back.
             m.request_motor_feedback().map_err(|e| e.to_string())?;
         }
+        (Some(ControllerHandle::Fashionstar(_)), Some(MotorHandle::Fashionstar(m))) => m
+            .request_motor_feedback(Duration::from_millis(500))
+            .map_err(|e| e.to_string())?,
         _ => return Err("motor not connected".to_string()),
     }
     Ok(json!({"requested": true}))
@@ -215,6 +238,9 @@ fn handle_set_active_report(v: &Value, ctx: &mut SessionCtx) -> Result<Value, St
         }
         Some(MotorHandle::Myactuator(_)) => {
             return Err("set_active_report is not supported for myactuator".to_string())
+        }
+        Some(MotorHandle::Fashionstar(_)) => {
+            return Err("set_active_report is not supported for fashionstar".to_string())
         }
         None => return Err("motor not connected".to_string()),
     }
@@ -252,6 +278,9 @@ fn handle_store_parameters(v: &Value, ctx: &mut SessionCtx) -> Result<Value, Str
         Some(MotorHandle::Myactuator(_)) => {
             return Err("store_parameters is not supported for myactuator".to_string())
         }
+        Some(MotorHandle::Fashionstar(_)) => {
+            return Err("store_parameters is not supported for fashionstar".to_string())
+        }
         None => return Err("motor not connected".to_string()),
     }
     Ok(json!({"stored": true}))
@@ -280,6 +309,9 @@ fn handle_set_can_timeout_ms(v: &Value, ctx: &mut SessionCtx) -> Result<Value, S
         }
         Some(MotorHandle::Myactuator(_)) => {
             Err("set_can_timeout_ms is not supported for myactuator".to_string())
+        }
+        Some(MotorHandle::Fashionstar(_)) => {
+            Err("set_can_timeout_ms is not supported for fashionstar".to_string())
         }
         None => Err("motor not connected".to_string()),
     }
@@ -318,6 +350,22 @@ fn handle_write_register_u32(v: &Value, ctx: &mut SessionCtx) -> Result<Value, S
         }
         Some(MotorHandle::Robstride(_)) => {
             Err("write_register_u32 is damiao-only; use robstride_write_param".to_string())
+        }
+        Some(MotorHandle::Fashionstar(m)) => {
+            let rid = parse_fashionstar_u64(v, "rid", 0, 255)? as u8;
+            let value = parse_fashionstar_u64(v, "value", 0, u32::MAX as u64)? as u32;
+            // Manual motion, origin and output changes replace the periodic target.
+            if matches!(rid, 0x28 | 0x50..=0x59 | 0x78..=0x7B) {
+                ctx.active = None;
+            }
+            m.write_register_u32(rid, value)
+                .map_err(|e| e.to_string())?;
+            Ok(json!({
+                "rid": rid,
+                "value": value,
+                "verified": false,
+                "requires_power_cycle": !matches!(rid, 0x28 | 0x50..=0x59 | 0x79..=0x7B | 0xFF)
+            }))
         }
         Some(_) => Err("write_register_u32 is damiao-only".to_string()),
         None => Err("motor not connected".to_string()),
@@ -452,6 +500,16 @@ fn handle_get_register_u32(v: &Value, ctx: &mut SessionCtx) -> Result<Value, Str
         }
         Some(MotorHandle::Robstride(_)) => {
             Err("get_register_u32 is damiao-only; use robstride_read_param".to_string())
+        }
+        Some(MotorHandle::Fashionstar(m)) => {
+            let rid = parse_fashionstar_u64(v, "rid", 0, 255)? as u8;
+            let value = m
+                .get_register_u32(
+                    rid,
+                    Duration::from_millis(as_u64(v, "timeout_ms", 500).min(60_000)),
+                )
+                .map_err(|e| e.to_string())?;
+            Ok(json!({"rid":rid,"value":value}))
         }
         Some(_) => Err("get_register_u32 is damiao-only".to_string()),
         None => Err("motor not connected".to_string()),

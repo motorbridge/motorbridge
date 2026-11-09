@@ -165,6 +165,13 @@ impl SessionCtx {
                 }
                 None => Ok(()),
             },
+            Some(MotorHandle::Fashionstar(motor)) => match self.active.as_ref() {
+                Some(ActiveCommand::PosVel { pos, vlim }) => motor
+                    .send_cmd_pos_vel(*pos, *vlim)
+                    .map_err(|e| e.to_string()),
+                None => Ok(()),
+                Some(_) => Err("active command is not supported for fashionstar".to_string()),
+            },
             None => Err("motor not connected".to_string()),
         }
     }
@@ -312,6 +319,30 @@ impl SessionCtx {
                     Ok(json!({"vendor":"robstride","has_value": false}))
                 }
             }
+            (Some(ControllerHandle::Fashionstar(_)), Some(MotorHandle::Fashionstar(motor))) => {
+                motor
+                    .request_motor_feedback(Duration::from_millis(200))
+                    .map_err(|e| e.to_string())?;
+                let snapshot = motor
+                    .latest_state_snapshot()
+                    .ok_or_else(|| "FashionStar state query returned no state".to_string())?;
+                Ok(json!({
+                    "vendor": "fashionstar",
+                    "has_value": true,
+                    "motor_id": motor.motor_id,
+                    "feedback_id": motor_vendor_fashionstar::CAN_ID,
+                    "model": self.target.model,
+                    "arbitration_id": snapshot.state.arbitration_id,
+                    "status_code": snapshot.state.status_code,
+                    "pos": snapshot.state.pos,
+                    "vel": snapshot.state.vel,
+                    "torq": snapshot.state.current_a,
+                    "t_mos": snapshot.state.temperature_c,
+                    "t_rotor": null,
+                    "feedback_sequence": snapshot.sequence,
+                    "feedback_age_s": snapshot.age().as_secs_f64()
+                }))
+            }
             _ => Err("motor not connected".to_string()),
         }
     }
@@ -325,6 +356,9 @@ impl SessionCtx {
             Some(MotorHandle::Damiao(_)) => self.build_damiao_param_snapshot(params, timeout_ms),
             Some(MotorHandle::Robstride(_)) => {
                 self.build_robstride_param_snapshot(params, timeout_ms)
+            }
+            Some(MotorHandle::Fashionstar(_)) => {
+                self.build_fashionstar_param_snapshot(params, timeout_ms)
             }
             Some(_) => Err("param stream is supported for damiao and robstride".to_string()),
             None => Err("motor not connected".to_string()),
@@ -446,6 +480,46 @@ impl SessionCtx {
             "vendor": "damiao",
             "motor_id": self.target.motor_id,
             "feedback_id": self.target.feedback_id,
+            "model": self.target.model,
+            "values": values,
+            "params": details
+        }))
+    }
+
+    fn build_fashionstar_param_snapshot(
+        &self,
+        params: &[u16],
+        timeout_ms: u64,
+    ) -> Result<Value, String> {
+        let motor = match self.motor.as_ref() {
+            Some(MotorHandle::Fashionstar(motor)) => motor,
+            Some(_) => {
+                return Err("fashionstar param stream requires vendor=fashionstar".to_string())
+            }
+            None => return Err("motor not connected".to_string()),
+        };
+        let timeout = Duration::from_millis(timeout_ms.min(60_000));
+        let mut values = serde_json::Map::new();
+        let mut details = Vec::new();
+
+        for param_id in params {
+            let rid =
+                u8::try_from(*param_id).map_err(|_| "FashionStar parameter address exceeds u8")?;
+            match motor.get_register_u32(rid, timeout) {
+                Ok(value) => {
+                    values.insert(format!("rid_{rid}"), json!(value));
+                    details.push(json!({"rid": rid, "type": "u32", "value": value, "ok": true}));
+                }
+                Err(err) => {
+                    details.push(json!({"rid": rid, "ok": false, "error": err.to_string()}))
+                }
+            }
+        }
+
+        Ok(json!({
+            "vendor": "fashionstar",
+            "motor_id": motor.motor_id,
+            "feedback_id": motor_vendor_fashionstar::CAN_ID,
             "model": self.target.model,
             "values": values,
             "params": details

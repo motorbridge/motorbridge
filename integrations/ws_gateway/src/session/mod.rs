@@ -55,6 +55,15 @@ impl SessionCtx {
         if let Some(feedback_id) = feedback_id {
             next.feedback_id = feedback_id;
         }
+        if next.vendor == crate::model::Vendor::Fashionstar {
+            if next.model == "4340" || next.model == "4340P" {
+                next.model = "fashionstar".to_string();
+            }
+            next.feedback_id = feedback_id.unwrap_or(motor_vendor_fashionstar::CAN_ID);
+            if next.motor_id > 254 || next.feedback_id != motor_vendor_fashionstar::CAN_ID {
+                return Err("FashionStar requires ServoID 0..254 and feedback_id 0x321".to_string());
+            }
+        }
         if next.vendor == self.target.vendor
             && next.model == self.target.model
             && next.motor_id == self.target.motor_id

@@ -152,6 +152,24 @@ fn latest_snapshot(
                 snapshot_metadata(&snapshot),
             )
         })),
+        MotorHandleInner::Fashionstar(m) => Ok(m.latest_state_snapshot().map(|snapshot| {
+            let state = snapshot.state;
+            (
+                MotorState {
+                    has_value: 1,
+                    can_id: state.can_id,
+                    arbitration_id: state.arbitration_id,
+                    status_code: state.status_code,
+                    pos: state.pos,
+                    vel: state.vel,
+                    torq: state.current_a,
+                    t_mos: state.temperature_c,
+                    t_rotor: f32::NAN,
+                    fault_code: 0,
+                },
+                snapshot_metadata(&snapshot),
+            )
+        })),
     }
 }
 

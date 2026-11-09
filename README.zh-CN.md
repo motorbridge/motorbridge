@@ -132,6 +132,10 @@ DM_Device_SDK 是用于控制 CAN/CAN FD 设备的软件开发工具包。motorb
 - Hexfellow:
   - 型号: `hexfellow`（运行时字符串，CANopen 配置）
   - 模式: `scan`, `status`, `enable`, `disable`, `pos-vel`, `mit`（通过 `socketcanfd`）
+- FashionStar:
+  - 型号: `fashionstar`（运行时字符串，当前忽略）
+  - 模式: `scan`, `ping`, `status`, `enable`, `disable`, `stop`, `pos-vel`, `zero`, 参数读写；改 ID 使用 `--set-motor-id`
+  - 说明: 配置修改重新上电后生效；连续速度、MIT/定量力矩、FORCE_POS 暂不支持
 
 ## 更新说明（2026-04）：Damiao / RobStride 能力收敛
 
@@ -213,12 +217,14 @@ flowchart TB
 - [`motor_vendors/hightorque`](motor_vendors/hightorque): HighTorque 原生 ht_can 协议实现
 - [`motor_vendors/robstride`](motor_vendors/robstride): RobStride 扩展 CAN 协议 / 型号 / 参数
 - [`motor_vendors/myactuator`](motor_vendors/myactuator): MyActuator CAN 协议实现
+- [`motor_vendors/fashionstar`](motor_vendors/fashionstar): FashionStar 经典 CAN 协议实现
 - [`motor_cli`](motor_cli): 统一 Rust CLI
   - 全参数英文文档: [`motor_cli/README.md`](motor_cli/README.md)
   - 全参数中文文档: [`motor_cli/README.zh-CN.md`](motor_cli/README.zh-CN.md)
   - Damiao 指令/寄存器文档: [`motor_cli/DAMIAO_API.md`](motor_cli/DAMIAO_API.md), [`motor_cli/DAMIAO_API.zh-CN.md`](motor_cli/DAMIAO_API.zh-CN.md)
   - RobStride 指令/参数文档: [`motor_cli/ROBSTRIDE_API.md`](motor_cli/ROBSTRIDE_API.md), [`motor_cli/ROBSTRIDE_API.zh-CN.md`](motor_cli/ROBSTRIDE_API.zh-CN.md)
   - MyActuator 指令/模式文档: [`motor_cli/MYACTUATOR_API.md`](motor_cli/MYACTUATOR_API.md), [`motor_cli/MYACTUATOR_API.zh-CN.md`](motor_cli/MYACTUATOR_API.zh-CN.md)
+  - FashionStar 指令/模式文档: [`motor_cli/FASHIONSTAR_API.md`](motor_cli/FASHIONSTAR_API.md), [`motor_cli/FASHIONSTAR_API.zh-CN.md`](motor_cli/FASHIONSTAR_API.zh-CN.md)
 - [`motor_abi`](motor_abi): 稳定 C ABI
 - [`bindings/python`](bindings/python): Python SDK + `motorbridge-cli`
 - [`bindings/cpp`](bindings/cpp): C++ RAII wrapper
@@ -586,6 +592,7 @@ cargo run -p motor_cli --release -- --vendor damiao \
   - RobStride: `motor_controller_add_robstride_motor(...)`
   - MyActuator: `motor_controller_add_myactuator_motor(...)`
   - HighTorque: `motor_controller_add_hightorque_motor(...)`
+  - FashionStar: `motor_controller_add_fashionstar_motor(...)`
 - Python:
   - `motorbridge.abi_version()`
   - `motorbridge.abi_capabilities()`
@@ -597,6 +604,7 @@ cargo run -p motor_cli --release -- --vendor damiao \
   - `Controller.add_robstride_motor(...)`
   - `Controller.add_myactuator_motor(...)`
   - `Controller.add_hightorque_motor(...)`
+  - `Controller.add_fashionstar_motor(...)`
 - C++:
   - `motorbridge::abi_version()`
   - `motorbridge::abi_capabilities_json()`
@@ -607,6 +615,7 @@ cargo run -p motor_cli --release -- --vendor damiao \
   - `Controller::add_robstride_motor(...)`
   - `Controller::add_myactuator_motor(...)`
   - `Controller::add_hightorque_motor(...)`
+  - `Controller::add_fashionstar_motor(...)`
 
 ABI/绑定中的统一模式 ID（`ensure_mode`）：
 

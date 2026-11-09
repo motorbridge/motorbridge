@@ -25,7 +25,7 @@ def _add_common_args(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--vendor",
         default="damiao",
-        choices=["damiao", "myactuator", "robstride", "hightorque", "hexfellow"],
+        choices=["damiao", "myactuator", "robstride", "hightorque", "hexfellow", "fashionstar"],
         help="motor vendor/protocol family, default damiao",
     )
     p.add_argument("--channel", default="can0", help="SocketCAN/CAN-FD channel, default can0")
@@ -143,6 +143,11 @@ def _vendor_defaults(vendor: str, model: str, feedback_id: str) -> tuple[str, st
             resolved_model = "hexfellow"
         if resolved_feedback == "0x11":
             resolved_feedback = "0x00"
+    elif vendor == "fashionstar":
+        if resolved_model == "4340":
+            resolved_model = "fashionstar"
+        if resolved_feedback == "0x11":
+            resolved_feedback = "0x321"
     return resolved_model, resolved_feedback
 
 def _add_motor(ctrl: Controller, vendor: str, motor_id: int, feedback_id: int, model: str):
@@ -154,10 +159,14 @@ def _add_motor(ctrl: Controller, vendor: str, motor_id: int, feedback_id: int, m
         return ctrl.add_hightorque_motor(motor_id, feedback_id, model)
     if vendor == "hexfellow":
         return ctrl.add_hexfellow_motor(motor_id, feedback_id, model)
+    if vendor == "fashionstar":
+        return ctrl.add_fashionstar_motor(motor_id, feedback_id, model)
     return ctrl.add_damiao_motor(motor_id, feedback_id, model)
 
 def _open_controller(args: argparse.Namespace, vendor: str) -> Controller:
     transport = getattr(args, "transport", "auto")
+    if vendor == "fashionstar" and transport not in ("auto", "socketcan", "mcu-serial"):
+        raise ValueError("FashionStar supports classic CAN: auto|socketcan|mcu-serial")
     if transport == "dm-serial":
         if vendor != "damiao":
             raise ValueError("transport=dm-serial is supported only for --vendor damiao")

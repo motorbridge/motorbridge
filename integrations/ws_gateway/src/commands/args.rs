@@ -44,7 +44,7 @@ Examples:\n\
     --serial-port /dev/ttyACM0 --serial-baud 921600 --dt-ms 20\n\
 \n\
 Optional defaults (only used when WS message omits target fields):\n\
-  --vendor damiao|robstride|hexfellow|myactuator|hightorque\n\
+  --vendor damiao|robstride|hexfellow|myactuator|hightorque|fashionstar\n\
   --transport auto|socketcan|socketcanfd|dm-serial|dm-device\n\
   --channel can0                SocketCAN/CAN-FD interface, for example can0/can1\n\
   --serial-port /dev/ttyACM0    used only by --transport dm-serial\n\
@@ -139,6 +139,13 @@ After startup:\n\
         }
         if feedback_id == 0x11 {
             feedback_id = 0x01;
+        }
+    } else if vendor == Vendor::Fashionstar {
+        if model == "4340P" || model == "4340" {
+            model = "fashionstar".to_string();
+        }
+        if feedback_id == 0x11 {
+            feedback_id = motor_vendor_fashionstar::CAN_ID;
         }
     }
 

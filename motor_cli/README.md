@@ -654,7 +654,11 @@ motor_cli \
   --mode mit --pos 0.0 --vel 0.0 --kp 1000 --kd 100 --tau 0
 ```
 
-## 11. Practical Notes
+## 11. Vendor = `fashionstar`
+
+Classic CAN, ServoID 0..254, fixed `feedback_id=0x321`. Supports POS_VEL, hold/release output, stop, zero, raw integer registers, position/status/temperature/current queries and estimated velocity feedback. `torq` carries current in A. Configuration requires a power cycle. Continuous velocity and MIT/quantitative torque are currently unsupported. See [FASHIONSTAR_API.md](FASHIONSTAR_API.md) for arguments and examples.
+
+## 12. Practical Notes
 
 - For Damiao ID updates, prefer keeping `--store 1 --verify-id 1`.
 - If scan intermittently misses motors, retry after CAN restart.

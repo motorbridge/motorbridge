@@ -2,6 +2,7 @@ use crate::commands::{cmd_batch_scan, cmd_scan, cmd_set_id, cmd_verify, parse_ve
 use crate::model::{ControllerHandle, Vendor};
 use crate::router::stream::ParamStream;
 use crate::session::SessionCtx;
+use crate::vendors::fashionstar_ws::parse_fashionstar_u64;
 use serde_json::Value;
 
 use super::handlers;
@@ -14,6 +15,25 @@ pub(crate) fn dispatch_op(
     param_stream: &mut ParamStream,
     dt_ms: u64,
 ) -> Result<serde_json::Value, String> {
+    // Validate full-width IDs before the shared request helpers convert to u16.
+    if matches!(
+        op,
+        "enable" | "disable" | "clear_error" | "set_zero_position" | "request_feedback"
+    ) && v
+        .get("vendor")
+        .and_then(Value::as_str)
+        .map(|vendor| vendor.eq_ignore_ascii_case("fashionstar"))
+        .unwrap_or(ctx.target.vendor == Vendor::Fashionstar)
+    {
+        for (field, max) in [("motor_id", 254), ("feedback_id", 0x321)] {
+            if v.get(field).is_some() {
+                let value = parse_fashionstar_u64(v, field, 0, max)?;
+                if field == "feedback_id" && value != 0x321 {
+                    return Err("FashionStar feedback_id is fixed at 0x321".to_string());
+                }
+            }
+        }
+    }
     if let Some(r) =
         handlers::connection::handle(op, v, ctx, state_stream_enabled, param_stream, dt_ms)
     {
@@ -59,10 +79,14 @@ pub(crate) fn release_session_before_scan(
     let may_scan_damiao = scan_request_may_include_vendor(v, ctx.target.vendor, Vendor::Damiao);
     let may_scan_robstride =
         scan_request_may_include_vendor(v, ctx.target.vendor, Vendor::Robstride);
+    let may_scan_fashionstar =
+        scan_request_may_include_vendor(v, ctx.target.vendor, Vendor::Fashionstar);
 
     let should_release = matches!(ctx.controller, Some(ControllerHandle::Damiao(_)))
         && may_scan_damiao
-        || matches!(ctx.controller, Some(ControllerHandle::Robstride(_))) && may_scan_robstride;
+        || matches!(ctx.controller, Some(ControllerHandle::Robstride(_))) && may_scan_robstride
+        || matches!(ctx.controller, Some(ControllerHandle::Fashionstar(_)))
+        || ctx.controller.is_some() && may_scan_fashionstar;
     if !should_release {
         return;
     }

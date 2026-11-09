@@ -1,4 +1,5 @@
 use crate::model::{ControllerHandle, MotorHandle, Transport, Vendor};
+use crate::vendors::transport_ws::open_fashionstar_controller;
 use crate::vendors::transport_ws::open_hightorque_bus;
 use motor_core::dm_device::DmDeviceType;
 use motor_vendor_damiao::DamiaoController;
@@ -189,6 +190,18 @@ impl SessionCtx {
                 self.controller = Some(ControllerHandle::Robstride(ctrl));
                 self.motor = Some(MotorHandle::Robstride(motor));
             }
+            Vendor::Fashionstar => {
+                let ctrl = open_fashionstar_controller(&self.target, self.target.transport)?;
+                let motor = ctrl
+                    .add_motor(
+                        self.target.motor_id,
+                        self.target.feedback_id,
+                        &self.target.model,
+                    )
+                    .map_err(|e| e.to_string())?;
+                self.controller = Some(ControllerHandle::Fashionstar(ctrl));
+                self.motor = Some(MotorHandle::Fashionstar(motor));
+            }
         }
         Ok(())
     }
@@ -230,6 +243,13 @@ impl SessionCtx {
                     }
                 }
                 ControllerHandle::Robstride(c) => {
+                    if shutdown {
+                        let _ = c.shutdown();
+                    } else {
+                        let _ = c.close_bus();
+                    }
+                }
+                ControllerHandle::Fashionstar(c) => {
                     if shutdown {
                         let _ = c.shutdown();
                     } else {

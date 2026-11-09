@@ -515,6 +515,21 @@ class Controller {
     return Motor(handle_, m);
   }
 
+  Motor add_fashionstar_motor(uint16_t motor_id, uint16_t feedback_id, const std::string& model) {
+    if (motor_id > 254) {
+      throw Error("FashionStar motor_id must be in 0..254");
+    }
+    if (feedback_id != 0x321) {
+      throw Error("FashionStar feedback_id is fixed at 0x321");
+    }
+    MotorHandle* m =
+        motor_controller_add_fashionstar_motor(handle_->ptr, motor_id, feedback_id, model.c_str());
+    if (!m) {
+      throw Error("add_fashionstar_motor failed: " + last_error_message());
+    }
+    return Motor(handle_, m);
+  }
+
  private:
   explicit Controller(MotorController* raw) {
     handle_ = std::make_shared<detail::ControllerHandle>(raw);

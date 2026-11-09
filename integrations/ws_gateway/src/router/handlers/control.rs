@@ -112,6 +112,9 @@ fn handle_mit(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         Some(MotorHandle::Myactuator(_)) => {
             return Err("mit is not supported for myactuator".to_string());
         }
+        Some(MotorHandle::Fashionstar(_)) => {
+            return Err("mit is not supported for fashionstar".to_string());
+        }
         None => return Err("motor not connected".to_string()),
     }
     ctx.active = if as_bool(v, "continuous", false) {
@@ -224,6 +227,22 @@ fn handle_pos_vel(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         Some(MotorHandle::Myactuator(_)) => {
             Err("pos_vel is not supported for myactuator".to_string())
         }
+        Some(MotorHandle::Fashionstar(m)) => {
+            for field in ["pos", "vlim"] {
+                if v.get(field).is_some_and(|value| value.as_f64().is_none()) {
+                    return Err(format!("FashionStar {field} must be a number"));
+                }
+            }
+            if let ActiveCommand::PosVel { pos, vlim } = cmd {
+                m.send_cmd_pos_vel(pos, vlim).map_err(|e| e.to_string())?;
+            }
+            ctx.active = if as_bool(v, "continuous", false) {
+                Some(cmd)
+            } else {
+                None
+            };
+            Ok(json!({"op":"pos_vel","continuous": as_bool(v, "continuous", false)}))
+        }
         None => Err("motor not connected".to_string()),
     }
 }
@@ -261,6 +280,9 @@ fn handle_pos_vel_acc(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> 
         Some(MotorHandle::Robstride(_)) => {
             Err("pos_vel_acc is not supported for robstride".to_string())
         }
+        Some(MotorHandle::Fashionstar(_)) => {
+            Err("pos_vel_acc is not supported for fashionstar".to_string())
+        }
         None => Err("motor not connected".to_string()),
     }
 }
@@ -291,6 +313,9 @@ fn handle_torque(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
             Err("torque is not supported for myactuator".to_string())
         }
         Some(MotorHandle::Robstride(_)) => Err("torque is not supported for robstride".to_string()),
+        Some(MotorHandle::Fashionstar(_)) => {
+            Err("torque is not supported for fashionstar".to_string())
+        }
         None => Err("motor not connected".to_string()),
     }
 }
@@ -352,6 +377,9 @@ fn handle_vel(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         Some(MotorHandle::Hexfellow(_)) => {
             return Err("vel is not supported for hexfellow; use pos_vel or mit".to_string())
         }
+        Some(MotorHandle::Fashionstar(_)) => {
+            return Err("vel is not supported for fashionstar".to_string())
+        }
         None => return Err("motor not connected".to_string()),
     }
     ctx.active = if as_bool(v, "continuous", false) {
@@ -404,6 +432,9 @@ fn handle_force_pos(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         }
         Some(MotorHandle::Myactuator(_)) => {
             Err("force_pos is not supported for myactuator".to_string())
+        }
+        Some(MotorHandle::Fashionstar(_)) => {
+            Err("force_pos is not supported for fashionstar".to_string())
         }
         None => Err("motor not connected".to_string()),
     }
