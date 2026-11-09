@@ -27,6 +27,8 @@ Practical reference for FashionStar CAN control in motorbridge.
 
 Continuous velocity (`VEL`), MIT/quantitative torque and `FORCE_POS` are **currently unsupported** by this adapter; these calls return errors. Torque enable/disable is an output switch, not a quantitative torque command.
 
+The current protocol has no native continuous-velocity command. For extended rotation, use `POS_VEL` with a distant absolute target within ±1024 turns and a positive speed limit. The servo stops when it reaches that target.
+
 ## 3) Arguments and Units
 
 | Argument | Default | Meaning |

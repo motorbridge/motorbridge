@@ -753,7 +753,7 @@ RobStride：
 | MyActuator | 是 | rad/s 转 deg/s |
 | HighTorque | 是 | vendor `send_cmd_vel`（`0x07 0x07`，力矩 0x8000 无限制） |
 | Hexfellow | 否 | 用 `pos_vel` 或 `mit` |
-| FashionStar | 暂不支持 | 连续速度 CAN 编码尚未映射 |
+| FashionStar | 暂不支持 | 无原生连续速度指令；可用 `pos_vel` 设置较远的多圈目标，达到目标后停止 |
 
 参数：
 
