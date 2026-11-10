@@ -70,6 +70,6 @@ Python SDK/CLI 示例见 [FASHIONSTAR_API.zh-CN.md](../bindings/python/FASHIONST
 
 ## 6）协议来源
 
-- [官方 CAN 协议](https://fashionstar.com.cn/wiki/protocols/servo/can-bus/)
+- [官方 CAN 协议](https://fashionstar.com.cn/wiki/protocols/servo/can-bus/)（[English](https://fashionstar.com.hk/wiki/protocols/servo/can-bus/)）
 - [官方各语言 SDK](https://fashionstar.com.cn/wiki/sdk/servo/)
 - [官方 CAN 网页配置工具](https://fashionstar.com.cn/wiki/software/servo/canbus-web-config-tool/)

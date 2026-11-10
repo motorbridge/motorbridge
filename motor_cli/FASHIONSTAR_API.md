@@ -70,6 +70,6 @@ Python SDK/CLI examples: [FASHIONSTAR_API.md](../bindings/python/FASHIONSTAR_API
 
 ## 6) Protocol References
 
-- [Official CAN protocol](https://fashionstar.com.cn/wiki/protocols/servo/can-bus/)
+- [Official CAN protocol](https://fashionstar.com.hk/wiki/protocols/servo/can-bus/) ([中文](https://fashionstar.com.cn/wiki/protocols/servo/can-bus/))
 - [Official SDKs](https://fashionstar.com.cn/wiki/sdk/servo/)
 - [Official CAN web configuration tool](https://fashionstar.com.cn/wiki/software/servo/canbus-web-config-tool/)
