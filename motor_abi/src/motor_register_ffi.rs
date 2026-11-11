@@ -439,7 +439,7 @@ mod tests {
         (
             bus,
             MotorHandle {
-                inner: Mutex::new(MotorHandleInner::Hightorque(motor)),
+                inner: FairMutex::new(MotorHandleInner::Hightorque(motor)),
             },
         )
     }
@@ -467,7 +467,7 @@ mod tests {
         // freshness): simulate the background polling thread delivering
         // the register reply 10ms after the request is sent.
         let deliver = {
-            let m = match &*handle.inner.lock().expect("inner") {
+            let m = match &*handle.inner.lock() {
                 MotorHandleInner::Hightorque(m) => Arc::clone(m),
                 _ => panic!("expected hightorque motor"),
             };
@@ -570,7 +570,7 @@ mod tests {
 
         // Simulate the passive path (background polling thread) entering
         // the cache
-        let m = match &*handle.inner.lock().expect("inner") {
+        let m = match &*handle.inner.lock() {
             MotorHandleInner::Hightorque(m) => Arc::clone(m),
             _ => panic!("expected hightorque motor"),
         };
@@ -598,7 +598,7 @@ mod tests {
     fn hightorque_get_register_converts_torque_with_model_coeff() {
         let (bus, mut handle) = ht_handle();
         let deliver = {
-            let m = match &*handle.inner.lock().expect("inner") {
+            let m = match &*handle.inner.lock() {
                 MotorHandleInner::Hightorque(m) => Arc::clone(m),
                 _ => panic!("expected hightorque motor"),
             };
@@ -636,7 +636,7 @@ mod tests {
     #[test]
     fn hightorque_get_state_includes_fault_code() {
         let (_bus, mut handle) = ht_handle();
-        let motor = match &*handle.inner.lock().expect("lock") {
+        let motor = match &*handle.inner.lock() {
             MotorHandleInner::Hightorque(m) => Arc::clone(m),
             _ => panic!("expected hightorque motor"),
         };

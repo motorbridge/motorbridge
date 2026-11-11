@@ -511,7 +511,7 @@ mod tests {
         (
             bus,
             MotorHandle {
-                inner: Mutex::new(MotorHandleInner::Hightorque(motor)),
+                inner: FairMutex::new(MotorHandleInner::Hightorque(motor)),
             },
         )
     }

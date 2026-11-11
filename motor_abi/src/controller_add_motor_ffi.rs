@@ -33,7 +33,7 @@ macro_rules! add_motor_ffi {
                     .map_err(|e| e.to_string())
             }) {
                 Ok(motor) => Box::into_raw(Box::new(MotorHandle {
-                    inner: Mutex::new(MotorHandleInner::$inner_variant(motor)),
+                    inner: FairMutex::new(MotorHandleInner::$inner_variant(motor)),
                 })),
                 Err(e) => {
                     set_last_error(e);
