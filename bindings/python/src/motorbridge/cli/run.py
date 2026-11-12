@@ -5,6 +5,7 @@ import time
 
 from .common import _add_motor, _mode_to_enum, _open_controller, _parse_id, _vendor_defaults
 from .damiao import _verify_damiao_model
+from .fashionstar import _run_fashionstar
 from .id_ops import _id_set_command
 from .robstride import (
     _ensure_robstride_mode_for_control,
@@ -23,8 +24,8 @@ def _run_command(args: argparse.Namespace) -> None:
     )
 
     if args.set_motor_id or args.set_feedback_id:
-        if args.vendor not in ("damiao", "robstride"):
-            raise ValueError("run --set-motor-id/--set-feedback-id supports Damiao and RobStride only")
+        if args.vendor not in ("damiao", "robstride", "fashionstar"):
+            raise ValueError("run --set-motor-id/--set-feedback-id supports Damiao, RobStride and FashionStar only")
         if args.vendor == "robstride" and args.set_feedback_id:
             raise ValueError("RobStride --set-feedback-id is not supported; feedback_id/host_id is not motor_id")
         id_args = argparse.Namespace(**vars(args))
@@ -34,6 +35,10 @@ def _run_command(args: argparse.Namespace) -> None:
         id_args.verify = args.verify_id
         id_args.timeout_ms = args.verify_timeout_ms
         _id_set_command(id_args)
+        return
+
+    if args.vendor == "fashionstar":
+        _run_fashionstar(args)
         return
 
     with _open_controller(args, args.vendor) as ctrl:

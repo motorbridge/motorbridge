@@ -4,11 +4,12 @@ import argparse
 import time
 
 from .common import _open_controller, _parse_id, _vendor_defaults
+from .fashionstar import _fashionstar_controller
 from .robstride import _robstride_device_id, _robstride_host_id
 
 def _id_set_command(args: argparse.Namespace) -> None:
-    if args.vendor not in ("damiao", "robstride"):
-        raise ValueError("id-set currently supports Damiao and RobStride only")
+    if args.vendor not in ("damiao", "robstride", "fashionstar"):
+        raise ValueError("id-set currently supports Damiao, RobStride and FashionStar only")
     args.model, args.feedback_id = _vendor_defaults(args.vendor, args.model, args.feedback_id)
     motor_id = _parse_id(args.motor_id)
     feedback_id = _parse_id(args.feedback_id)
@@ -59,6 +60,18 @@ def _id_set_command(args: argparse.Namespace) -> None:
             verify_motor.close()
             verify_ctrl.close_bus()
             verify_ctrl.close()
+        return
+
+    if args.vendor == "fashionstar":
+        if not 0 <= new_motor_id <= 0xFFFFFFFF:
+            raise ValueError("new_motor_id must fit uint32")
+        with _fashionstar_controller(args) as ctrl:
+            motor = ctrl.add_fashionstar_motor(motor_id, feedback_id, args.model)
+            try:
+                motor.write_register_u32(0x81, new_motor_id)
+            finally:
+                motor.close()
+        print("ID parameter written; ID changes without a power cycle; wait 120 ms, then verify with the new ID")
         return
 
     print(

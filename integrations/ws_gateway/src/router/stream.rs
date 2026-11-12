@@ -89,6 +89,7 @@ pub(crate) fn default_params_for_vendor(vendor: Vendor, profile: &str) -> &'stat
         (Vendor::Damiao, false) => DAMIAO_REALTIME_OBSERVATION_PARAMS,
         (Vendor::Robstride, true) => ROBSTRIDE_FULL_OBSERVATION_PARAMS,
         (Vendor::Robstride, false) => ROBSTRIDE_REALTIME_OBSERVATION_PARAMS,
+        (Vendor::Fashionstar, _) => &[0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x17, 0x18],
         _ => &[],
     }
 }

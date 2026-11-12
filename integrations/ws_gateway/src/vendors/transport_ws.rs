@@ -2,6 +2,7 @@ use crate::model::{Target, Transport};
 use motor_core::bus::CanBus;
 use motor_core::dm_device::DmDeviceType;
 use motor_vendor_damiao::DamiaoController;
+use motor_vendor_fashionstar::FashionstarController;
 use motor_vendor_hexfellow::HexfellowController;
 use motor_vendor_myactuator::MyActuatorController;
 use motor_vendor_robstride::RobstrideController;
@@ -159,6 +160,33 @@ pub(crate) fn open_hightorque_bus(
         Transport::McuSerial => {
             motor_core::bus::open_transport(motor_core::bus::Transport::McuSerial, &p)
                 .map_err(|e| format!("open bus failed: {e}"))
+        }
+    }
+}
+
+pub(crate) fn open_fashionstar_controller(
+    base: &Target,
+    transport: Transport,
+) -> Result<FashionstarController, String> {
+    let p = motor_core::bus::TransportParams {
+        channel: &base.channel,
+        serial_port: &base.serial_port,
+        serial_baud: base.serial_baud,
+    };
+    match transport {
+        Transport::Auto | Transport::SocketCan => {
+            motor_core::bus::open_transport(motor_core::bus::Transport::SocketCan, &p)
+                .map(FashionstarController::new)
+                .map_err(|e| e.to_string())
+        }
+        Transport::SocketCanFd => Err("fashionstar uses standard CAN transport only".to_string()),
+        Transport::McuSerial => {
+            motor_core::bus::open_transport(motor_core::bus::Transport::McuSerial, &p)
+                .map(FashionstarController::new)
+                .map_err(|e| e.to_string())
+        }
+        Transport::DmSerial | Transport::DmDevice => {
+            Err("transport dm-serial/dm-device is damiao-only".to_string())
         }
     }
 }

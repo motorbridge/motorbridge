@@ -33,6 +33,7 @@ typedef struct MotorStateMetadata {
 // - position: rad
 // - velocity: rad/s
 // - torque: Nm
+// - FashionStar torq: current in A
 //
 // Unified mode IDs for motor_handle_ensure_mode:
 // - 1: MIT
@@ -46,6 +47,7 @@ typedef struct MotorStateMetadata {
 // - RobStride
 // - MyActuator
 // - HighTorque (native ht_can v1.5.5)
+// - FashionStar (CAN)
 
 // Returns the last error message for the calling thread.
 //
@@ -81,6 +83,8 @@ MotorHandle* motor_controller_add_hexfellow_motor(MotorController* controller, u
 MotorHandle* motor_controller_add_myactuator_motor(MotorController* controller, uint16_t motor_id, uint16_t feedback_id, const char* model);
 MotorHandle* motor_controller_add_robstride_motor(MotorController* controller, uint16_t motor_id, uint16_t feedback_id, const char* model);
 MotorHandle* motor_controller_add_hightorque_motor(MotorController* controller, uint16_t motor_id, uint16_t feedback_id, const char* model);
+// FashionStar ignores feedback_id; pass 0.
+MotorHandle* motor_controller_add_fashionstar_motor(MotorController* controller, uint16_t motor_id, uint16_t feedback_id, const char* model);
 void motor_handle_free(MotorHandle* motor);
 
 int32_t motor_handle_enable(MotorHandle* motor);

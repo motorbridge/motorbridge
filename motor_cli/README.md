@@ -97,7 +97,7 @@ Notes:
 | Argument | Type | Default | Notes |
 |---|---|---|---|
 | `--help` | flag | off | Prints CLI help and exits |
-| `--vendor` | string | `damiao` | `damiao`, `robstride`, `robstride_cia402`, `robstride_mit`, `hightorque`, `myactuator`, `hexfellow`, `all` |
+| `--vendor` | string | `damiao` | `damiao`, `robstride`, `robstride_cia402`, `robstride_mit`, `hightorque`, `myactuator`, `hexfellow`, `fashionstar`, `all` |
 | `--transport` | string | `auto` | `auto`, `socketcan`, `socketcanfd`, `dm-serial`, `dm-device` (`socketcanfd` is Hexfellow-required path; `dm-serial`/`dm-device` are Damiao-only) |
 | `--channel` | string | `can0` | Linux: SocketCAN interface name (`can0`); Windows (PCAN backend): `can0`/`can1` with optional `@bitrate` suffix (for example `can0@1000000`); macOS (PCBUSB backend): `can0`/`can1` |
 | `--serial-port` | string | `/dev/ttyACM0` | Used when `--transport dm-serial` |
@@ -654,7 +654,11 @@ motor_cli \
   --mode mit --pos 0.0 --vel 0.0 --kp 1000 --kd 100 --tau 0
 ```
 
-## 11. Practical Notes
+## 11. Vendor = `fashionstar`
+
+Classic CAN, ServoID 0..254; the driver ignores `feedback_id`; pass `0`. Supports POS_VEL, hold/release output, stop, zero, raw integer registers, position/status/temperature/current queries and estimated velocity feedback. `torq` carries current in A. ID and baud changes take effect immediately; other configuration follows the power-cycle procedure. Continuous velocity and MIT/quantitative torque are currently unsupported. See [FASHIONSTAR_API.md](FASHIONSTAR_API.md) for arguments and examples.
+
+## 12. Practical Notes
 
 - For Damiao ID updates, prefer keeping `--store 1 --verify-id 1`.
 - If scan intermittently misses motors, retry after CAN restart.

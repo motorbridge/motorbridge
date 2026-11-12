@@ -258,6 +258,7 @@ version = "0.5.6"
 dependencies = [
  "motor_core",
  "motor_vendor_damiao",
+ "motor_vendor_fashionstar",
  "motor_vendor_hexfellow",
  "motor_vendor_hightorque",
  "motor_vendor_myactuator",
@@ -270,6 +271,7 @@ version = "0.5.6"
 dependencies = [
  "motor_core",
  "motor_vendor_damiao",
+ "motor_vendor_fashionstar",
  "motor_vendor_hexfellow",
  "motor_vendor_hightorque",
  "motor_vendor_myactuator",
@@ -289,6 +291,13 @@ dependencies = [
 
 [[package]]
 name = "motor_vendor_damiao"
+version = "0.5.6"
+dependencies = [
+ "motor_core",
+]
+
+[[package]]
+name = "motor_vendor_fashionstar"
 version = "0.5.6"
 dependencies = [
  "motor_core",
@@ -758,6 +767,7 @@ dependencies = [
  "futures-util",
  "motor_core",
  "motor_vendor_damiao",
+ "motor_vendor_fashionstar",
  "motor_vendor_hexfellow",
  "motor_vendor_hightorque",
  "motor_vendor_myactuator",

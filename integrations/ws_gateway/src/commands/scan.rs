@@ -10,6 +10,7 @@ use super::{
     parse_vendor_in_msg,
 };
 use crate::vendors::damiao_ws::cmd_scan_damiao;
+use crate::vendors::fashionstar_ws::cmd_scan_fashionstar;
 use crate::vendors::transport_ws::{
     myactuator_feedback_default, open_hexfellow_controller, open_hightorque_bus,
     open_myactuator_controller, open_robstride_controller,
@@ -449,6 +450,7 @@ pub(crate) fn cmd_scan(v: &Value, base: &Target) -> Result<Value, String> {
         Vendor::Hexfellow => cmd_scan_hexfellow(v, base),
         Vendor::Myactuator => cmd_scan_myactuator(v, base),
         Vendor::Hightorque => cmd_scan_hightorque(v, base),
+        Vendor::Fashionstar => cmd_scan_fashionstar(v, base),
     }
 }
 

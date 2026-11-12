@@ -6,6 +6,7 @@ use std::time::Duration;
 use super::{
     as_bool, as_u16, as_u64, build_scan_model_hints, parse_transport_in_msg, parse_vendor_in_msg,
 };
+use crate::vendors::fashionstar_ws::{cmd_set_id_fashionstar, cmd_verify_fashionstar};
 use crate::vendors::transport_ws::{
     myactuator_feedback_default, open_damiao_controller, open_hexfellow_controller,
     open_hightorque_bus, open_myactuator_controller, open_robstride_controller,
@@ -182,6 +183,7 @@ pub(crate) fn cmd_verify(v: &Value, base: &Target) -> Result<Value, String> {
                 "state": state,
             }))
         }
+        Vendor::Fashionstar => cmd_verify_fashionstar(v, base),
     }
 }
 
@@ -306,5 +308,6 @@ pub(crate) fn cmd_set_id(v: &Value, base: &Target) -> Result<Value, String> {
         Vendor::Hexfellow | Vendor::Myactuator | Vendor::Hightorque => {
             Err(format!("set_id is not supported for {}", vendor.as_str()))
         }
+        Vendor::Fashionstar => cmd_set_id_fashionstar(v, base),
     }
 }

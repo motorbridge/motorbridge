@@ -78,7 +78,7 @@ motor_cli -h
 
 ```bash
 motor_cli \
-  --vendor <damiao|robstride|robstride_cia402|robstride_mit|hightorque|myactuator|hexfellow|all> \
+  --vendor <damiao|robstride|robstride_cia402|robstride_mit|hightorque|myactuator|hexfellow|fashionstar|all> \
   --transport <auto|socketcan|socketcanfd|dm-serial|dm-device> \
   --channel <can0|can1|can0@1000000...> \
   --model <model-name> \
@@ -121,7 +121,7 @@ motor_cli \
 | 参数 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `--help` | flag | 关闭 | 输出帮助并退出 |
-| `--vendor` | string | `damiao` | `damiao` / `robstride` / `robstride_cia402` / `robstride_mit` / `hightorque` / `myactuator` / `hexfellow` / `all` |
+| `--vendor` | string | `damiao` | `damiao` / `robstride` / `robstride_cia402` / `robstride_mit` / `hightorque` / `myactuator` / `hexfellow` / `fashionstar` / `all` |
 | `--transport` | string | `auto` | `auto` / `socketcan` / `socketcanfd` / `dm-serial` / `dm-device`（`socketcanfd` 为 Hexfellow 必需；`dm-serial`/`dm-device` 仅 Damiao） |
 | `--channel` | string | `can0` | Linux：SocketCAN 网卡名（`can0`）；Windows（PCAN 后端）：`can0`/`can1`，可加 `@bitrate`（如 `can0@1000000`）；macOS（PCBUSB 后端）：`can0`/`can1` |
 | `--serial-port` | string | `/dev/ttyACM0` | `--transport dm-serial` 时使用 |
@@ -725,7 +725,11 @@ motor_cli \
   --mode mit --pos 0.0 --vel 0.0 --kp 1000 --kd 100 --tau 0
 ```
 
-## 11. 实用建议
+## 11. 厂商 = `fashionstar`
+
+经典 CAN，ServoID 0..254；驱动忽略 `feedback_id`，填 `0` 即可。支持 POS_VEL、锁力/卸力、停止、设零、整数寄存器、位置/状态/温度/电流查询与估算速度反馈；`torq` 表示电流 A；ID、波特率修改立即生效，其他配置按重新上电流程处理。连续速度与 MIT/定量力矩暂不支持。参数和命令示例见 [FASHIONSTAR_API.zh-CN.md](FASHIONSTAR_API.zh-CN.md)。
+
+## 12. 实用建议
 
 - Damiao 改 ID 建议始终使用 `--store 1 --verify-id 1`。
 - 若扫描偶发漏检，重启 CAN 后重试。

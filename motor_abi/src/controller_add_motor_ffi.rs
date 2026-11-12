@@ -69,3 +69,8 @@ add_motor_ffi!(
     ensure_hightorque_controller,
     Hightorque
 );
+add_motor_ffi!(
+    motor_controller_add_fashionstar_motor,
+    ensure_fashionstar_controller,
+    Fashionstar
+);
