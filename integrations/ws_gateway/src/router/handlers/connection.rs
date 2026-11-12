@@ -71,13 +71,13 @@ fn handle_capabilities(ctx: &SessionCtx) -> Result<Value, String> {
         ],
         "vendors": {
             "damiao": {
-                "transports": ["auto", "socketcan", "socketcanfd", "dm-serial", "dm-device"],
+                "transports": ["auto", "socketcan", "socketcanfd", "mcu-serial", "dm-serial", "dm-device"],
                 "modes": ["mit", "pos_vel", "vel", "force_pos"],
                 "ops_unified": ["scan", "set_id", "enable", "disable", "stop", "state_once", "status", "verify"],
                 "ops_vendor_native": ["write_register_u32", "write_register_f32", "get_register_u32", "get_register_f32", "damiao_state_many"]
             },
             "robstride": {
-                "transports": ["auto", "socketcan", "socketcanfd"],
+                "transports": ["auto", "socketcan", "socketcanfd", "mcu-serial"],
                 "modes": ["mit", "pos_vel", "vel"],
                 "ops_unified": ["scan", "set_id", "enable", "disable", "stop", "state_once", "status", "verify"],
                 "ops_vendor_native": ["robstride_ping", "robstride_read_param", "robstride_write_param", "set_active_report"]
@@ -89,13 +89,13 @@ fn handle_capabilities(ctx: &SessionCtx) -> Result<Value, String> {
                 "ops_vendor_native": []
             },
             "myactuator": {
-                "transports": ["auto", "socketcan", "socketcanfd"],
+                "transports": ["auto", "socketcan", "socketcanfd", "mcu-serial"],
                 "modes": ["pos_vel", "vel"],
                 "ops_unified": ["scan", "enable", "disable", "stop", "state_once", "status", "verify"],
                 "ops_vendor_native": ["status", "version", "mode-query"]
             },
             "hightorque": {
-                "transports": ["auto", "socketcan"],
+                "transports": ["auto", "socketcan", "mcu-serial"],
                 "modes": ["mit", "pos_vel", "pos_vel_acc", "vel", "torque"],
                 "ops_unified": ["scan", "disable", "stop", "state_once", "status", "verify"],
                 "ops_vendor_native": [

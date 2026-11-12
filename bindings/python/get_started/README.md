@@ -26,6 +26,10 @@ python3 -m pip install -i https://test.pypi.org/simple/ motorbridge==<version>
 
 - `TRANSPORT = "auto"` or `"socketcan"`:
   use normal CAN path (`CHANNEL` is used).
+- `TRANSPORT = "mcu-serial"`:
+  use a generic MCU UART-to-CAN bridge (`SERIAL_PORT` / `SERIAL_BAUD` are used)
+  for classic-CAN vendors (damiao / robstride / myactuator / hightorque).
+  Note this is a different protocol from the Damiao-only `dm-serial` bridge.
 - `TRANSPORT = "dm-serial"`:
   use Damiao serial bridge (`SERIAL_PORT` / `SERIAL_BAUD` are used), Damiao only.
 - `TRANSPORT = "dm-device"`:
@@ -53,7 +57,7 @@ For beginners, this is easier to follow and avoids duplicate entry points.
 
 ### Config constants (simple meaning)
 
-- `TRANSPORT`: `auto/socketcan/socketcanfd/dm-serial/dm-device`
+- `TRANSPORT`: `auto/socketcan/socketcanfd/mcu-serial/dm-serial/dm-device`
 - `CHANNEL`: CAN interface name (`can0`, `can1`, `can0@1000000`, ...)
 - `VENDOR`: scan target vendor (`all` is most common)
 - `MOTOR_ID` / `FEEDBACK_ID`: motor command/feedback IDs
@@ -62,7 +66,7 @@ For beginners, this is easier to follow and avoids duplicate entry points.
 - `V_LIMIT`: velocity limit for position mode
 - `LOOP`: send loop count
 - `DT_MS`: control period in ms
-- `SERIAL_PORT` / `SERIAL_BAUD`: used only for `dm-serial`
+- `SERIAL_PORT` / `SERIAL_BAUD`: used for `mcu-serial` and `dm-serial`
 - `DM_DEVICE_TYPE` / `DM_CHANNEL`: used only for `dm-device`; supported
   device types are `usb2canfd`, `usb2canfd-dual`, and `linkx4c`
   (`DM_CHANNEL=None` means all channels for scan)

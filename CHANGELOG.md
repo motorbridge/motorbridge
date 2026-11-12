@@ -7,6 +7,8 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-11
+
 ### Added
 
 - `get_state_snapshot()` across all vendors and bindings (Rust
@@ -21,6 +23,53 @@ Versioning.
 - RobStride: `rs-05el` (EDULITE 05) model — peak 6 N·m, 9:1 gear, 20-pole,
   on the private extended-CAN `robstride` path. Limit ranges: P_MAX=4π (12.57),
   V_MAX=50, T_MAX=6, KP_MAX=500, KD_MAX=5.
+- HighTorque: native `ht_can` **v2.0.0** protocol stack. MIT control now uses
+  the bit-packed `0x18000 | id` frame (motor firmware v4.6.0+, kp/kd packed
+  in-frame), plus trapezoid `pos_vel_acc` (`07 2d`), `pos_classic` (`07 07`
+  with optional torque limit), torque mode (`05 13`, physical N·m with
+  model torque-coeff correction), DQ voltage / DQ current (mode write +
+  `05 1b`/`05 1c` register write combined in one frame), run-mode switching
+  (table-2 modes 0-17), brake (mode 15), periodic status report (`05 B4`),
+  and generic register read/write over the `17`/`05` families against the
+  v2.0.0 register table (0x00-0x45). Fault codes 0-47 and run modes 0-17 are
+  decoded.
+- Mixed-vendor shared bus: every vendor controller (damiao / hexfellow /
+  myactuator / robstride / hightorque) gained `new_shared(core)`, so several
+  vendors can share one bus and one RX drain thread through a single
+  `CoreController`.
+- HighTorque state queries are non-blocking with DM-aligned naming:
+  `request_motor_feedback()` sends the query and returns immediately while
+  the background RX thread caches the reply (`request_feedback()` at the
+  ABI/Python/C++ layer), and the new `request_fresh_state(timeout)` blocks
+  for fresh state — together they replace the old blocking state wait. The
+  vendor `set_control_reply(bool)` switch sends control frames as extended
+  `0x8000 | id` frames with bit15 set; default is the standard 11-bit
+  bare-id form (the v2.0.0 reference firmware host behavior — a real-bus
+  test showed bit15 on non-query commands only returns an empty reply
+  frame), so the switch is diagnostics-only and not exposed to the ABI.
+- HighTorque register access and the new ops are wired through all four
+  frontends: C ABI `motor_handle_hightorque_{get,request,write}_register`,
+  `motor_handle_hightorque_get_cached_register`, `send_torque`,
+  `send_dq_voltage`, `send_dq_current`, `send_pos_classic`,
+  `send_pos_vel_acc`, `set_run_mode`, `brake`, `set_periodic_report`;
+  Python SDK equivalents; `motor_cli` modes (`read-reg` / `write-reg` /
+  `periodic-report` / `tqe` / `volt` / `cur` / `set-mode` / `pos-vel-acc`);
+  ws_gateway ops (`read_register` / `write_register` / `torque` /
+  `dq_voltage` / `dq_current` / `run_mode` / `brake` / `periodic_report` /
+  `pos_classic`).
+- New Python real-bus example scripts:
+  `hightorque_all_interfaces_demo.py`,
+  `robstride_all_interfaces_demo.py`, and
+  `damiao_all_interfaces_demo.py` — single-motor walkthroughs of each
+  vendor's full interface surface, including the mcu-serial transport
+  (the Damiao one also covers the dm-serial and dm-device transports).
+- New HighTorque documentation: `docs/zh/hightorque_can_protocol.md` (full
+  v2.0.0 command-frame reference modeled on the RobStride manual style),
+  `docs/zh/hightorque_fullchain_audit.md` (four-layer capability matrix
+  with dated revisions), `docs/zh/hightorque_review_pending_fixes.md`
+  (review decision record), and
+  `docs/zh/c_port_commit_audit_after_2026-04-09.md` (porting checklist for
+  a downstream C implementation).
 
 ### Changed
 
@@ -30,12 +79,88 @@ Versioning.
   `feedback_sequence` Rust getter); its capability is covered by
   `get_state_snapshot().feedback_sequence` for every vendor. ABI capability
   `robstride.feedback_sequence` is superseded by `state_snapshot_metadata`.
+- mcu-serial documentation and capability tables now describe the transport
+  everywhere it was previously missing: the shared channel-compatibility note
+  across docs/READMEs (including a `[MCU-SERIAL]` transport legend entry),
+  motor_cli argument tables, Python README/get_started guides (including
+  `Controller.from_mcu_serial(...)`), the operation manual, and the ws_gateway
+  PROTOCOL/READMEs all state that `mcu-serial` is a different protocol from
+  `dm-serial`, covers the classic-CAN vendors (damiao / robstride /
+  myactuator / hightorque; hexfellow is CAN-FD-only and rejected), and reports
+  structured link status. The ws_gateway `capabilities` op now lists
+  `mcu-serial` in the transports for those four vendors.
+- motor_cli and ws_gateway now route all HighTorque control/status/parameter
+  traffic through the `motor_vendor_hightorque` crate; the hand-written
+  `hightorque_ws.rs` gateway vendor is deleted, leaving one shared
+  implementation for CLI, gateway, ABI, and Python. The convergence also
+  fixed real bugs in the deleted copies: torque divided by 100 without the
+  model coefficient, status_code hardcoded to 0, velocity frames carrying 0
+  instead of the unlimited-torque sentinel, enable/disable reporting
+  success without sending anything, and `pos_vel` being rejected although
+  the protocol has the `07 35` cooperative frame.
+- HighTorque register reads are fixed Int16 and return converted physical
+  quantities (rad-family units, torque in N·m with the model coefficient,
+  per-register scales; registers without a conversion return raw 1:1); each
+  CLI output line carries its row's register name and unit, and reads and
+  writes are rejected for addresses outside the v2.0.0 register table.
+  State feedback is two-frame: `request_feedback` sends `17 01` + `16 0E`,
+  the `27 01` reply anchors the state count, the `26 0E` reply patches
+  t_mos/fault/status in place, and state fields absent from a frame are no
+  longer overwritten.
+- RobStride: the 0x30xx observation-block registers were removed from the
+  register table and the ws_gateway parameter-stream profiles. Real
+  firmware rejects type-17/18 frames to that block (host-tool serial
+  protocol only), so those gateway reads could never succeed; feedback
+  values come from status frames instead.
 
 ### Fixed
 
 - RobStride parameter replies use their echoed index, so interleaved replies
   cannot satisfy a read of a different parameter. Replies marked as failed are
   rejected instead of caching their payload as a successful value.
+- Python `Controller.from_mcu_serial()` and C++
+  `Controller::from_mcu_serial()` defaulted to `/dev/ttyUSB0`, out of line
+  with the CLI and `from_dm_serial()` default `/dev/ttyACM0`; both now
+  default to `/dev/ttyACM0`. The hightorque/robstride all-interfaces example
+  scripts had the same `ttyUSB0` defaults and were aligned too.
+- HighTorque extended-frame replies now read the source id from the high
+  byte (P0 fix: replies to extended-frame commands were previously
+  unmatched, so queries on extended-id paths silently timed out).
+- RobStride `run_mode` (0x7005) is declared Int8 and must be written as an
+  i8 value; example scripts and API docs previously wrote u8, which fails
+  with a type mismatch. **Usage change** for anything writing run_mode.
+- RobStride active-report frames are no longer dropped by `accepts_frame`,
+  so motors with active reporting enabled now actually feed the state
+  cache.
+- HighTorque `clear_error()` now sends the stop frame (table-2 mode 0 stops
+  and clears errors in one shot; the protocol has no standalone clear-error
+  command) instead of reporting Unsupported. The blocking state wait no
+  longer races the background RX thread: replies always go to the receive
+  thread, and `request_fresh_state(timeout)` waits on the cached state's
+  arrival time (recorded before the query is sent) instead of stealing
+  frames off the bus.
+- HighTorque `pos_classic` with a non-numeric `tqe` (for example the string
+  `"1.5"`) now returns an error instead of silently encoding the `0x8000`
+  unlimited-torque sentinel; an absent `tqe` still means intentionally
+  unlimited.
+- HighTorque acceleration scale corrected; 5-byte frames now reach the
+  register decoder, which also un-breaks Int8x3 register replies.
+
+### Removed
+
+- HighTorque typed parameter FFI: the
+  `motor_handle_hightorque_{get,write}_param_*` symbol family is removed
+  from the C ABI, header, Python SDK, and capabilities JSON; the generic
+  register access above replaces it. **Breaking** for ABI consumers.
+- HighTorque register-read type parameter: `--ty` (CLI) and the `ty`
+  parameter are removed; reads are fixed Int16 with physical conversion.
+  **Breaking** for scripts passing `--ty`.
+- HighTorque firmware-version query (`15 B5 02`): removed across all layers
+  (vendor method and decoder, ABI symbol, Python SDK, CLI `--mode version`,
+  ws_gateway op). Its 5-byte reply has no passive-cache path, so the
+  blocking receive raced the background RX drain thread and timed out
+  randomly on real buses. The frame format stays documented in
+  `docs/zh/hightorque_can_protocol.md` for candump-side debugging.
 
 ## [0.5.6] - 2026-09-20
 

@@ -102,6 +102,8 @@ DM_Device_SDK 是用于控制 CAN/CAN FD 设备的软件开发工具包。motorb
 
 - `[STD-CAN]`：标准 CAN 路径（`socketcan` / `pcan`）
 - `[CAN-FD]`：独立 CAN-FD 路径（`socketcanfd`）
+- `[MCU-SERIAL]`：通用 MCU 串口转 CAN 桥路径（`mcu-serial`；桥固件透传经典 CAN 帧，
+  覆盖 damiao / robstride / myactuator / hightorque；与 `dm-serial` 是两种协议）
 - `[DM-SERIAL]`：Damiao 串口桥路径（`dm-serial`）
 - `[DM-DEVICE]`：Damiao DM_Device SDK 路径（`dm-device`，支持
   `USB2CANFD` 单路、`USB2CANFD_DUAL` 双路和 `LINKX4C` 四路；仅 Damiao 电机协议）
@@ -552,6 +554,20 @@ cargo run -p motor_cli --release -- --vendor damiao \
   --pos 0.5 --vel 0 --kp 20 --kd 1 --tau 0 --loop 80 --dt-ms 20
 ```
 `[DM-SERIAL]`
+
+## 通用 MCU 串口转 CAN 桥速查（`mcu-serial`）
+
+当你的转接板是通用 MCU 串口转 CAN 桥（例如 XIAO-C5 一类 USB-Serial/JTAG 桥固件，
+透传经典 CAN 帧），希望经典 CAN 品牌共用一条串口链路时，可使用该 transport。
+注意它与 Damiao 专用 `dm-serial` 串口桥是两种协议：
+
+```bash
+# 经典 CAN 品牌走 MCU 串口桥扫描（damiao / robstride / myactuator / hightorque）
+cargo run -p motor_cli --release -- --vendor robstride \
+  --transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600 \
+  --mode scan --start-id 1 --end-id 16
+```
+`[MCU-SERIAL]`（hexfellow 仅 CAN-FD，该链路拒绝）
 
 ## CAN 专业调试手册
 

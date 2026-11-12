@@ -1,21 +1,26 @@
-# 最终用户操作手册（PCAN 主链路 + Damiao 串口桥备用链路）
+# 最终用户操作手册（PCAN 主链路 + MCU 串口桥 + Damiao 串口桥备用链路）
 
-本文面向实际部署与运维。默认链路是标准 CAN（Linux SocketCAN / Windows PCAN）；Damiao 串口桥（`dm-serial`）仅作为 Damiao 转接板的备用链路。
+本文面向实际部署与运维。默认链路是标准 CAN（Linux SocketCAN / Windows PCAN）；通用 MCU 串口转 CAN 桥（`mcu-serial`）与 Damiao 串口桥（`dm-serial`）作为串口备用链路，两者是不同的协议。
 
 ## 1. 总体原则
 
 - 默认使用标准 CAN 链路：
   - Linux: `can0` / `can1`（SocketCAN；PCAN 或 CANable candleLight/gs_usb 初始化后得到的接口）
   - Windows: `can0@1000000`（映射到 PCAN 通道）
+- 当你使用通用 MCU 串口转 CAN 桥（如 XIAO-C5 桥固件，透传经典 CAN 帧）时，可使用：
+  - `--transport mcu-serial --serial-port <tty> --serial-baud <baud>`
 - 仅当你使用 Damiao 私有转接板串口桥时，才使用：
   - `--transport dm-serial --serial-port <tty> --serial-baud <baud>`
+- `mcu-serial` 支持 `damiao` / `robstride` / `myactuator` / `hightorque`（经典 CAN 品牌；hexfellow 仅 CAN-FD 不适用）。
 - `dm-serial` 仅支持 `--vendor damiao`，不用于 RobStride / MyActuator / HighTorque / Hexfellow。
 
 ## 2. 链路选择
 
 - 场景 A（推荐，通用）：同一总线上有多个厂商或希望统一调试
   - 用标准 CAN（SocketCAN/PCAN）
-- 场景 B（Damiao 专板）：Damiao 转接板直连串口，且你需要其私有桥接协议
+- 场景 B（通用 MCU 桥）：只有 USB 串口、没有 CAN 网卡，或希望经典 CAN 品牌共用一条串口链路
+  - 用 `mcu-serial`
+- 场景 C（Damiao 专板）：Damiao 转接板直连串口，且你需要其私有桥接协议
   - 用 `dm-serial`
 
 ## 3. Linux 主链路（SocketCAN）

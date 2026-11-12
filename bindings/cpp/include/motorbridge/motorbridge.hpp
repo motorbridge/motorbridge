@@ -434,7 +434,7 @@ class Controller {
 
   // UART-to-CAN MCU bridge: vendor-agnostic, classic 8-byte CAN only
   // (hexfellow/CAN-FD is not supported on this transport).
-  static Controller from_mcu_serial(const std::string& serial_port = "/dev/ttyUSB0",
+  static Controller from_mcu_serial(const std::string& serial_port = "/dev/ttyACM0",
                                     uint32_t baud = 921600) {
     MotorController* raw = motor_controller_new_mcu_serial(serial_port.c_str(), baud);
     if (!raw) {

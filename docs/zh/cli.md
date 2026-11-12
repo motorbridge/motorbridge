@@ -1,18 +1,20 @@
 # CLI 指南（`motor_cli`）
 
 <!-- channel-compat-note -->
-## 通道兼容说明（PCAN + CANable candleLight/gs_usb + Damiao 串口桥 + DM_Device）
+## 通道兼容说明（PCAN + CANable candleLight/gs_usb + MCU 串口转 CAN 桥 + Damiao 串口桥 + DM_Device）
 
 - Linux SocketCAN 直接使用已初始化的接口名：`can0`、`can1`。CANable 请刷 candleLight/gs_usb 固件，让系统识别为 `can0` 这类 SocketCAN 接口。
 - 标准 CAN 推荐 PCAN 或 CANable candleLight/gs_usb。
 - 仅 Damiao 可选独立 CAN-FD 链路：`--transport socketcanfd`（与经典 `socketcan` 并存）。
 - 仅 Damiao 可选两类适配器链路：串口桥 `--transport dm-serial --serial-port /dev/ttyACM0 --serial-baud 921600`，以及 DM_Device SDK `--transport dm-device --dm-device-type usb2canfd|usb2canfd-dual|linkx4c --dm-channel 0|1|2|3`。DM_Device 链路当前只配 Damiao 电机协议使用，适配器需处于 USB 模式。
+- 通用 MCU 串口转 CAN 桥：`--transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600`。注意与 Damiao 专用串口桥 `dm-serial` 是两种协议：`mcu-serial` 由桥固件透传经典 CAN 帧，`dm-serial` 承载 Damiao 串口协议。适配经典 CAN 全品牌（damiao / robstride / myactuator / hightorque；hexfellow 仅 CAN-FD 不适用）；桥固件在 bus-off / 发送失败 / 接收丢弃时会主动上报结构化链路状态；四个前端（motor_abi / Python / motor_cli / ws_gateway）均支持。
 - Linux SocketCAN 下 `--channel` 不要带 `@bitrate`（例如 `can0@1000000` 无效）。
 - Windows（PCAN 后端）中，`can0/can1` 映射 `PCAN_USBBUS1/2`，可选 `@bitrate` 后缀。
 
 传输标识：
 - `[STD-CAN]` => `--transport auto|socketcan`
 - `[CAN-FD]` => `--transport socketcanfd`
+- `[MCU-SERIAL]` => `--transport mcu-serial`
 - `[DM-SERIAL]` => `--transport dm-serial`
 - `[DM-DEVICE]` => `--transport dm-device`
 
@@ -31,9 +33,9 @@ cargo build -p motor_cli --release
 ## 通用参数
 
 - `--vendor damiao|robstride|hightorque|myactuator|hexfellow|all`
-- `--transport auto|socketcan|socketcanfd|dm-serial|dm-device`（`dm-serial`/`dm-device` 仅 Damiao；`socketcanfd` 用于 Hexfellow）
+- `--transport auto|socketcan|socketcanfd|mcu-serial|dm-serial|dm-device`（`dm-serial`/`dm-device` 仅 Damiao；`mcu-serial` 为通用 MCU 串口转 CAN 桥，覆盖经典 CAN 品牌；`socketcanfd` 用于 Hexfellow）
 - `--channel can0`
-- `--serial-port /dev/ttyACM0 --serial-baud 921600`（配合 `--transport dm-serial`）
+- `--serial-port /dev/ttyACM0 --serial-baud 921600`（配合 `--transport mcu-serial` 或 `--transport dm-serial`）
 - `--dm-device-type usb2canfd|usb2canfd-dual|linkx4c --dm-channel 0|1|2|3`（配合 `--transport dm-device`；扫描模式不传 `--dm-channel` 会扫描所选适配器全部通道）
 - `--motor-id <id>`
 - `--loop <n> --dt-ms <ms>`
@@ -56,6 +58,14 @@ cargo run -p motor_cli --release -- \
   --pos 0.5 --vel 0 --kp 20 --kd 1 --tau 0 --loop 80 --dt-ms 20
 ```
 `[DM-SERIAL]`
+
+```bash
+# 通用 MCU 串口转 CAN 桥扫描（XIAO-C5 一类 USB 串口转 CAN 桥；注意与 Damiao dm-serial 是两种协议）
+cargo run -p motor_cli --release -- \
+  --vendor robstride --transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600 \
+  --mode scan --start-id 1 --end-id 16
+```
+`[MCU-SERIAL]`
 
 ```bash
 # Damiao 独立 CAN-FD 链路

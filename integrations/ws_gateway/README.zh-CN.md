@@ -1,11 +1,12 @@
 # ws_gateway
 
 <!-- channel-compat-note -->
-## 通道兼容说明（PCAN + CANable candleLight/gs_usb + Damiao 串口桥 + DM_Device）
+## 通道兼容说明（PCAN + CANable candleLight/gs_usb + MCU 串口转 CAN 桥 + Damiao 串口桥 + DM_Device）
 
 - Linux SocketCAN 直接使用已初始化的接口名：`can0`、`can1`。CANable 请刷 candleLight/gs_usb 固件，让系统识别为 `can0` 这类 SocketCAN 接口。
 - 标准 CAN 推荐 PCAN 或 CANable candleLight/gs_usb。
 - 仅 Damiao 可选两类适配器链路：串口桥 `--transport dm-serial --serial-port /dev/ttyACM0 --serial-baud 921600`，以及 DM_Device SDK `--transport dm-device --dm-device-type usb2canfd|usb2canfd-dual|linkx4c --dm-channel 0|1|2|3`。DM_Device 链路当前只配 Damiao 电机协议使用，适配器需处于 USB 模式。
+- 通用 MCU 串口转 CAN 桥：`--transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600`。注意与 Damiao 专用串口桥 `dm-serial` 是两种协议：`mcu-serial` 由桥固件透传经典 CAN 帧，`dm-serial` 承载 Damiao 串口协议。适配经典 CAN 全品牌（damiao / robstride / myactuator / hightorque；hexfellow 仅 CAN-FD 不适用）；桥固件在 bus-off / 发送失败 / 接收丢弃时会主动上报结构化链路状态；四个前端（motor_abi / Python / motor_cli / ws_gateway）均支持。
 - 仅 Damiao 可选 DM_Device SDK 链路：
   `--transport dm-device --dm-device-type usb2canfd|usb2canfd-dual|linkx4c`。
   适配器需要处于 USB 模式。Linux x86_64 下 USB2CANFD_DUAL 的通道 0/1
@@ -105,13 +106,13 @@ WS API 主链路已实现。
     "default_vendor": "damiao",
     "vendors": {
       "damiao": {
-        "transports": ["auto", "socketcan", "socketcanfd", "dm-serial", "dm-device"],
+        "transports": ["auto", "socketcan", "socketcanfd", "mcu-serial", "dm-serial", "dm-device"],
         "modes": ["mit", "pos_vel", "vel", "force_pos"],
         "ops_unified": ["scan", "set_id", "enable", "disable", "stop", "state_once", "status", "verify"],
         "ops_vendor_native": ["write_register_u32", "write_register_f32", "get_register_u32", "get_register_f32", "damiao_state_many"]
       },
       "robstride": {
-        "transports": ["auto", "socketcan", "socketcanfd"],
+        "transports": ["auto", "socketcan", "socketcanfd", "mcu-serial"],
         "modes": ["mit", "vel"],
         "ops_unified": ["scan", "set_id", "enable", "disable", "stop", "state_once", "status", "verify"],
         "ops_vendor_native": ["robstride_ping", "robstride_read_param", "robstride_write_param"]
@@ -123,13 +124,13 @@ WS API 主链路已实现。
         "ops_vendor_native": []
       },
       "myactuator": {
-        "transports": ["auto", "socketcan", "socketcanfd"],
+        "transports": ["auto", "socketcan", "socketcanfd", "mcu-serial"],
         "modes": ["pos_vel", "vel"],
         "ops_unified": ["scan", "enable", "disable", "stop", "state_once", "status", "verify"],
         "ops_vendor_native": ["status", "version", "mode-query"]
       },
       "hightorque": {
-        "transports": ["auto", "socketcan"],
+        "transports": ["auto", "socketcan", "mcu-serial"],
         "modes": ["mit", "pos_vel", "pos_vel_acc", "vel", "torque"],
         "ops_unified": ["scan", "disable", "stop", "state_once", "status", "verify"],
         "ops_vendor_native": ["read", "pos_classic", "read_register", "dq_voltage", "dq_current", "brake", "run_mode", "write_register", "periodic_report", "set_zero_position", "store_parameters"]
@@ -344,7 +345,7 @@ or offline joints return `has_value:false` instead of failing the whole request.
 - 参数流：`param_stream` 支持 Damiao 与 RobStride；`damiao_param_stream` / `robstride_param_stream` 是厂商专用别名。
 - RobStride 专属操作：`robstride_ping`、`robstride_read_param`、`robstride_write_param`、`set_active_report`。
 - MyActuator 专属操作：`current`、`pos`、`version`、`mode-query`。
-- HighTorque 专属操作：`read`、`pos_classic`（经典位置 `07 07`，`tqe` 可缺省=无限制）、`version`（固件版本，MyActuator 亦支持）、`read_register`（`17` 族通用寄存器读，`addr/count`，2026-10-22 起固定 Int16 并返回换算后物理量）、`torque`（`05 13`，物理量 Nm，支持 continuous）、`dq_voltage`/`dq_current`（模式写+寄存器写拼一帧）、`brake`（模式 15）、`run_mode`（表2 模式切换，真发帧）、`write_register`（`05 <addr> <val16>`）、`periodic_report`（`05 B4`，电机主动状态流）。
+- HighTorque 专属操作：`read`、`pos_classic`（经典位置 `07 07`，`tqe` 可缺省=无限制）、`read_register`（`17` 族通用寄存器读，`addr/count`，2026-10-22 起固定 Int16 并返回换算后物理量）、`torque`（`05 13`，物理量 Nm，支持 continuous）、`dq_voltage`/`dq_current`（模式写+寄存器写拼一帧）、`brake`（模式 15）、`run_mode`（表2 模式切换，真发帧）、`write_register`（`05 <addr> <val16>`）、`periodic_report`（`05 B4`，电机主动状态流）。
 - 后续 V2 可升级为二进制帧，同时保留同一语义。
 
 ## 简易上位机（快速联调）

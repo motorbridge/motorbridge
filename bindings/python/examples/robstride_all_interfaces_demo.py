@@ -8,7 +8,7 @@
 
 走 mcuserial 链路(UART→CAN MCU 桥,经典 CAN,支持 RobStride 11 位标准帧):
     python robstride_all_interfaces_demo.py can0 0x7F rs-06 \
-        --transport mcu-serial --serial-port /dev/ttyUSB0 --serial-baud 921600
+        --transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600
     # 注:位置参数 channel 在 mcu-serial 下被忽略,给占位 'can0' 即可;
     #     motor_id / model 仍按位置传。
 

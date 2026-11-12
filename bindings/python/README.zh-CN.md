@@ -1,12 +1,13 @@
 # motorbridge Python SDK
 
 <!-- channel-compat-note -->
-## 通道兼容说明（PCAN + CANable candleLight/gs_usb + CAN-FD + Damiao 串口桥 + DM_Device）
+## 通道兼容说明（PCAN + CANable candleLight/gs_usb + CAN-FD + MCU 串口转 CAN 桥 + Damiao 串口桥 + DM_Device）
 
 - Linux SocketCAN 直接使用已初始化的接口名：`can0`、`can1`。CANable 请刷 candleLight/gs_usb 固件，让系统识别为 `can0` 这类 SocketCAN 接口。
 - 标准 CAN 推荐 PCAN 或 CANable candleLight/gs_usb。
 - CAN-FD 链路可通过 CLI（`--transport socketcanfd`）和 Python SDK（`Controller.from_socketcanfd(...)`）使用，Hexfellow 必须走该链路。
 - 仅 Damiao 可选两类适配器链路：串口桥 `--transport dm-serial --serial-port /dev/ttyACM0 --serial-baud 921600`，以及 DM_Device SDK `--transport dm-device --dm-device-type usb2canfd|usb2canfd-dual|linkx4c --dm-channel 0|1|2|3`。DM_Device 链路当前只配 Damiao 电机协议使用，适配器需处于 USB 模式。
+- 通用 MCU 串口转 CAN 桥：`--transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600`。注意与 Damiao 专用串口桥 `dm-serial` 是两种协议：`mcu-serial` 由桥固件透传经典 CAN 帧，`dm-serial` 承载 Damiao 串口协议。适配经典 CAN 全品牌（damiao / robstride / myactuator / hightorque；hexfellow 仅 CAN-FD 不适用）；桥固件在 bus-off / 发送失败 / 接收丢弃时会主动上报结构化链路状态；四个前端（motor_abi / Python / motor_cli / ws_gateway）均支持。
 - 仅 Damiao 可选 DM_Device SDK 链路：
   `--transport dm-device --dm-device-type usb2canfd|usb2canfd-dual|linkx4c`；
   Python SDK 入口为 `Controller.from_dm_device(...)`。适配器需要处于 USB 模式。
@@ -47,7 +48,7 @@
 
 ## 范围
 
-- 当前目标包版本：`0.5.6`。
+- 当前目标包版本：`0.6.0`。
 - wheel 会随包携带当前平台对应的 `motor_abi` 和 `ws_gateway`，但不再内置
   DaMiao DM_Device SDK runtime。真正使用 `Controller.from_dm_device(...)`、
   Python CLI `--transport dm-device` 或
@@ -120,6 +121,7 @@
 - Controller 构造入口：
   - `Controller(channel="can0")`（SocketCAN/PCAN 路径）
   - `Controller.from_socketcanfd(channel="can0")`（CAN-FD 路径，Hexfellow 必须使用）
+  - `Controller.from_mcu_serial(serial_port="/dev/ttyACM0", baud=921600)`（通用 MCU 串口转 CAN 桥，覆盖经典 CAN 品牌；与 `from_dm_serial` 是两种协议）
   - `Controller.from_dm_serial(serial_port="/dev/ttyACM0", baud=921600)`（仅 Damiao 串口桥）
   - `Controller.from_dm_device(dm_device_type="usb2canfd-dual", dm_channel="0")` / `Controller.from_dm_device(dm_device_type="linkx4c", dm_channel="0")`（仅 Damiao DM_Device SDK 链路）
 - 厂商入口:
@@ -425,7 +427,7 @@ python -m pip install bindings/python/dist/motorbridge-*.whl
 Python 示例中 Damiao 用法已覆盖到位：
 
 - 控制模式：`mit` / `pos-vel` / `vel` / `force-pos`
-- 传输链路：`Controller(channel)`、`Controller.from_socketcanfd(...)`、`Controller.from_dm_serial(...)` 与 `Controller.from_dm_device(...)`
+- 传输链路：`Controller(channel)`、`Controller.from_socketcanfd(...)`、`Controller.from_mcu_serial(...)`、`Controller.from_dm_serial(...)` 与 `Controller.from_dm_device(...)`
 - 维护接口：`clear_error`、`set_zero_position`、`set_can_timeout_ms`、`request_feedback`
   - Damiao 置零规范：先 `disable()`，再 `set_zero_position()`
   - Python 不暴露置零等待参数；核心层内置固定 `20ms` 稳定等待

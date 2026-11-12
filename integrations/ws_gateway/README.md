@@ -1,11 +1,12 @@
 # ws_gateway
 
 <!-- channel-compat-note -->
-## Channel Compatibility (PCAN + CANable candleLight/gs_usb + Damiao Serial Bridge + DM_Device)
+## Channel Compatibility (PCAN + CANable candleLight/gs_usb + MCU Serial Bridge + Damiao Serial Bridge + DM_Device)
 
 - Linux SocketCAN uses prepared interfaces directly: `can0`, `can1`. For CANable, use candleLight/gs_usb firmware so it appears as a SocketCAN interface such as `can0`.
 - Use PCAN or CANable candleLight/gs_usb for standard CAN.
 - Damiao-only adapter transports are available in CLI: serial bridge (`--transport dm-serial --serial-port /dev/ttyACM0 --serial-baud 921600`) and DM_Device SDK (`--transport dm-device --dm-device-type usb2canfd|usb2canfd-dual|linkx4c --dm-channel 0|1|2|3`; Damiao motors only; adapter must be in USB mode).
+- Generic MCU UART-to-CAN bridge: `--transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600`. Note this is a different protocol from the Damiao-only `dm-serial` bridge: `mcu-serial` relays classic CAN frames through the bridge firmware, while `dm-serial` carries the Damiao serial protocol. It covers all classic-CAN vendors (damiao / robstride / myactuator / hightorque; hexfellow is CAN-FD-only and not supported); the bridge firmware proactively reports structured link status on bus-off / TX failure / RX drop, and all four frontends (motor_abi / Python / motor_cli / ws_gateway) support it.
 - Damiao-only DM_Device SDK transport is available through
   `--transport dm-device --dm-device-type usb2canfd|usb2canfd-dual|linkx4c`.
   The adapter must be in USB mode. Linux x86_64 USB2CANFD_DUAL channel 0/1
@@ -102,13 +103,13 @@ Recommended: client calls `{"op":"capabilities"}` on connect and adapts UI/flows
     "default_vendor": "damiao",
     "vendors": {
       "damiao": {
-        "transports": ["auto", "socketcan", "socketcanfd", "dm-serial", "dm-device"],
+        "transports": ["auto", "socketcan", "socketcanfd", "mcu-serial", "dm-serial", "dm-device"],
         "modes": ["mit", "pos_vel", "vel", "force_pos"],
         "ops_unified": ["scan", "set_id", "enable", "disable", "stop", "state_once", "status", "verify"],
         "ops_vendor_native": ["write_register_u32", "write_register_f32", "get_register_u32", "get_register_f32", "damiao_state_many"]
       },
       "robstride": {
-        "transports": ["auto", "socketcan", "socketcanfd"],
+        "transports": ["auto", "socketcan", "socketcanfd", "mcu-serial"],
         "modes": ["mit", "vel"],
         "ops_unified": ["scan", "set_id", "enable", "disable", "stop", "state_once", "status", "verify"],
         "ops_vendor_native": ["robstride_ping", "robstride_read_param", "robstride_write_param"]
@@ -120,13 +121,13 @@ Recommended: client calls `{"op":"capabilities"}` on connect and adapts UI/flows
         "ops_vendor_native": []
       },
       "myactuator": {
-        "transports": ["auto", "socketcan", "socketcanfd"],
+        "transports": ["auto", "socketcan", "socketcanfd", "mcu-serial"],
         "modes": ["pos_vel", "vel"],
         "ops_unified": ["scan", "enable", "disable", "stop", "state_once", "status", "verify"],
         "ops_vendor_native": ["status", "version", "mode-query"]
       },
       "hightorque": {
-        "transports": ["auto", "socketcan"],
+        "transports": ["auto", "socketcan", "mcu-serial"],
         "modes": ["mit", "pos_vel", "pos_vel_acc", "vel", "torque"],
         "ops_unified": ["scan", "disable", "stop", "state_once", "status", "verify"],
         "ops_vendor_native": ["read", "pos_classic", "read_register", "dq_voltage", "dq_current", "brake", "run_mode", "write_register", "periodic_report", "set_zero_position", "store_parameters"]
@@ -346,7 +347,7 @@ RobStride parameter stream frame:
 - Parameter streams: `param_stream` supports Damiao and RobStride; `damiao_param_stream` and `robstride_param_stream` are vendor-specific aliases.
 - RobStride-only ops: `robstride_ping`, `robstride_read_param`, `robstride_write_param`, `set_active_report`.
 - MyActuator-native ops: `current`, `pos`, `version`, `mode-query`.
-- HighTorque-native ops: `read`, `pos_classic` (classic position `07 07`, `tqe` optional = unlimited), `version` (firmware; MyActuator also supported), `read_register` (`17` family, `addr`/`count`; fixed Int16 since 2026-10-22, returns converted physical values), `torque` (`05 13`, physical Nm, continuous-capable), `dq_voltage` / `dq_current` (combined mode+register frames), `brake` (run mode 15), `run_mode` (table-2 mode switch, real frame), `write_register` (`05 <addr> <val16>`), `periodic_report` (`05 B4`, motor-initiated status stream).
+- HighTorque-native ops: `read`, `pos_classic` (classic position `07 07`, `tqe` optional = unlimited), `read_register` (`17` family, `addr`/`count`; fixed Int16 since 2026-10-22, returns converted physical values), `torque` (`05 13`, physical Nm, continuous-capable), `dq_voltage` / `dq_current` (combined mode+register frames), `brake` (run mode 15), `run_mode` (table-2 mode switch, real frame), `write_register` (`05 <addr> <val16>`), `periodic_report` (`05 B4`, motor-initiated status stream).
 - V2 plan can switch to binary frames while preserving operation semantics.
 
 ## Simple HMI (for quick testing)

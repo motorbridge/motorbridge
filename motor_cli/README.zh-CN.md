@@ -51,6 +51,7 @@ motor_cli -h
 
 - `[STD-CAN]` => `--transport auto|socketcan`
 - `[CAN-FD]` => `--transport socketcanfd`（仅 Linux；Hexfellow 必须使用）
+- `[MCU-SERIAL]` => `--transport mcu-serial`（通用 MCU 串口转 CAN 桥，覆盖经典 CAN 品牌；与 `dm-serial` 是两种协议）
 - `[DM-SERIAL]` => `--transport dm-serial`（仅 Damiao）
 - `[DM-DEVICE]` => `--transport dm-device`（仅 Damiao，走 DM_Device SDK；
   只有 `third_party/dm_device` 中存在目标平台 SDK runtime 时才启用；
@@ -122,10 +123,10 @@ motor_cli \
 |---|---|---|---|
 | `--help` | flag | 关闭 | 输出帮助并退出 |
 | `--vendor` | string | `damiao` | `damiao` / `robstride` / `robstride_cia402` / `robstride_mit` / `hightorque` / `myactuator` / `hexfellow` / `all` |
-| `--transport` | string | `auto` | `auto` / `socketcan` / `socketcanfd` / `dm-serial` / `dm-device`（`socketcanfd` 为 Hexfellow 必需；`dm-serial`/`dm-device` 仅 Damiao） |
+| `--transport` | string | `auto` | `auto` / `socketcan` / `socketcanfd` / `mcu-serial` / `dm-serial` / `dm-device`（`socketcanfd` 为 Hexfellow 必需；`dm-serial`/`dm-device` 仅 Damiao；`mcu-serial` 为通用 MCU 串口转 CAN 桥，覆盖经典 CAN 品牌） |
 | `--channel` | string | `can0` | Linux：SocketCAN 网卡名（`can0`）；Windows（PCAN 后端）：`can0`/`can1`，可加 `@bitrate`（如 `can0@1000000`）；macOS（PCBUSB 后端）：`can0`/`can1` |
-| `--serial-port` | string | `/dev/ttyACM0` | `--transport dm-serial` 时使用 |
-| `--serial-baud` | u64 | `921600` | `--transport dm-serial` 时使用 |
+| `--serial-port` | string | `/dev/ttyACM0` | `--transport mcu-serial` 或 `--transport dm-serial` 时使用 |
+| `--serial-baud` | u64 | `921600` | `--transport mcu-serial` 或 `--transport dm-serial` 时使用 |
 | `--dm-device-type` | string | `usb2canfd-dual` | `--transport dm-device` 时使用；可选 `usb2canfd` / `usb2canfd-dual` / `linkx4c` |
 | `--dm-channel` | string | 控制默认 `0`；扫描不传则 all | `--transport dm-device` 时使用；`usb2canfd` 使用 `0`，`usb2canfd-dual` 使用 `0` / `1`，`linkx4c` 使用 `0` / `1` / `2` / `3`。`--mode scan` 时不传会扫描所选适配器的全部通道。 |
 | `--model` | string | 按 vendor 决定 | Damiao 默认 `4340`；RobStride / RobStride CiA402 / RobStride MIT 默认 `rs-00`；HighTorque 默认 `hightorque`；MyActuator 默认 `X8` |
@@ -614,7 +615,7 @@ motor_cli \
 - 广播 `scan` 是 CLI 仅存的 HT 裸总线代码（vendor 无 scan API）；原诊断帧路径（diag_bus）已删除，`tqe`/`volt`/`cur`/`brake`/周期上报全部改走 vendor 物理量原语。
 - 用于 SocketCAN（`can0` 等）直连电机场景。
 - HighTorque 官方 Panthera SDK 的“USB 串口 -> CANboard -> 电机”链路与当前 CLI 直连 CAN 路径相互独立。
-- 支持模式：`scan | read | ping | mit | pos | vel | tqe | volt | cur | set-mode | pos-vel-tqe | pos-vel-acc | version | read-reg | write-reg | stop | brake | rezero | conf-write | periodic-report`。
+- 支持模式：`scan | read | ping | mit | pos | vel | tqe | volt | cur | set-mode | pos-vel-tqe | pos-vel-acc | read-reg | write-reg | stop | brake | rezero | conf-write | periodic-report`。
 - `--model` 从此真正生效：注册电机时校验，并决定物理力矩的补偿系数（接受 `hightorque`/`ht`/`auto` 占位符或具体型号码如 `5036-36`）。
 - `read`/`ping` 打印 vendor 解码后的物理量状态（`pos`/`vel`/`torq` 外加 `status`/`fault`/温度，力矩系数已补偿）。
 - 统一单位接口：
@@ -627,8 +628,7 @@ motor_cli \
 - `set-mode`（运行模式切换 `01 00 <mode>`）：`--run-mode <0-17>`（表2；0=停止并清错，8=DQ 电压，9=DQ 电流，10=位置，15=刹车）。
 - `periodic-report`（周期上报 `05 B4 02 <t_ms>`）：`--period-ms <ms>`（≥1 开启电机按周期主动发 `27 01` 状态帧，0 停止；`timed-read` 保留为旧名别名）。
 - `pos-vel-acc`（梯形 `07 2d`，固件 v4.6.0+）：`--pos <rad> --vlim <rad/s> --acc <rad/s^2>`。
-- `version`：查询固件版本（`15 B5 02`），打印 `firmware=major.minor.patch`；`--timeout-ms` 可调（默认 500）。
-- `read-reg`：通用寄存器读（`17` 族），`--addr <hex|dec>` 必填，`--count`（1-3）默认 1，`--ty`（`0|i8`/`1|i16`/`2|i32`/`3|f32`）缺省回落寄存器表已核实类型、无则必填；打印 raw 值与寄存器名，物理量标度换算按寄存器功能表由调用方完成。
+- `read-reg`：通用寄存器读（`17` 族），`--addr <hex|dec>` 必填，`--count`（1-3，默认 1）；2026-10-22 起读取**固定按 Int16**（`--ty` 已删除，显式传入会报错），返回**换算后物理量**（位置/速度/加速度→rad 族、力矩→N·m 套型号 k、电流/电压/温度/PWM/PID 按各自 scale；无换算关系的寄存器 1:1），每行打印该行地址的寄存器名与单位；地址须在寄存器表（0x00-0x45 中 xlsx 列出的 43 个）内，缺号/表外地址读/写均报错。
 - `write-reg`：通用寄存器写（`05 <addr> <val16>`），`--addr` 必填、`--value <int16>`、`--config`（0/1，1=配置类走扩展 `0x8000|id` 帧，缺省 0 走控制通道）；模式寄存器 0x000 请用 `set-mode`。`--store`（0/1，缺省 0；1=写完补发一帧 `conf-write`（`05 B3`）落盘，对齐 Damiao/RobStride `write-param --store` 组合便利；落盘为整机保存，建议重新上电后生效）。
 
 ## 9. vendor=`myactuator`

@@ -102,10 +102,10 @@ motorbridge-gateway -- --bind 127.0.0.1:9002 --vendor robstride --channel can0@1
 | --- | --- | --- | --- |
 | `--bind` | string | `127.0.0.1:9002` | WebSocket 监听地址 |
 | `--vendor` | enum | `damiao` | 默认厂商：`damiao` / `robstride` / `hexfellow` / `myactuator` / `hightorque` |
-| `--transport` | enum | `auto` | 链路：`auto` / `socketcan` / `socketcanfd` / `dm-serial` / `dm-device` |
+| `--transport` | enum | `auto` | 链路：`auto` / `socketcan` / `socketcanfd` / `mcu-serial` / `dm-serial` / `dm-device`（`mcu-serial` 为通用 MCU 串口转 CAN 桥，覆盖经典 CAN 品牌，与 `dm-serial` 是两种协议） |
 | `--channel` | string | `can0` | CAN 通道。Linux 通常 `can0`；Windows PCAN 可用 `can0@1000000` |
-| `--serial-port` | string | `/dev/ttyACM0` | Damiao `dm-serial` 串口设备 |
-| `--serial-baud` | u32 | `921600` | Damiao `dm-serial` 波特率 |
+| `--serial-port` | string | `/dev/ttyACM0` | `mcu-serial` 或 Damiao `dm-serial` 串口设备 |
+| `--serial-baud` | u32 | `921600` | `mcu-serial` 或 Damiao `dm-serial` 波特率 |
 | `--dm-device-type` | string | `usb2canfd-dual` | Damiao `dm-device` 适配器类型：`usb2canfd` / `usb2canfd-dual` / `linkx4c` |
 | `--dm-channel` | string | `0` | Damiao `dm-device` 控制通道：`usb2canfd` 用 `0`，`usb2canfd-dual` 用 `0` / `1`，`linkx4c` 用 SDK 通道 `0` / `1` / `2` / `3`；scan 消息不带 `dm_channel` 时会扫描所选适配器全部通道 |
 | `--model` | string | 厂商默认 | 电机型号，例如 `4340P` / `rs-00` |

@@ -51,6 +51,7 @@ motor_cli -h
 
 - `[STD-CAN]` => `--transport auto|socketcan`
 - `[CAN-FD]` => `--transport socketcanfd` (Linux-only; required by Hexfellow)
+- `[MCU-SERIAL]` => `--transport mcu-serial` (generic MCU UART-to-CAN bridge for classic-CAN vendors; a different protocol from `dm-serial`)
 - `[DM-SERIAL]` => `--transport dm-serial` (Damiao-only)
 - `[DM-DEVICE]` => `--transport dm-device` (Damiao-only DM_Device SDK path;
   enabled only on targets with a matching SDK runtime in `third_party/dm_device`;
@@ -98,10 +99,10 @@ Notes:
 |---|---|---|---|
 | `--help` | flag | off | Prints CLI help and exits |
 | `--vendor` | string | `damiao` | `damiao`, `robstride`, `robstride_cia402`, `robstride_mit`, `hightorque`, `myactuator`, `hexfellow`, `all` |
-| `--transport` | string | `auto` | `auto`, `socketcan`, `socketcanfd`, `dm-serial`, `dm-device` (`socketcanfd` is Hexfellow-required path; `dm-serial`/`dm-device` are Damiao-only) |
+| `--transport` | string | `auto` | `auto`, `socketcan`, `socketcanfd`, `mcu-serial`, `dm-serial`, `dm-device` (`socketcanfd` is Hexfellow-required path; `dm-serial`/`dm-device` are Damiao-only; `mcu-serial` is the generic MCU UART-to-CAN bridge for classic-CAN vendors) |
 | `--channel` | string | `can0` | Linux: SocketCAN interface name (`can0`); Windows (PCAN backend): `can0`/`can1` with optional `@bitrate` suffix (for example `can0@1000000`); macOS (PCBUSB backend): `can0`/`can1` |
-| `--serial-port` | string | `/dev/ttyACM0` | Used when `--transport dm-serial` |
-| `--serial-baud` | u64 | `921600` | Used when `--transport dm-serial` |
+| `--serial-port` | string | `/dev/ttyACM0` | Used when `--transport mcu-serial` or `--transport dm-serial` |
+| `--serial-baud` | u64 | `921600` | Used when `--transport mcu-serial` or `--transport dm-serial` |
 | `--dm-device-type` | string | `usb2canfd-dual` | Used when `--transport dm-device`; accepted values: `usb2canfd`, `usb2canfd-dual`, `linkx4c` |
 | `--dm-channel` | string | control: `0`; scan: all if omitted | Used when `--transport dm-device`; `usb2canfd` accepts `0`, `usb2canfd-dual` accepts `0`/`1`, and `linkx4c` accepts `0`/`1`/`2`/`3`. In `--mode scan`, omit it to scan all channels for the selected adapter. |
 | `--model` | string | vendor dependent | `4340` for Damiao, `rs-00` for RobStride / RobStride CiA402 / RobStride MIT, `hightorque` for HighTorque, `X8` for MyActuator |
@@ -544,7 +545,7 @@ motor_cli \
 - Broadcast `scan` is the only remaining raw-bus HT code path in the CLI (the vendor has no scan API); the legacy diag-frame path (diag_bus) was removed — `tqe`/`volt`/`cur`/`brake`/periodic-report now all use vendor physical-unit primitives.
 - It is intended for setups where motors are exposed directly on SocketCAN (`can0` etc.).
 - Official Panthera/HighTorque SDK serial chain (`USB serial -> CANboard -> motors`) is separate from this CLI direct-CAN path.
-- Supported modes: `scan | read | ping | mit | pos | vel | tqe | volt | cur | set-mode | pos-vel-tqe | pos-vel-acc | version | read-reg | write-reg | stop | brake | rezero | conf-write | periodic-report`.
+- Supported modes: `scan | read | ping | mit | pos | vel | tqe | volt | cur | set-mode | pos-vel-tqe | pos-vel-acc | read-reg | write-reg | stop | brake | rezero | conf-write | periodic-report`.
 - `--model` is now live: it is validated when the motor is registered and selects the torque-coeff correction for physical torque values (`hightorque`/`ht`/`auto` placeholders or concrete model codes such as `5036-36`).
 - `read`/`ping` print vendor-decoded physical state (`pos`/`vel`/`torq` plus `status`/`fault`/temperatures, torque-coeff corrected).
 - Unified unit interface:
@@ -557,7 +558,7 @@ motor_cli \
 - `set-mode` (run mode switch `01 00 <mode>`): `--run-mode <0-17>` (table 2; 0 = stop & clear error, 8 = DQ voltage, 9 = DQ current, 10 = position, 15 = brake).
 - `periodic-report` (periodic status report `05 B4 02 <t_ms>`): `--period-ms <ms>` (>=1 enables the motor-initiated `27 01` status stream, 0 stops; `timed-read` remains a legacy alias).
 - `pos-vel-acc` (trapezoid `07 2d`, firmware v4.6.0+): `--pos <rad> --vlim <rad/s> --acc <rad/s^2>`.
-- `read-reg`: generic register read (`17` family). `--addr <hex|dec>` required, `--count` (1-3, default 1), `--ty` (`0|i8`/`1|i16`/`2|i32`/`3|f32`) falls back to the vendor register table when omitted and is required when the table has no verified type. Prints raw values plus the register name; physical scaling per the register table is left to the caller.
+- `read-reg`: generic register read (`17` family). `--addr <hex|dec>` required, `--count` (1-3, default 1); since 2026-10-22 reads are **fixed Int16** (`--ty` removed, passing it errors out) and return **converted physical values** (pos/vel/acc in rad-family units, torque in N·m via model k, current/voltage/temperature/PWM/PID per their scales; unclassified registers return raw 1:1); each output line carries that row's register name and unit; the address must be in the parameter table (the 43 xlsx-listed registers within 0x00-0x45) — missing (缺号) and out-of-table addresses are rejected for both read and write.
 - `write-reg`: generic register write (`05 <addr> <val16>`). `--addr` required, `--value <int16>`, `--config` (0/1; 1 = config class via the extended `0x8000|id` frame, default 0 via the control channel). For the mode register 0x000 use `set-mode` instead. `--store` (0/1, default 0; 1 = append a `conf-write` `05 B3` flash save after the write, matching the Damiao/RobStride `write-param --store` convenience; the save is whole-config and a power cycle is advised).
 
 ## 9. Vendor = `myactuator`

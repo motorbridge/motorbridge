@@ -123,6 +123,9 @@ motorbridge currently supports these DM_Device hardware types, while the
 
 - `[STD-CAN]`: classic CAN path (`socketcan`/`pcan`)
 - `[CAN-FD]`: dedicated FD path (`socketcanfd`)
+- `[MCU-SERIAL]`: generic MCU UART-to-CAN bridge path (`mcu-serial`; relays classic
+  CAN frames through the bridge firmware, covers damiao / robstride / myactuator /
+  hightorque; a different protocol from `dm-serial`)
 - `[DM-SERIAL]`: Damiao serial-bridge path (`dm-serial`)
 - `[DM-DEVICE]`: Damiao DM_Device SDK path (`dm-device`; supports
   single-channel `USB2CANFD`, dual-channel `USB2CANFD_DUAL`, and four-channel
@@ -675,6 +678,21 @@ cargo run -p motor_cli --release -- --vendor damiao \
   --pos 0.5 --vel 0 --kp 20 --kd 1 --tau 0 --loop 80 --dt-ms 20
 ```
 `[DM-SERIAL]`
+
+## Generic MCU UART-to-CAN Bridge Quick Guide (`mcu-serial`)
+
+Use this path when your adapter is a generic MCU UART-to-CAN bridge (for example an
+XIAO-C5 USB-Serial/JTAG bridge firmware relaying classic CAN frames) and you want
+classic-CAN vendors to share one serial link. Note this is a different protocol from
+the Damiao-only `dm-serial` bridge:
+
+```bash
+# Classic-CAN vendor scan over the MCU bridge (damiao / robstride / myactuator / hightorque)
+cargo run -p motor_cli --release -- --vendor robstride \
+  --transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600 \
+  --mode scan --start-id 1 --end-id 16
+```
+`[MCU-SERIAL]` (hexfellow is CAN-FD-only and rejected on this path)
 
 ## CAN Debugging (Professional Playbook)
 

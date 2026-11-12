@@ -45,7 +45,7 @@ class Controller:
         return self
 
     @classmethod
-    def from_mcu_serial(cls, serial_port: str = "/dev/ttyUSB0", baud: int = 921600) -> "Controller":
+    def from_mcu_serial(cls, serial_port: str = "/dev/ttyACM0", baud: int = 921600) -> "Controller":
         self = cls.__new__(cls)
         self._abi = get_abi()
         self._ptr = self._abi.lib.motor_controller_new_mcu_serial(serial_port.encode(), int(baud))

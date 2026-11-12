@@ -13,7 +13,7 @@ print-and-continue。差异点见各步注释。
 
     # mcu-serial(UART→CAN MCU 桥):
     python hightorque_all_interfaces_demo.py can0 1 6056_36 \
-        --transport mcu-serial --serial-port /dev/ttyUSB0 --serial-baud 921600
+        --transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600
     # 注:channel 在 mcu-serial 下被忽略;型号须写全(如 6056_36),裸 6056 不识别。
 
     # 跳过 set_zero/store(不动电机闪存):
@@ -104,7 +104,7 @@ def main() -> None:
     parser.add_argument("--transport", default="socketcan",
                         choices=["socketcan", "mcu-serial"],
                         help="传输后端;mcu-serial=UART→CAN MCU 桥(经典 CAN)")
-    parser.add_argument("--serial-port", default="/dev/ttyUSB0",
+    parser.add_argument("--serial-port", default="/dev/ttyACM0",
                         help="mcu-serial 串口设备路径")
     parser.add_argument("--serial-baud", type=int, default=921600,
                         help="mcu-serial 串口波特率")

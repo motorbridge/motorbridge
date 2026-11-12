@@ -1,12 +1,13 @@
 # motorbridge Python SDK
 
 <!-- channel-compat-note -->
-## Channel Compatibility (PCAN + CANable candleLight/gs_usb + CAN-FD + Damiao Serial Bridge + DM_Device)
+## Channel Compatibility (PCAN + CANable candleLight/gs_usb + CAN-FD + MCU Serial Bridge + Damiao Serial Bridge + DM_Device)
 
 - Linux SocketCAN uses prepared interfaces directly: `can0`, `can1`. For CANable, use candleLight/gs_usb firmware so it appears as a SocketCAN interface such as `can0`.
 - Use PCAN or CANable candleLight/gs_usb for standard CAN.
 - CAN-FD transport is available both in CLI (`--transport socketcanfd`) and Python SDK (`Controller.from_socketcanfd(...)`), and is required for Hexfellow.
 - Damiao-only adapter transports are available in CLI: serial bridge (`--transport dm-serial --serial-port /dev/ttyACM0 --serial-baud 921600`) and DM_Device SDK (`--transport dm-device --dm-device-type usb2canfd|usb2canfd-dual|linkx4c --dm-channel 0|1|2|3`; Damiao motors only; adapter must be in USB mode).
+- Generic MCU UART-to-CAN bridge: `--transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600`. Note this is a different protocol from the Damiao-only `dm-serial` bridge: `mcu-serial` relays classic CAN frames through the bridge firmware, while `dm-serial` carries the Damiao serial protocol. It covers all classic-CAN vendors (damiao / robstride / myactuator / hightorque; hexfellow is CAN-FD-only and not supported); the bridge firmware proactively reports structured link status on bus-off / TX failure / RX drop, and all four frontends (motor_abi / Python / motor_cli / ws_gateway) support it.
 - Damiao-only DM_Device SDK transport is available in CLI
   (`--transport dm-device --dm-device-type usb2canfd|usb2canfd-dual|linkx4c`)
   and Python SDK (`Controller.from_dm_device(...)`). The adapter must be in USB
@@ -48,7 +49,7 @@ Notes:
 ## Scope
 Packaging note:
 
-- Current package target version: `0.5.6`.
+- Current package target version: `0.6.0`.
 - Published wheel includes `motor_abi` shared library and `ws_gateway` binary for that platform.
 - Published wheels do not bundle the DaMiao DM_Device SDK runtime. When
   `Controller.from_dm_device(...)`, Python CLI `--transport dm-device`, or
@@ -135,6 +136,7 @@ Packaging note:
 - Controller constructors:
   - `Controller(channel="can0")` (SocketCAN/PCAN path)
   - `Controller.from_socketcanfd(channel="can0")` (CAN-FD path, required by Hexfellow)
+  - `Controller.from_mcu_serial(serial_port="/dev/ttyACM0", baud=921600)` (generic MCU UART-to-CAN bridge; classic-CAN vendors; a different protocol from `from_dm_serial`)
   - `Controller.from_dm_serial(serial_port="/dev/ttyACM0", baud=921600)` (Damiao-only serial bridge)
   - `Controller.from_dm_device(dm_device_type="usb2canfd-dual", dm_channel="0")` / `Controller.from_dm_device(dm_device_type="linkx4c", dm_channel="0")` (Damiao-only DM_Device SDK transport)
 - Vendors:
@@ -412,7 +414,7 @@ See [examples/README.md](examples/README.md) (English) or [examples/READMEzh_cn.
 Damiao usage in Python examples is now covered end-to-end:
 
 - control modes: `mit` / `pos-vel` / `vel` / `force-pos`
-- transport paths: SocketCAN/PCAN constructor + `from_socketcanfd(...)` + `from_dm_serial(...)` + `from_dm_device(...)`
+- transport paths: SocketCAN/PCAN constructor + `from_socketcanfd(...)` + `from_mcu_serial(...)` + `from_dm_serial(...)` + `from_dm_device(...)`
 - maintenance ops: `clear_error`, `set_zero_position`, `set_can_timeout_ms`, `request_feedback`
   - project guard for Damiao set-zero: call `disable()` before `set_zero_position()`
   - no user-facing `ms` parameter for set-zero; core applies fixed `20ms` settle
