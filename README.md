@@ -155,7 +155,7 @@ available.
 | MyActuator | `myactuator` | MyActuator standard CAN protocol |
 | HighTorque | `hightorque` | Native `ht_can v2.0.0` direct CAN path |
 | Hexfellow | `hexfellow` | CANopen-over-CAN-FD path |
-| FashionStar | `fashionstar` | Classic CAN, fixed arbitration ID `0x321`, POS_VEL / raw integer registers |
+| FashionStar | `fashionstar` | Classic CAN, POS_VEL / raw integer registers |
 
 ### CAN Adapters And Bridge Modules
 
@@ -203,7 +203,7 @@ files there when new hardware photos become available.
 - FashionStar:
   - models: `fashionstar` (runtime string; currently ignored)
   - modes: `scan`, `ping`, `status`, `enable`, `disable`, `stop`, `pos-vel`, `zero`, parameter read/write; ID changes use `--set-motor-id`
-  - note: configuration requires a power cycle; VEL, MIT/quantitative torque and FORCE_POS are currently unsupported
+  - note: ID and baud changes take effect immediately; other configuration follows the power-cycle procedure; VEL, MIT/quantitative torque and FORCE_POS are currently unsupported
 
 ## RobStride Protocol Paths
 

@@ -143,10 +143,8 @@ class Controller:
         return Motor(m)
 
     def add_fashionstar_motor(self, motor_id: int, feedback_id: int, model: str) -> "Motor":
-        if not 0 <= int(motor_id) <= 254:
-            raise ValueError(f"FashionStar motor_id must be in 0..254, got {motor_id}")
-        if int(feedback_id) != 0x321:
-            raise ValueError(f"FashionStar feedback_id is fixed at 0x321, got {feedback_id}")
+        if not 0 <= int(motor_id) <= 0xFFFF:
+            raise ValueError(f"motor_id must fit uint16, got {motor_id}")
         m = self._abi.lib.motor_controller_add_fashionstar_motor(
             self._require_open(), motor_id, feedback_id, model.encode()
         )

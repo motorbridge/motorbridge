@@ -26,6 +26,7 @@ impl FashionstarController {
         Ok(Self::new(open_can_bus(channel)?))
     }
 
+    /// The driver ignores feedback_id; pass 0 for the common interface.
     pub fn add_motor(
         &self,
         motor_id: u16,

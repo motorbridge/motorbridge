@@ -77,7 +77,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     set_id = sub.add_parser(
         "id-set",
-        help="change motor ID; Damiao supports ESC_ID/MST_ID, RobStride supports device_id, FashionStar requires a power cycle",
+        help="change motor ID; Damiao supports ESC_ID/MST_ID, RobStride supports device_id, FashionStar CAN ID changes are immediate",
     )
     _add_common_args(set_id)
     set_id.add_argument("--new-motor-id", default="", help="new command/device ID, hex or decimal")

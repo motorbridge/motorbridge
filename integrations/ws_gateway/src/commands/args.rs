@@ -145,7 +145,7 @@ After startup:\n\
             model = "fashionstar".to_string();
         }
         if feedback_id == 0x11 {
-            feedback_id = motor_vendor_fashionstar::CAN_ID;
+            feedback_id = 0;
         }
     }
 

@@ -354,8 +354,8 @@ fn handle_write_register_u32(v: &Value, ctx: &mut SessionCtx) -> Result<Value, S
         Some(MotorHandle::Fashionstar(m)) => {
             let rid = parse_fashionstar_u64(v, "rid", 0, 255)? as u8;
             let value = parse_fashionstar_u64(v, "value", 0, u32::MAX as u64)? as u32;
-            // Manual motion, origin and output changes replace the periodic target.
-            if matches!(rid, 0x28 | 0x50..=0x59 | 0x78..=0x7B) {
+            // Runtime commands and communication changes replace the periodic target.
+            if matches!(rid, 0x28 | 0x50..=0x59 | 0x78..=0x7B | 0x81 | 0x82) {
                 ctx.active = None;
             }
             m.write_register_u32(rid, value)
@@ -364,7 +364,7 @@ fn handle_write_register_u32(v: &Value, ctx: &mut SessionCtx) -> Result<Value, S
                 "rid": rid,
                 "value": value,
                 "verified": false,
-                "requires_power_cycle": !matches!(rid, 0x28 | 0x50..=0x59 | 0x79..=0x7B | 0xFF)
+                "requires_power_cycle": !matches!(rid, 0x28 | 0x50..=0x59 | 0x79..=0x7B | 0x81 | 0x82 | 0xFF)
             }))
         }
         Some(_) => Err("write_register_u32 is damiao-only".to_string()),

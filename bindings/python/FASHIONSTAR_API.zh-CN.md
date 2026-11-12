@@ -11,7 +11,7 @@ from motorbridge import Controller
 
 ctrl = Controller("can0")
 try:
-    motor = ctrl.add_fashionstar_motor(0, 0x321, "fashionstar")
+    motor = ctrl.add_fashionstar_motor(motor_id=0, feedback_id=0, model="fashionstar")
     try:
         motor.send_pos_vel(1.5707963, 1.0)  # rad, rad/s
         motor.request_feedback()
@@ -19,19 +19,16 @@ try:
     finally:
         motor.close()
 finally:
-    try:
-        ctrl.close_bus()
-    finally:
-        ctrl.close()
+    ctrl.close()
 ```
 
 上述退出方式只关闭连接。现有 `with Controller(...)` 在退出时还会执行 `shutdown()`，使舵机卸力。`request_feedback()` 后读到的位置可能仍在运动途中，不表示已到达目标。
 
-- `add_fashionstar_motor(motor_id, feedback_id, model)`：ServoID 范围 0..254；型号参数当前忽略。
-- 使用已有 `enable()`、`disable()`、`stop()`、`set_zero_position()`、`send_pos_vel(pos, vlim)`、`get_register_u32(rid, timeout_ms)`、`write_register_u32(rid, value)`。
+- `add_fashionstar_motor(motor_id, feedback_id, model)`：ServoID 范围 0..254；`feedback_id` 由驱动忽略，填 `0` 即可。型号参数当前忽略。
+- 使用已有 `enable()`（停止并保持）、`disable()`、`set_zero_position()`、`send_pos_vel(pos, vlim)`、`get_register_u32(rid, timeout_ms)`、`write_register_u32(rid, value)`。
 - `ensure_mode(Mode.POS_VEL)` 可用。VEL、MIT/定量力矩与 FORCE_POS 暂不支持；其他尚无协议映射的操作返回错误。
 - `vel` 由相邻位置采样估算；`torq` 沿用 MyActuator 的映射，表示电流 A（`0x11` 的 mA 值除以 1000）；`t_mos` 为按官方 CAN 工具默认公式换算的舵机温度（℃）。首次速度采样、无效温度与转子温度为 `NaN`。`torq` 不表示 N·m 力矩。
-- 配置写入需要重新上电生效。写 `0x81` 后，先断电重启，再以新 ID 创建连接并读取验证；不要立即切换或验证当前句柄。
+- CAN 的 ID（`0x81`）与波特率（`0x82`）修改均立即生效并在断电后保留。CAN 写入后等待 120 ms，再按新 ID 和匹配的主机速率重连验证；其他 CAN 配置仍按重新上电流程处理。原句柄不会自动切换连接参数。
 
 ## Python CLI
 

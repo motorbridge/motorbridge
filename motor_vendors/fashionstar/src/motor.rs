@@ -38,18 +38,13 @@ pub struct FashionstarMotor {
 impl FashionstarMotor {
     pub fn new(
         motor_id: u16,
-        feedback_id: u16,
+        _feedback_id: u16,
         _model: &str,
         bus: Arc<dyn CanBus>,
     ) -> Result<Self> {
         if motor_id > 254 {
             return Err(MotorError::InvalidArgument(
                 "FashionStar ServoID must be 0..254".to_string(),
-            ));
-        }
-        if feedback_id != CAN_ID {
-            return Err(MotorError::InvalidArgument(
-                "FashionStar feedback_id is fixed at 0x321".to_string(),
             ));
         }
         Ok(Self {
@@ -165,7 +160,8 @@ impl FashionstarMotor {
     }
 
     /// Writes configuration without assuming that it is already active.
-    /// Device configuration changes take effect after a power cycle.
+    /// ServoID/bitrate changes take effect without a power cycle; wait 120 ms
+    /// before reconnecting with the new settings. Other configuration follows the power-cycle procedure.
     pub fn write_register_u32(&self, rid: u8, value: u32) -> Result<()> {
         registers::validate_write(rid, value)?;
         self.with_register_access(rid, || {
@@ -178,11 +174,16 @@ impl FashionstarMotor {
     }
 
     /// POS_VEL maps to speed-based position mode (native mode 2).
-    /// Preserve the device's configured power and acceleration settings.
+    /// Preserve power and use the servo's ramp times, with a minimum of 20 ms.
     pub fn send_cmd_pos_vel(&self, target_position: f32, velocity_limit: f32) -> Result<()> {
         let target = protocol::angle_raw(target_position)?;
         let speed = protocol::speed_raw(velocity_limit)?;
         let _guard = self.lock()?;
+        for address in [0x56, 0x57] {
+            if self.read(address, Duration::from_millis(500))? < 20 {
+                self.write(address, 20)?;
+            }
+        }
         self.write(0x52, 2)?;
         self.write(0x53, target)?;
         self.write(0x58, u32::from(speed))?;

@@ -280,10 +280,10 @@ def _scan_fashionstar(args: argparse.Namespace, start_id: int, end_id: int) -> l
     )
     with _fashionstar_controller(args) as ctrl:
         for mid in range(start_id, end_id + 1):
-            motor = ctrl.add_fashionstar_motor(mid, 0x321, args.model)
+            motor = ctrl.add_fashionstar_motor(mid, 0, args.model)
             try:
                 model_code = motor.get_register_u32(1, timeout_ms)
-                meta = f"vendor=fashionstar feedback_id=0x321 model_code={model_code}"
+                meta = f"vendor=fashionstar feedback_id=0 model_code={model_code}"
                 found.append((mid, meta))
                 print(f"[hit] probe=0x{mid:02X} {meta}")
             except Exception as e:

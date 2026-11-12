@@ -1,7 +1,8 @@
 use crate::args::{get_f32, get_opt_u16_hex_or_dec, get_str, get_u16_hex_or_dec, get_u64};
 use motor_core::bus::{open_transport, CanBus, Transport, TransportParams};
+use motor_core::device::MotorDevice;
 use motor_core::error::MotorError;
-use motor_vendor_fashionstar::{FashionstarController, CAN_ID};
+use motor_vendor_fashionstar::FashionstarController;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::sync::Arc;
@@ -74,9 +75,6 @@ pub fn run_fashionstar(
     {
         return Err(format!("unknown FashionStar mode: {mode}").into());
     }
-    if args.contains_key("set-feedback-id") {
-        return Err("FashionStar CAN arbitration ID is fixed at 0x321".into());
-    }
     if matches!(mode.as_str(), "read-param" | "write-param")
         && !matches!(get_str(args, "param-type", "u32").as_str(), "u16" | "u32")
     {
@@ -107,11 +105,11 @@ pub fn run_fashionstar(
             open_fashionstar_controller(&transport, channel, &serial_port, serial_baud)?;
         let mut hits = 0usize;
         for id in start_id..=end_id {
-            let motor = controller.add_motor(id, CAN_ID, model)?;
+            let motor = controller.add_motor(id, 0, model)?;
             match motor.get_register_u32(1, timeout) {
                 Ok(model_code) => {
                     hits += 1;
-                    println!("[hit] vendor=fashionstar probe=0x{id:02X} feedback_id=0x321 model_code={model_code}");
+                    println!("[hit] vendor=fashionstar probe=0x{id:02X} feedback_id=0x{:X} model_code={model_code}", motor.feedback_id());
                 }
                 Err(MotorError::Timeout(_)) => {}
                 Err(e) => return Err(e.into()),
@@ -126,7 +124,7 @@ pub fn run_fashionstar(
     let motor = controller.add_motor(motor_id, feedback_id, model)?;
     if let Some(new_motor_id) = set_motor_id {
         motor.write_register_u32(0x81, u32::from(new_motor_id))?;
-        println!("[id-set] FashionStar device id update requested: {motor_id} -> {new_motor_id}; power-cycle the servo before connecting with the new ID");
+        println!("[id-set] FashionStar device id update requested: {motor_id} -> {new_motor_id}; ID changes without a power cycle; wait 120 ms, then verify with the new ID");
         controller.close_bus()?;
         return Ok(());
     }
@@ -166,7 +164,7 @@ pub fn run_fashionstar(
                         .map_err(|e| format!("invalid --param-value: {e}"))?
                 };
                 motor.write_register_u32(rid, value)?;
-                println!("param 0x{param_id:04X} (u32) = {value}; configuration changes take effect after a power cycle");
+                println!("param 0x{param_id:04X} (u32) = {value}; CAN ID/baud: wait 120 ms, then reconnect with the new settings; other CAN configuration: power-cycle");
             }
             _ => return Err(format!("unknown FashionStar mode: {mode}").into()),
         }

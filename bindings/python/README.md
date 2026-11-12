@@ -442,7 +442,7 @@ uses only the arguments that its native protocol understands.
 | HighTorque | `mit` | `--pos --vel --kp --kd --tau` | v2.0.0 bit-packed MIT frame (`0x18000 \| id`, firmware v4.6.0+); values beyond the packed range saturate |
 | Hexfellow | `mit` | `--pos --vel --kp --kd --tau` | CAN-FD path |
 | Hexfellow | `pos-vel` | `--pos --vlim` | CAN-FD path |
-| FashionStar | `pos-vel` | `--pos --vlim` | native mode 2; configuration requires a power cycle |
+| FashionStar | `pos-vel` | `--pos --vlim` | native mode 2; ID and baud changes are immediate; other configuration follows the power-cycle procedure |
 
 For RobStride `pos-vel`, `--vel`, `--kd`, and `--tau` are intentionally
 ignored because the firmware path is parameter-based (`limit_spd`, `loc_kp`,

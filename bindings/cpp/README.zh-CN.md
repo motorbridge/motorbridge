@@ -39,7 +39,7 @@
 - `add_myactuator_motor(motor_id, feedback_id, model)`
 - `add_robstride_motor(motor_id, feedback_id, model)`
 - `add_hightorque_motor(motor_id, feedback_id, model)`
-- `add_fashionstar_motor(motor_id, feedback_id, model)`
+- `add_fashionstar_motor(motor_id, feedback_id, model)`：`feedback_id` 由驱动忽略，填 `0` 即可。
 
 ## 快速开始
 

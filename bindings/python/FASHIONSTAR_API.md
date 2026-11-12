@@ -11,7 +11,7 @@ from motorbridge import Controller
 
 ctrl = Controller("can0")
 try:
-    motor = ctrl.add_fashionstar_motor(0, 0x321, "fashionstar")
+    motor = ctrl.add_fashionstar_motor(motor_id=0, feedback_id=0, model="fashionstar")
     try:
         motor.send_pos_vel(1.5707963, 1.0)  # rad, rad/s
         motor.request_feedback()
@@ -19,19 +19,16 @@ try:
     finally:
         motor.close()
 finally:
-    try:
-        ctrl.close_bus()
-    finally:
-        ctrl.close()
+    ctrl.close()
 ```
 
 This cleanup closes the connection. The existing `with Controller(...)` also calls `shutdown()` on exit, releasing servo output. Position queried after `request_feedback()` may still be in transit; it does not confirm arrival.
 
-- `add_fashionstar_motor(motor_id, feedback_id, model)`: ServoID 0..254; model is currently ignored.
-- Use existing `enable()`, `disable()`, `stop()`, `set_zero_position()`, `send_pos_vel(pos, vlim)`, `get_register_u32(rid, timeout_ms)`, `write_register_u32(rid, value)`.
+- `add_fashionstar_motor(motor_id, feedback_id, model)`: ServoID 0..254; the driver ignores `feedback_id`; pass `0`. The model is currently ignored.
+- Use existing `enable()` (stop and hold), `disable()`, `set_zero_position()`, `send_pos_vel(pos, vlim)`, `get_register_u32(rid, timeout_ms)`, `write_register_u32(rid, value)`.
 - `ensure_mode(Mode.POS_VEL)` is available. VEL, MIT/quantitative torque and FORCE_POS are currently unsupported; operations without a protocol mapping return errors.
 - `vel` is estimated from consecutive position samples; `torq` carries current in A (`0x11` in mA divided by 1000), following MyActuator's mapping; `t_mos` is servo temperature in °C using the official CAN tool's default conversion. The first velocity sample, invalid temperature readings and rotor temperature are `NaN`. `torq` does not represent torque in N·m.
-- Configuration requires a power cycle. After writing `0x81`, power-cycle, create a connection with the new ID, then verify; the live handle retains its old ID.
+- CAN ID (`0x81`) and baud (`0x82`) changes take effect immediately and persist across power cycles. For CAN, wait 120 ms, then reconnect with the new ID and matching host bitrate to verify. Other CAN configuration follows the power-cycle procedure. The live handle retains its old settings.
 
 ## Python CLI
 

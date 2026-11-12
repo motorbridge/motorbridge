@@ -24,15 +24,9 @@ pub(crate) fn dispatch_op(
         .and_then(Value::as_str)
         .map(|vendor| vendor.eq_ignore_ascii_case("fashionstar"))
         .unwrap_or(ctx.target.vendor == Vendor::Fashionstar)
+        && v.get("motor_id").is_some()
     {
-        for (field, max) in [("motor_id", 254), ("feedback_id", 0x321)] {
-            if v.get(field).is_some() {
-                let value = parse_fashionstar_u64(v, field, 0, max)?;
-                if field == "feedback_id" && value != 0x321 {
-                    return Err("FashionStar feedback_id is fixed at 0x321".to_string());
-                }
-            }
-        }
+        parse_fashionstar_u64(v, "motor_id", 0, u16::MAX as u64)?;
     }
     if let Some(r) =
         handlers::connection::handle(op, v, ctx, state_stream_enabled, param_stream, dt_ms)

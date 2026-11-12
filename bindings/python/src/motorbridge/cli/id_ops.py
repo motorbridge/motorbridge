@@ -63,17 +63,15 @@ def _id_set_command(args: argparse.Namespace) -> None:
         return
 
     if args.vendor == "fashionstar":
-        if not 0 <= motor_id <= 254 or not 0 <= new_motor_id <= 254:
-            raise ValueError("FashionStar ServoID must be within 0..254")
-        if feedback_id != 0x321 or new_feedback_id != 0x321:
-            raise ValueError("FashionStar CAN arbitration ID is fixed at 0x321")
+        if not 0 <= new_motor_id <= 0xFFFFFFFF:
+            raise ValueError("new_motor_id must fit uint32")
         with _fashionstar_controller(args) as ctrl:
             motor = ctrl.add_fashionstar_motor(motor_id, feedback_id, args.model)
             try:
                 motor.write_register_u32(0x81, new_motor_id)
             finally:
                 motor.close()
-        print("ID parameter written; verification requires a power cycle before connecting with the new ID")
+        print("ID parameter written; ID changes without a power cycle; wait 120 ms, then verify with the new ID")
         return
 
     print(

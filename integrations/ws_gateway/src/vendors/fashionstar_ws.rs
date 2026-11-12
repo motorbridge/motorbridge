@@ -1,8 +1,9 @@
 use crate::commands::{as_u64, parse_transport_in_msg};
 use crate::model::{Target, Vendor};
 use crate::vendors::transport_ws::open_fashionstar_controller;
+use motor_core::device::MotorDevice;
 use motor_core::error::MotorError;
-use motor_vendor_fashionstar::{FashionstarController, CAN_ID};
+use motor_vendor_fashionstar::FashionstarController;
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -33,7 +34,8 @@ pub(crate) fn parse_fashionstar_u64(
 
 pub(crate) fn parse_fashionstar_target(v: &Value, base: &Target) -> Result<Target, String> {
     let mut target = parse_fashionstar_connection_target(v, base)?;
-    target.motor_id = parse_fashionstar_u64(v, "motor_id", u64::from(base.motor_id), 254)? as u16;
+    target.motor_id =
+        parse_fashionstar_u64(v, "motor_id", u64::from(base.motor_id), u16::MAX as u64)? as u16;
     Ok(target)
 }
 
@@ -66,11 +68,7 @@ fn parse_fashionstar_connection_target(v: &Value, base: &Target) -> Result<Targe
         u32::MAX as u64,
     )? as u32;
     target.motor_id = 0;
-    target.feedback_id =
-        parse_fashionstar_u64(v, "feedback_id", u64::from(CAN_ID), u16::MAX as u64)? as u16;
-    if target.feedback_id != CAN_ID {
-        return Err("FashionStar feedback_id is fixed at 0x321".to_string());
-    }
+    target.feedback_id = parse_fashionstar_u64(v, "feedback_id", 0, u16::MAX as u64)? as u16;
     Ok(target)
 }
 
@@ -96,14 +94,14 @@ pub(crate) fn cmd_scan_fashionstar(v: &Value, base: &Target) -> Result<Value, St
         let mut hits = Vec::new();
         for id in start_id..=end_id {
             let motor = ctrl
-                .add_motor(id, CAN_ID, &target.model)
+                .add_motor(id, target.feedback_id, &target.model)
                 .map_err(|e| e.to_string())?;
             match motor.get_register_u32(1, timeout) {
                 Ok(model_code) => hits.push(json!({
                     "vendor": "fashionstar",
                     "probe": id,
                     "motor_id": id,
-                    "feedback_id": CAN_ID,
+                    "feedback_id": motor.feedback_id(),
                     "model": target.model,
                     "model_code": model_code
                 })),
@@ -119,7 +117,7 @@ pub(crate) fn cmd_verify_fashionstar(v: &Value, base: &Target) -> Result<Value, 
     let target = parse_fashionstar_target(v, base)?;
     with_controller(&target, |ctrl| {
         let motor = ctrl
-            .add_motor(target.motor_id, CAN_ID, &target.model)
+            .add_motor(target.motor_id, target.feedback_id, &target.model)
             .map_err(|e| e.to_string())?;
         let model_code = motor
             .get_register_u32(
@@ -131,7 +129,7 @@ pub(crate) fn cmd_verify_fashionstar(v: &Value, base: &Target) -> Result<Value, 
             "vendor": "fashionstar",
             "verified": true,
             "motor_id": target.motor_id,
-            "feedback_id": CAN_ID,
+            "feedback_id": motor.feedback_id(),
             "model_code": model_code
         }))
     })
@@ -140,21 +138,19 @@ pub(crate) fn cmd_verify_fashionstar(v: &Value, base: &Target) -> Result<Value, 
 pub(crate) fn cmd_set_id_fashionstar(v: &Value, base: &Target) -> Result<Value, String> {
     let mut target = parse_fashionstar_connection_target(v, base)?;
     target.motor_id = if v.get("old_motor_id").is_some() {
-        parse_fashionstar_u64(v, "old_motor_id", 0, 254)?
+        parse_fashionstar_u64(v, "old_motor_id", 0, u16::MAX as u64)?
     } else {
-        parse_fashionstar_u64(v, "motor_id", u64::from(base.motor_id), 254)?
+        parse_fashionstar_u64(v, "motor_id", u64::from(base.motor_id), u16::MAX as u64)?
     } as u16;
-    let new_motor_id =
-        parse_fashionstar_u64(v, "new_motor_id", u64::from(target.motor_id), 254)? as u32;
-    for field in ["old_feedback_id", "new_feedback_id"] {
-        if parse_fashionstar_u64(v, field, u64::from(CAN_ID), u16::MAX as u64)? != u64::from(CAN_ID)
-        {
-            return Err("FashionStar CAN arbitration ID is fixed at 0x321".to_string());
-        }
-    }
+    let new_motor_id = parse_fashionstar_u64(
+        v,
+        "new_motor_id",
+        u64::from(target.motor_id),
+        u32::MAX as u64,
+    )? as u32;
     with_controller(&target, |ctrl| {
         let motor = ctrl
-            .add_motor(target.motor_id, CAN_ID, &target.model)
+            .add_motor(target.motor_id, target.feedback_id, &target.model)
             .map_err(|e| e.to_string())?;
         motor
             .write_register_u32(0x81, new_motor_id)
@@ -163,9 +159,9 @@ pub(crate) fn cmd_set_id_fashionstar(v: &Value, base: &Target) -> Result<Value, 
             "vendor": "fashionstar",
             "old_motor_id": target.motor_id,
             "new_motor_id": new_motor_id,
-            "feedback_id": CAN_ID,
+            "feedback_id": motor.feedback_id(),
             "verified": false,
-            "requires_power_cycle": true
+            "requires_power_cycle": false
         }))
     })
 }

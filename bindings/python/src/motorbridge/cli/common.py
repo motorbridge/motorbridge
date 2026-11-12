@@ -147,7 +147,7 @@ def _vendor_defaults(vendor: str, model: str, feedback_id: str) -> tuple[str, st
         if resolved_model == "4340":
             resolved_model = "fashionstar"
         if resolved_feedback == "0x11":
-            resolved_feedback = "0x321"
+            resolved_feedback = "0"
     return resolved_model, resolved_feedback
 
 def _add_motor(ctrl: Controller, vendor: str, motor_id: int, feedback_id: int, model: str):

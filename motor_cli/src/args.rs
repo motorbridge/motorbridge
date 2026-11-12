@@ -209,7 +209,7 @@ Vendors:\n\
   --vendor robstride_cia402 (RobStride CANopen/CiA402 over classic CAN; experimental/incomplete)\n\
   --vendor robstride_mit (RobStride F_CMD=2 MIT protocol over classic CAN standard frames; experimental/incomplete)\n\
   --vendor myactuator\n\
-  --vendor fashionstar (classic CAN, fixed CAN ID 0x321)\n\
+  --vendor fashionstar (classic CAN, model fashionstar)\n\
   --vendor all       scan all vendors\n\n\
 Damiao modes:\n\
   --mode scan | enable | disable | mit | pos-vel | vel | force-pos | read-param | write-param\n\n\
@@ -229,7 +229,7 @@ Hexfellow modes:\n\
 \n\
 FashionStar modes:\n\
   --mode scan | ping | enable | disable | stop | status | pos-vel | zero | read-param | write-param\n\
-  Configuration changes require a power cycle; continuous velocity and quantitative torque control are currently unsupported.\n\n\
+  CAN ID and baud changes are immediate; other CAN configuration follows the power-cycle procedure; continuous velocity and quantitative torque control are currently unsupported.\n\n\
 Common args:\n\
   --transport   auto|socketcan|socketcanfd|mcu-serial|dm-serial|dm-device (default auto; dm-serial/dm-device are Damiao-only, mcu-serial is classic-CAN-only)\n\
   --channel      default can0\n\
@@ -247,7 +247,7 @@ ID change support by vendor:\n\
   Damiao: supported (`--set-motor-id` and optional `--set-feedback-id`)\n\
   RobStride: supported (`--set-motor-id`)\n\
   HighTorque / Hexfellow / MyActuator: not supported in unified CLI path\n\
-  FashionStar: supported (`--set-motor-id`); power-cycle required\n\n\
+  FashionStar: supported (`--set-motor-id`); wait 120 ms before verifying the new CAN ID\n\n\
 Damiao extras:\n\
   --verify-model 1/0, default 1\n\
   --verify-timeout-ms  default 500\n\

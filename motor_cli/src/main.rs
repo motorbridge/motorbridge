@@ -54,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "robstride_cia402" | "hexfellow" => 0x0000,
         "hightorque" => 0x0001,
         "myactuator" => 0x0241,
-        "fashionstar" => 0x0321,
+        "fashionstar" => 0x321,
         _ => 0x0011,
     };
     let feedback_id = get_u16_hex_or_dec(&args, "feedback-id", feedback_default)?;
@@ -177,7 +177,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         run_myactuator(&args, &channel, &myactuator_model, motor_id, 0x0241)?;
         let mut fashionstar_args = args.clone();
         fashionstar_args.insert("mode".to_string(), "scan".to_string());
-        run_fashionstar(&fashionstar_args, &channel, "fashionstar", motor_id, 0x0321)?;
+        run_fashionstar(&fashionstar_args, &channel, "fashionstar", motor_id, 0x321)?;
         return Ok(());
     }
 

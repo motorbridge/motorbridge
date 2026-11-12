@@ -454,7 +454,7 @@ Python 示例中 Damiao 用法已覆盖到位：
 | HighTorque | `mit` | `--pos --vel --kp --kd --tau` | v2.0.0 位打包 MIT 帧（`0x18000 \| id`，固件 v4.6.0+）；超出打包量程的值饱和 |
 | Hexfellow | `mit` | `--pos --vel --kp --kd --tau` | CAN-FD 路径 |
 | Hexfellow | `pos-vel` | `--pos --vlim` | CAN-FD 路径 |
-| FashionStar | `pos-vel` | `--pos --vlim` | 原生模式 2；配置需重新上电后生效 |
+| FashionStar | `pos-vel` | `--pos --vlim` | 原生模式 2；ID、波特率修改立即生效；其他配置按重新上电流程处理 |
 
 RobStride `pos-vel` 的 `--vel`、`--kd`、`--tau` 是无效参数：该路径实际写入
 `limit_spd`、`loc_kp`、`loc_ref`。Rust CLI 和 Python CLI 在用户显式传入这些参数时会输出 warning。

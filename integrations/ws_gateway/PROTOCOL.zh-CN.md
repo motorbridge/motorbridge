@@ -986,6 +986,8 @@ Hexfellow mode：
 | HighTorque | vendor `request_motor_feedback` + `latest_state`（2026-10-24 起连发两帧：17 01 位置/速度/力矩 + 16 0E 温度/错误码，非阻塞；回帧物理量带力矩系数补偿，26 0E 回帧就地补丁 t_mos/fault_code 不推进状态计数） |
 | FashionStar | 主动查询位置 `0x15/0x16`、状态 `0x14`、温度 `0x13` 和电流 `0x11`；速度由相邻位置采样估算；`torq` 为电流 A |
 
+FashionStar 驱动忽略 `feedback_id`，填 `0` 即可。ID（`0x81`）与波特率（`0x82`）修改立即生效并在断电后保留。通过 `write_register_u32` 写入这两个参数时，返回 `requires_power_cycle:false` 并停止周期运动发送；写入后等待 120 ms，再用 `set_target` 设置新 ID 和匹配的主机速率，回读确认后恢复控制。
+
 请求：
 
 ```json
@@ -1684,7 +1686,7 @@ RobStride：
 | Hexfellow | 否 | 不支持 |
 | MyActuator | 否 | 不支持 |
 | HighTorque | 否 | 不支持 |
-| FashionStar | 是 | 写 `0x81`，重新上电后以新 ID 验证 |
+| FashionStar | 是 | 写 `0x81`，等待 120 ms 后以新 ID 验证；`set_id` 返回 `requires_power_cycle:false` |
 
 Damiao 参数：
 
