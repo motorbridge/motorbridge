@@ -12,7 +12,7 @@ use motor_core::feedback::{FeedbackCache, FeedbackSnapshot};
 use motor_core::model::{ModelCatalog, MotorModelSpec, PvTLimits, StaticModelCatalog};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 const ROBSTRIDE_MODELS: &[MotorModelSpec] = &[
@@ -156,6 +156,8 @@ pub struct RobstrideMotor {
     fault_report: Mutex<Option<FaultReport>>,
     response_seq: AtomicU64,
     param_values: Mutex<HashMap<u16, ParameterValue>>,
+    // Signalled whenever a READ_PARAMETER reply is stored in `param_values`.
+    param_ready: Condvar,
     ping_reply: Mutex<Option<PingReply>>,
     last_mit_gains: Mutex<Option<(f32, f32)>>,
 }
@@ -184,6 +186,7 @@ impl RobstrideMotor {
             fault_report: Mutex::new(None),
             response_seq: AtomicU64::new(0),
             param_values: Mutex::new(HashMap::new()),
+            param_ready: Condvar::new(),
             ping_reply: Mutex::new(None),
             last_mit_gains: Mutex::new(None),
         })
@@ -706,21 +709,26 @@ impl RobstrideMotor {
         let data = encode_parameter_read(param_id);
         self.send_ext(CommunicationType::READ_PARAMETER, host_id, data, 8)?;
 
+        // Wait on the condvar the receive path signals, so the read returns as soon as
+        // its reply is stored instead of on the next poll tick.
         let deadline = Instant::now() + timeout;
+        let mut values = self
+            .param_values
+            .lock()
+            .map_err(|_| MotorError::Io("param state lock poisoned".to_string()))?;
         loop {
-            if let Some(value) = self
-                .param_values
-                .lock()
-                .map_err(|_| MotorError::Io("param state lock poisoned".to_string()))?
-                .get(&param_id)
-                .copied()
-            {
+            if let Some(value) = values.get(&param_id).copied() {
                 return Ok(value);
             }
-            if Instant::now() >= deadline {
+            let now = Instant::now();
+            if now >= deadline {
                 break;
             }
-            std::thread::sleep(Duration::from_millis(8));
+            values = self
+                .param_ready
+                .wait_timeout(values, deadline - now)
+                .map_err(|_| MotorError::Io("param state lock poisoned".to_string()))?
+                .0;
         }
         Err(MotorError::Timeout(format!(
             "parameter 0x{param_id:04X} not received within {:?} for host_id 0x{host_id:X}",
@@ -801,6 +809,8 @@ impl RobstrideMotor {
                     ParameterValue::U32(u32::from_le_bytes(raw))
                 };
                 values.insert(param_id, value);
+                drop(values);
+                self.param_ready.notify_all();
                 Ok(())
             }
             // RobStride's autonomous active-report broadcasts arrive tagged with comm_type
@@ -1008,6 +1018,91 @@ mod tests {
             .expect("successful zero reply");
         assert!(matches!(motor.param_values.lock().unwrap().get(&0x7019),
                          Some(ParameterValue::F32(v)) if *v == 0.0));
+    }
+
+    #[test]
+    fn get_parameter_with_host_id_returns_when_reply_is_stored() {
+        // The reply is stored as soon as the request is seen. Each read must return on
+        // that store, not on a fixed poll tick: 20 reads at the old 8 ms poll took >= 160 ms.
+        let bus_impl = Arc::new(MockBus::new());
+        let bus: Arc<dyn CanBus> = bus_impl.clone();
+        let motor = Arc::new(RobstrideMotor::new(2, 0xFD, "rs-00", bus).expect("create motor"));
+        let reads = 20;
+        let responder = {
+            let motor = Arc::clone(&motor);
+            let bus = Arc::clone(&bus_impl);
+            std::thread::spawn(move || {
+                let mut answered = 0;
+                let deadline = Instant::now() + Duration::from_secs(5);
+                while answered < reads && Instant::now() < deadline {
+                    let pending = bus.sent.lock().expect("sent frames").len();
+                    if pending > answered {
+                        let value = answered as f32;
+                        motor
+                            .process_feedback_frame(CanFrame {
+                                arbitration_id: build_ext_id(
+                                    CommunicationType::READ_PARAMETER,
+                                    2,
+                                    0xFD,
+                                ),
+                                data: encode_parameter_write(0x7019, value.to_le_bytes()),
+                                dlc: 8,
+                                is_extended: true,
+                                is_rx: true,
+                            })
+                            .expect("process param reply");
+                        answered += 1;
+                    } else {
+                        std::thread::yield_now();
+                    }
+                }
+            })
+        };
+        let start = Instant::now();
+        for i in 0..reads {
+            let value = motor
+                .get_parameter_with_host_id(0x7019, 0xFD, Duration::from_millis(500))
+                .expect("reply");
+            assert!(matches!(value, ParameterValue::F32(v) if v == i as f32));
+        }
+        let elapsed = start.elapsed();
+        responder.join().expect("responder thread");
+        assert!(
+            elapsed < Duration::from_millis(80),
+            "{reads} reads took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn get_parameter_with_host_id_ignores_other_parameters_until_timeout() {
+        // A reply for another parameter wakes the waiter but must not satisfy it, and the
+        // read still times out at its deadline.
+        let bus: Arc<dyn CanBus> = Arc::new(MockBus::new());
+        let motor = Arc::new(RobstrideMotor::new(2, 0xFD, "rs-00", bus).expect("create motor"));
+        let other = Arc::clone(&motor);
+        let start = Instant::now();
+        let waker = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(5));
+            other
+                .process_feedback_frame(CanFrame {
+                    arbitration_id: build_ext_id(CommunicationType::READ_PARAMETER, 2, 0xFD),
+                    data: encode_parameter_write(0x701B, 3.25f32.to_le_bytes()),
+                    dlc: 8,
+                    is_extended: true,
+                    is_rx: true,
+                })
+                .expect("velocity reply");
+        });
+        let err = motor
+            .get_parameter_with_host_id(0x7020, 0xFD, Duration::from_millis(30))
+            .expect_err("timeout expected");
+        let elapsed = start.elapsed();
+        waker.join().expect("waker thread");
+        assert!(matches!(err, MotorError::Timeout(_)));
+        assert!(
+            elapsed >= Duration::from_millis(30),
+            "returned early: {elapsed:?}"
+        );
     }
 
     #[test]
