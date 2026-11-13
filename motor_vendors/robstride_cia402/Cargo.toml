@@ -14,6 +14,7 @@ path = "src/lib.rs"
 
 [dependencies]
 motor_core = { path = "../../motor_core" }
+motor_canopen = { path = "../../motor_canopen" }
 
 [dev-dependencies]
 motor_core = { path = "../../motor_core", features = ["test-support"] }

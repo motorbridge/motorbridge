@@ -1,6 +1,7 @@
 use motor_vendor_damiao::{DamiaoController, DamiaoMotor};
 use motor_vendor_hexfellow::{HexfellowController, HexfellowMotor};
 use motor_vendor_hightorque::{HightorqueController, HightorqueMotor};
+use motor_vendor_huayi::{HuayiController, HuayiMotor};
 use motor_vendor_myactuator::{MyActuatorController, MyActuatorMotor};
 use motor_vendor_robstride::{RobstrideController, RobstrideMotor};
 use std::sync::Arc;
@@ -10,6 +11,7 @@ pub(crate) enum Vendor {
     Damiao,
     Hexfellow,
     Hightorque,
+    Huayi,
     Myactuator,
     Robstride,
 }
@@ -22,6 +24,7 @@ impl Vendor {
             "damiao" => Ok(Self::Damiao),
             "hexfellow" => Ok(Self::Hexfellow),
             "hightorque" => Ok(Self::Hightorque),
+            "huayi" => Ok(Self::Huayi),
             "myactuator" => Ok(Self::Myactuator),
             "robstride" => Ok(Self::Robstride),
             _ => Err(format!("unsupported vendor: {s}")),
@@ -33,6 +36,7 @@ impl Vendor {
             Self::Damiao => "damiao",
             Self::Hexfellow => "hexfellow",
             Self::Hightorque => "hightorque",
+            Self::Huayi => "huayi",
             Self::Myactuator => "myactuator",
             Self::Robstride => "robstride",
         }
@@ -142,6 +146,10 @@ pub(crate) enum ControllerHandle {
     /// four vendors, holding a vendor controller (CoreController + background
     /// receive thread) instead of a raw bus with hand-written frames.
     Hightorque(HightorqueController),
+    /// Huayi CANopen joint driver over classic CAN (motor_id = node id
+    /// 1..=127); mixes with robstride-classic nodes on one bus via the
+    /// shared CoreController first-accept-wins dispatch.
+    Huayi(HuayiController),
     Myactuator(MyActuatorController),
     Robstride(RobstrideController),
 }
@@ -150,6 +158,7 @@ pub(crate) enum MotorHandle {
     Damiao(Arc<DamiaoMotor>),
     Hexfellow(Arc<HexfellowMotor>),
     Hightorque(Arc<HightorqueMotor>),
+    Huayi(Arc<HuayiMotor>),
     Myactuator(Arc<MyActuatorMotor>),
     Robstride(Arc<RobstrideMotor>),
 }

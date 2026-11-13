@@ -11,8 +11,11 @@ flowchart TB
   CORE --> MYACT["motor_vendors/myactuator"]
   CORE --> HIGHTORQUE["motor_vendors/hightorque"]
   CORE --> HEXFELLOW["motor_vendors/hexfellow"]
+  CORE --> HUAYI["motor_vendors/huayi"]
   CORE --> TEMPLATE["motor_vendors/template (onboarding scaffold)"]
-  DAMIAO --> CAN["CAN Bus Backend"]
+  HUAYI --> CANOPEN["motor_canopen (shared CANopen framework)"]
+  CANOPEN --> CAN["CAN Bus Backend"]
+  DAMIAO --> CAN
   ROBSTRIDE --> CAN
   MYACT --> CAN
   HIGHTORQUE --> CAN
@@ -51,12 +54,14 @@ sequenceDiagram
 ```text
 motorbridge/
 ├── motor_core/                  # Vendor-agnostic runtime
+├── motor_canopen/               # Shared CANopen-camp framework (SDO/CiA402/PDO/NMT/scan)
 ├── motor_vendors/
 │   ├── damiao/                  # Production implementation
 │   ├── robstride/               # Production implementation (extended CAN ID / params)
 │   ├── myactuator/              # Production implementation (RMD protocol)
 │   ├── hightorque/              # Production implementation (ht_can protocol)
 │   ├── hexfellow/               # Production implementation (CANopen over CAN-FD)
+│   ├── huayi/                   # Huayi joint driver (CANopen/CiA402, classic CAN)
 │   └── template/                # Scaffold for new vendors
 ├── motor_cli/                   # Rust CLI
 ├── motor_abi/                   # C ABI (cdylib + staticlib)
@@ -87,16 +92,31 @@ Separate repo:
 - `socketcanfd.rs`: Linux dedicated SocketCAN-FD backend
 - `pcan.rs`: Windows PEAK PCAN backend (experimental)
 
-### 2) `motor_vendors/*`
+### 2) `motor_canopen`
+
+The shared protocol layer for the CANopen camp — everything about "how frames
+are sent and how the handshake goes":
+
+- SDO read/write (expedited + segmented)
+- CiA402 state-machine sequences (enable/disable/quick-stop)
+- PDO reconfiguration and TPDO stream decoding
+- NMT master commands and node scanning
+- COB-ID rules (`0x600+node` / `0x580+node`, etc.)
+
+Vendor crates keep only semantic differences: object-dictionary entries, units
+and scaling, `6060h` mode-number mapping. Huayi and `robstride_cia402` both
+compose this layer; two CANopen vendors can coexist on one classic CAN bus.
+
+### 3) `motor_vendors/*`
 
 Each vendor crate implements:
 
-- frame encode/decode
+- frame encode/decode (except the CANopen camp — see `motor_canopen`)
 - register semantics
 - motor model limits
 - controller facade wrapping `CoreController`
 
-### 3) `motor_abi`
+### 4) `motor_abi`
 
 - exports C-compatible handles and functions
 - wraps Rust errors into integer return code + `motor_last_error_message()`
@@ -107,7 +127,7 @@ Each vendor crate implements:
   operations: do not call them concurrently with other operations on the same
   pointer, and do not use a pointer after free
 
-### 4) SDK/Examples
+### 5) SDK/Examples
 
 - `motor_cli`: operational/debugging command-line tool
 - `bindings/python`: reusable Python package for deployment/integration

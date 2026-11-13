@@ -1,0 +1,19 @@
+[package]
+name = "motor_canopen"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "motor_canopen"
+path = "src/lib.rs"
+
+[dependencies]
+motor_core = { path = "../motor_core" }
+
+[dev-dependencies]
+motor_core = { path = "../motor_core", features = ["test-support"] }

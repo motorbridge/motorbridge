@@ -94,6 +94,15 @@ fn is_mode_word(s: &str) -> bool {
             | "protocol"
             | "get-mode"
             | "query-mode"
+            | "nmt"
+            | "report"
+            | "history"
+            | "preset"
+            | "restore"
+            | "set-node-id"
+            | "read-obj"
+            | "write-obj"
+            | "mit-compressed"
     )
 }
 
@@ -209,6 +218,7 @@ Vendors:\n\
   --vendor robstride_cia402 (RobStride CANopen/CiA402 over classic CAN; experimental/incomplete)\n\
   --vendor robstride_mit (RobStride F_CMD=2 MIT protocol over classic CAN standard frames; experimental/incomplete)\n\
   --vendor myactuator\n\
+  --vendor huayi (Huayi CANopen joint driver over classic CAN)\n\
   --vendor all       scan all vendors\n\n\
 Damiao modes:\n\
   --mode scan | enable | disable | mit | pos-vel | vel | force-pos | read-param | write-param\n\n\
@@ -221,7 +231,10 @@ RobStride MIT protocol modes:\n\
 HighTorque modes:\n\
   --mode ping | scan | read | mit | pos | vel | tqe | volt | cur | set-mode | pos-vel-tqe | pos-vel-acc | version | read-reg | write-reg | stop | brake | rezero | conf-write | periodic-report\n\n\
 MyActuator modes:\n\
-  --mode scan | enable | disable | stop | set-zero | status | current | vel | pos | version | mode-query\n\n\
+  --mode scan | enable | disable | stop | set-zero | status | current | vel | pos | version | mode-query\n\
+\n\
+Huayi (CANopen) modes:\n\
+  --mode scan | status | enable | disable | stop | quick-stop | clear-error | zero | set-zero | save | restore | set-node-id | history | report | nmt | read-obj | write-obj | preset | pos-vel | vel | torque | mit | mit-compressed\n\n\
 \n\
 Hexfellow modes:\n\
   --mode scan | status | enable | disable | pos-vel | mit\n\n\
@@ -233,9 +246,9 @@ Common args:\n\
   --serial-baud  default 921600 (used when --transport mcu-serial or dm-serial)\n\
   --dm-device-type  usb2canfd|usb2canfd-dual|linkx4c, default usb2canfd-dual (used when --transport dm-device)\n\
   --dm-channel      SDK channel number: usb2canfd=0, usb2canfd-dual=0|1, linkx4c=0|1|2|3 (control default 0; scan omitted scans all)\n\
-  --model        default depends on vendor (damiao=4340, robstride=rs-00, robstride_cia402=rs-00, robstride_mit=rs-00, hightorque=hightorque[hint only], myactuator=X8)\n\
-  --motor-id     default 0x01\n\
-  --feedback-id  default 0x11 for Damiao, 0xFD for RobStride/RobStride MIT host_id, ignored/0 for RobStride CiA402, 0x01 for HighTorque, 0x241 for MyActuator\n\
+  --model        default depends on vendor (damiao=4340, robstride=rs-00, robstride_cia402=rs-00, robstride_mit=rs-00, hightorque=hightorque[hint only], myactuator=X8, huayi=huayi-joint[label only; limits read from 6076h/2004h])\n\
+  --motor-id     default 0x01 (huayi: CANopen node id 1..=127)\n\
+  --feedback-id  default 0x11 for Damiao, 0xFD for RobStride/RobStride MIT host_id, ignored/0 for RobStride CiA402 and Huayi, 0x01 for HighTorque, 0x241 for MyActuator\n\
   --loop         send cycles, default 1\n\
   --dt-ms        period ms, default 20\n\
   --ensure-mode  1/0, default 1\n\n\
@@ -305,6 +318,11 @@ Run-mode effective arguments:\n\
   HighTorque cur:    --cur <A> (DQ current mode, 0.1 A/LSB)\n\
   Hexfellow mit:     --pos --vel --kp --kd --tau\n\
   Hexfellow pos-vel: --pos --vlim\n\
+  Huayi pos-vel:     --pos --vlim (PP: 6081h + 607Ah + CW bit4 handshake)\n\
+  Huayi vel:         --vel (PV: 60FFh)\n\
+  Huayi torque:      --tau (6071h permille of 6076h peak)\n\
+  Huayi mit:         --pos --vel --kp --kd --tau (2003h SDO slow path)\n\
+  Huayi mit-compressed: --pos --vel --kp --kd --tau (one 8-byte RPDO4 frame to 0x500+node)\n\
 \n\
 MyActuator extras:\n\
   --current <A>          for --mode current\n\
@@ -312,6 +330,16 @@ MyActuator extras:\n\
   --pos <rad>            for --mode pos\n\
   --max-speed <rad/s>    for --mode pos (default 8.726646 ~= 500 deg/s)\n\
   --start-id/--end-id    for --mode scan (range 1..32)\n\
+\n\
+Huayi (CANopen) extras:\n\
+  --pos(rad) --vel(rad/s) --tau(Nm) --kp --kd --vlim   unified unit args\n\
+  --index <hex|dec> --sub <0-255> --ty u8|i8|u16|i16|u32|i32|f32 [--value <number>]   for read-obj / write-obj (typed SDO access)\n\
+  --set-motor-id <1-127>     for set-node-id (2001h_1; store + power cycle to apply)\n\
+  --period-ms <0-65535>      for report (TPDO event timer; 0 stops)\n\
+  --nmt-cmd <0x01|0x02|0x80|0x81|0x82> --nmt-node <0-127>   for nmt (node 0 = broadcast)\n\
+  --preset-rev <float>       for preset (3001h position preset, +/-0.5 Rev; drive auto-disabled first)\n\
+  --timeout-ms <ms>          SDO timeout, default 300\n\
+  --loop/--dt-ms are supported for repeated send cadence\n\
 \n\
 HighTorque extras:\n\
   unified args: --pos(rad) --vel(rad/s) --tau(Nm)\n\

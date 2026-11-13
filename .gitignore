@@ -15,3 +15,7 @@ node_modules/
 .mintlify/
 .next/
 SKILL.md
+
+# Local tooling / editor state
+.codegraph/
+.vscode/

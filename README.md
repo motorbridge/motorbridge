@@ -125,7 +125,7 @@ motorbridge currently supports these DM_Device hardware types, while the
 - `[CAN-FD]`: dedicated FD path (`socketcanfd`)
 - `[MCU-SERIAL]`: generic MCU UART-to-CAN bridge path (`mcu-serial`; relays classic
   CAN frames through the bridge firmware, covers damiao / robstride / myactuator /
-  hightorque; a different protocol from `dm-serial`)
+  hightorque / huayi; a different protocol from `dm-serial`)
 - `[DM-SERIAL]`: Damiao serial-bridge path (`dm-serial`)
 - `[DM-DEVICE]`: Damiao DM_Device SDK path (`dm-device`; supports
   single-channel `USB2CANFD`, dual-channel `USB2CANFD_DUAL`, and four-channel
@@ -158,6 +158,7 @@ available.
 | MyActuator | `myactuator` | MyActuator standard CAN protocol |
 | HighTorque | `hightorque` | Native `ht_can v2.0.0` direct CAN path |
 | Hexfellow | `hexfellow` | CANopen-over-CAN-FD path |
+| Huayi | `huayi` | CANopen/CiA402 over classic CAN, node id 1..=127 |
 
 ### CAN Adapters And Bridge Modules
 
@@ -202,6 +203,17 @@ files there when new hardware photos become available.
 - Hexfellow:
   - models: `hexfellow` (runtime string; CANopen profile)
   - modes: `scan`, `status`, `enable`, `disable`, `pos-vel`, `mit` (via `socketcanfd`)
+- Huayi:
+  - models: `huayi-joint` (runtime string, label only; per-model catalog pending — limits such as
+    peak torque `6076h` and compressed-MIT ranges `2004h` are read from the drive at runtime)
+  - modes: `scan`, `status`, `enable`, `disable`, `stop`, `quick-stop`, `clear-error`, `mit`,
+    `mit-compressed` (RPDO4 fast path), `pos-vel`, `vel`, `torque`, `zero` (3001h preset),
+    `preset` (3001h with `--preset-rev`), `save`/`restore` (1010h/1011h), `set-node-id` (2001h),
+    `history` (1003h), `report`, `nmt`, `read-obj`/`write-obj` (typed SDO)
+  - transport: classic CAN only (`socketcan`/`mcu-serial`); shares the CANopen semantic stack
+    with `robstride_cia402` through the `motor_canopen` framework
+  - note: zeroing requires disable first (same rule as Damiao); 6060h mode numbering follows
+    CiA402 (`5` = MIT), unlike the RobStride private protocol where `5` is CSP
 
 ## RobStride Protocol Paths
 
@@ -250,10 +262,13 @@ flowchart TB
   CORE --> MYACT["motor_vendors/myactuator"]
   CORE --> HIGHTORQUE["motor_vendors/hightorque"]
   CORE --> HEXFELLOW["motor_vendors/hexfellow"]
+  CORE --> HUAYI["motor_vendors/huayi"]
   CORE --> TEMPLATE["motor_vendors/template (onboarding scaffold)"]
-  DAMIAO --> CAN["CAN bus backend"]
+  ROBSTRIDE_CIA402 --> CANOPEN["motor_canopen (shared CANopen framework)"]
+  HUAYI --> CANOPEN
+  CANOPEN --> CAN["CAN bus backend"]
+  DAMIAO --> CAN
   ROBSTRIDE --> CAN
-  ROBSTRIDE_CIA402 --> CAN
   ROBSTRIDE_MIT --> CAN
   MYACT --> CAN
   HIGHTORQUE --> CAN
@@ -268,6 +283,7 @@ flowchart TB
 ```mermaid
 flowchart LR
   ROOT["motorbridge workspace"] --> CORE["motor_core"]
+  ROOT --> CANOPEN["motor_canopen"]
   ROOT --> VENDORS["motor_vendors/*"]
   ROOT --> CLI["motor_cli"]
   ROOT --> ABI["motor_abi"]
@@ -281,7 +297,10 @@ flowchart LR
   VENDORS --> VRC["robstride_cia402"]
   VENDORS --> VRM["robstride_mit"]
   VENDORS --> VM["myactuator"]
+  VENDORS --> VHY["huayi"]
   VENDORS --> VT["template"]
+  VRC --> CANOPEN
+  VHY --> CANOPEN
   INTS --> ROS["ros2_bridge"]
   INTS --> WS["ws_gateway"]
   BIND --> PY["python"]

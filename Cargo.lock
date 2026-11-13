@@ -256,22 +256,33 @@ dependencies = [
 name = "motor_abi"
 version = "0.6.0"
 dependencies = [
+ "motor_canopen",
  "motor_core",
  "motor_vendor_damiao",
  "motor_vendor_hexfellow",
  "motor_vendor_hightorque",
+ "motor_vendor_huayi",
  "motor_vendor_myactuator",
  "motor_vendor_robstride",
+]
+
+[[package]]
+name = "motor_canopen"
+version = "0.6.0"
+dependencies = [
+ "motor_core",
 ]
 
 [[package]]
 name = "motor_cli"
 version = "0.6.0"
 dependencies = [
+ "motor_canopen",
  "motor_core",
  "motor_vendor_damiao",
  "motor_vendor_hexfellow",
  "motor_vendor_hightorque",
+ "motor_vendor_huayi",
  "motor_vendor_myactuator",
  "motor_vendor_robstride",
  "motor_vendor_robstride_cia402",
@@ -309,6 +320,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "motor_vendor_huayi"
+version = "0.6.0"
+dependencies = [
+ "motor_canopen",
+ "motor_core",
+]
+
+[[package]]
 name = "motor_vendor_myactuator"
 version = "0.6.0"
 dependencies = [
@@ -326,6 +345,7 @@ dependencies = [
 name = "motor_vendor_robstride_cia402"
 version = "0.6.0"
 dependencies = [
+ "motor_canopen",
  "motor_core",
 ]
 
@@ -760,6 +780,7 @@ dependencies = [
  "motor_vendor_damiao",
  "motor_vendor_hexfellow",
  "motor_vendor_hightorque",
+ "motor_vendor_huayi",
  "motor_vendor_myactuator",
  "motor_vendor_robstride",
  "serde",

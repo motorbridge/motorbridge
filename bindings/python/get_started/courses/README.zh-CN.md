@@ -143,6 +143,7 @@
 - `add_myactuator_motor(...)`
 - `add_hightorque_motor(...)`
 - `add_hexfellow_motor(...)`
+- `add_huayi_motor(...)`
 
 ### Motor 接口
 

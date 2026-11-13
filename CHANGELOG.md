@@ -7,6 +7,71 @@ Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Huayi joint driver support (CANopen/CiA402 over classic CAN, node id 1..=127),
+  end-to-end across all layers. Real-hardware acceptance pending
+  (`release_test_notes/huayi_acceptance.md`).
+- `motor_canopen` crate: shared CANopen framework extracted below the vendor
+  layer — SDO expedited read/write, CiA402 state-machine sequences, PDO
+  reconfiguration and TPDO stream decoding, NMT master commands, and node
+  scanning. `motor_vendors/robstride_cia402` was refactored onto it and
+  `motor_vendors/huayi` composes it, so two CANopen vendors coexist on one
+  classic CAN bus.
+- Huayi unified surface: `scan`, `enable`/`disable`, `stop` (controlled),
+  `quick-stop`, `clear-error`, MIT (unified `motor_handle_send_mit` via
+  `2003h`), POS_VEL (PP `6060h=1`), VEL (PV `60FFh`), torque (`6060h=4` +
+  `6071h`), zeroing (3001h position preset, requires disable first — same rule
+  as Damiao), `store_parameters`/restore (1010h/1011h). FORCE_POS is
+  unsupported (no matching 6060h mode). Note the mode-number trap: Huayi
+  `6060h=5` is MIT, whereas `5` is CSP in the RobStride proprietary protocol.
+- Huayi vendor extensions: typed SDO read/write (u16/i16/i32/f32 with 16-bit
+  indices — the generic u8-rid register API is rejected for Huayi),
+  `send_mit_compressed` (RPDO4 8-byte realtime channel to `0x500+node`),
+  `position_preset`, `configure_periodic_report` (TPDO stream on/off; plays
+  the role of RobStride `set_active_report`), `get_error_code` (cached u16),
+  `get_error_history` (1003h walk), `set_node_id` (2001h, store + power cycle),
+  `nmt`, and `motor_controller_huayi_scan_ids`.
+- Huayi `request_feedback` semantics: no-op while the TPDO stream is active
+  (background receiver keeps the cache fresh); auto-activates the 10ms TPDO
+  stream when inactive. `set_can_timeout_ms` is rejected for Huayi (no
+  watchdog object in the manual). `get_state` maps `status_code` = 6061h mode
+  display and `fault_code` = 603Fh/EMCY low byte.
+- Huayi wiring in all four frontends: ABI entry + 17 extension functions
+  (hand-maintained `motor_abi.h`), Python `Motor.huayi_*`/`Controller.
+  add_huayi_motor`/`huayi_scan_ids`, C++ equivalents, motor_cli (`--vendor
+  huayi` with scan/status/mit/mit-compressed/pos-vel/vel/torque/zero/save/
+  restore/set-node-id/history/report/nmt/read-obj/write-obj/preset modes,
+  classic-CAN transports only), ws_gateway (connect, unified control ops,
+  ensure_mode, request_feedback, set_active_report, node scan, verify),
+  and `bindings/api_surface.json` alignment.
+
+### Changed
+
+- Docs: Huayi column in the unified mode-mapping tables (with the 5=MIT vs
+  5=CSP warning), CANopen-camp onboarding section in extending.md, vendor
+  lists and architecture diagrams in both README languages.
+
+### Fixed
+
+- Huayi: NMT commands route through the vendor layer, so a reset targeting
+  the motor's node (or a broadcast) now invalidates the cached mode /
+  PP-handshake / TPDO state — after `ResetNode` the next command re-runs the
+  full handshake instead of skipping steps the drive has forgotten.
+- Huayi: `scan_ids` returns an error when any motor is registered on the
+  controller (the direct SDO probes race the core receive thread); scan
+  before `add_huayi_motor` or use a separate controller on the same bus.
+- Huayi: `controlled_stop` in PP mode now sends the controlword bit-4
+  new-target handshake — previously the re-targeted 607Ah value was written
+  but never latched, so the drive kept moving toward the old target.
+- Huayi: TPDO1/TPDO3/EMCY patches arriving before the first TPDO2 anchor are
+  dropped instead of fabricating a blank pos=0/vel=0 state; the error code
+  itself stays observable through a dedicated cache (`get_error_code` works
+  before the first anchor).
+- motor_cli: huayi `read-obj --ty u8` printed the byte as signed i8 (values
+  >= 0x80 displayed wrong); u16/u32 reads issued two SDO round trips per
+  line, now one.
+
 ## [0.6.0] - 2026-11-11
 
 ### Added

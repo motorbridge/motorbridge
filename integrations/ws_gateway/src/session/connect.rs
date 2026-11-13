@@ -1,5 +1,6 @@
 use crate::model::{ControllerHandle, MotorHandle, Transport, Vendor};
 use crate::vendors::transport_ws::open_hightorque_bus;
+use crate::vendors::transport_ws::open_huayi_controller;
 use motor_core::dm_device::DmDeviceType;
 use motor_vendor_damiao::DamiaoController;
 use motor_vendor_hexfellow::HexfellowController;
@@ -114,6 +115,27 @@ impl SessionCtx {
                 self.controller = Some(ControllerHandle::Hightorque(ctrl));
                 self.motor = Some(MotorHandle::Hightorque(motor));
             }
+            Vendor::Huayi => {
+                // motor_id is the CANopen node id (1..=127); feedback_id 0
+                // keeps the node id. Limits come from the device (6076h /
+                // 2004h), so `model` is a label only.
+                if self.target.motor_id == 0 || self.target.motor_id > 127 {
+                    return Err(format!(
+                        "huayi motor_id must be a CANopen node id in 1..=127, got {}",
+                        self.target.motor_id
+                    ));
+                }
+                let ctrl = open_huayi_controller(&self.target, self.target.transport)?;
+                let motor = ctrl
+                    .add_motor(
+                        self.target.motor_id,
+                        self.target.feedback_id,
+                        &self.target.model,
+                    )
+                    .map_err(|e| format!("add motor failed: {e}"))?;
+                self.controller = Some(ControllerHandle::Huayi(ctrl));
+                self.motor = Some(MotorHandle::Huayi(motor));
+            }
             Vendor::Myactuator => {
                 let p = motor_core::bus::TransportParams {
                     channel: &self.target.channel,
@@ -221,6 +243,13 @@ impl SessionCtx {
                 }
                 ControllerHandle::Hightorque(c) => {
                     let _ = c.shutdown();
+                }
+                ControllerHandle::Huayi(c) => {
+                    if shutdown {
+                        let _ = c.shutdown();
+                    } else {
+                        let _ = c.close_bus();
+                    }
                 }
                 ControllerHandle::Myactuator(c) => {
                     if shutdown {

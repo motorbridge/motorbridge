@@ -103,7 +103,7 @@ DM_Device_SDK 是用于控制 CAN/CAN FD 设备的软件开发工具包。motorb
 - `[STD-CAN]`：标准 CAN 路径（`socketcan` / `pcan`）
 - `[CAN-FD]`：独立 CAN-FD 路径（`socketcanfd`）
 - `[MCU-SERIAL]`：通用 MCU 串口转 CAN 桥路径（`mcu-serial`；桥固件透传经典 CAN 帧，
-  覆盖 damiao / robstride / myactuator / hightorque；与 `dm-serial` 是两种协议）
+  覆盖 damiao / robstride / myactuator / hightorque / huayi；与 `dm-serial` 是两种协议）
 - `[DM-SERIAL]`：Damiao 串口桥路径（`dm-serial`）
 - `[DM-DEVICE]`：Damiao DM_Device SDK 路径（`dm-device`，支持
   `USB2CANFD` 单路、`USB2CANFD_DUAL` 双路和 `LINKX4C` 四路；仅 Damiao 电机协议）
@@ -134,6 +134,17 @@ DM_Device_SDK 是用于控制 CAN/CAN FD 设备的软件开发工具包。motorb
 - Hexfellow:
   - 型号: `hexfellow`（运行时字符串，CANopen 配置）
   - 模式: `scan`, `status`, `enable`, `disable`, `pos-vel`, `mit`（通过 `socketcanfd`）
+- Huayi:
+  - 型号: `huayi-joint`（运行时字符串，仅为标签；型号目录待补——峰值力矩 `6076h`、
+    压缩 MIT 量程 `2004h` 等限值运行时从驱动器自读）
+  - 模式: `scan`, `status`, `enable`, `disable`, `stop`, `quick-stop`, `clear-error`, `mit`,
+    `mit-compressed`（RPDO4 快速通道）, `pos-vel`, `vel`, `torque`, `zero`（3001h 预设）,
+    `preset`（3001h，用 `--preset-rev`）, `save`/`restore`（1010h/1011h）, `set-node-id`（2001h）,
+    `history`（1003h）, `report`, `nmt`, `read-obj`/`write-obj`（类型化 SDO）
+  - 传输: 仅经典 CAN（`socketcan`/`mcu-serial`）；与 `robstride_cia402` 通过
+    `motor_canopen` 公用框架共享 CANopen 语义栈
+  - 说明: 置零须先 disable（同 Damiao 规则）；6060h 模式编号遵循 CiA402（`5`=MIT），
+    与 RobStride 私有协议的 `5`=CSP 不同
 
 ## 更新说明（2026-04）：Damiao / RobStride 能力收敛
 
@@ -160,9 +171,11 @@ flowchart TB
   CORE --> MYACT["motor_vendors/myactuator"]
   CORE --> HIGHTORQUE["motor_vendors/hightorque"]
   CORE --> HEXFELLOW["motor_vendors/hexfellow"]
+  CORE --> HUAYI["motor_vendors/huayi"]
   CORE --> TEMPLATE["motor_vendors/template（接入模板）"]
-  DAMIAO --> CAN["CAN 总线后端"]
-  ROBSTRIDE --> CAN
+  HUAYI --> CANOPEN["motor_canopen（CANopen 公用框架）"]
+  CANOPEN --> CAN["CAN 总线后端"]
+  DAMIAO --> CAN
   MYACT --> CAN
   HIGHTORQUE --> CAN
   HEXFELLOW --> CAN
@@ -176,6 +189,7 @@ flowchart TB
 ```mermaid
 flowchart LR
   ROOT["motorbridge workspace"] --> CORE["motor_core"]
+  ROOT --> CANOPEN["motor_canopen"]
   ROOT --> VENDORS["motor_vendors/*"]
   ROOT --> CLI["motor_cli"]
   ROOT --> ABI["motor_abi"]
@@ -187,7 +201,9 @@ flowchart LR
   VENDORS --> VHT["hightorque"]
   VENDORS --> VR["robstride"]
   VENDORS --> VM["myactuator"]
+  VENDORS --> VHY["huayi"]
   VENDORS --> VT["template"]
+  VHY --> CANOPEN
   INTS --> ROS["ros2_bridge"]
   INTS --> WS["ws_gateway"]
   BIND --> PY["python"]

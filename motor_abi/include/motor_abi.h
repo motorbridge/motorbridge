@@ -46,6 +46,8 @@ typedef struct MotorStateMetadata {
 // - RobStride
 // - MyActuator
 // - HighTorque (native ht_can v1.5.5)
+// - Huayi (CANopen over classic CAN; 6060h mode numbering: 1=PP, 3=PV, 4=torque,
+//   5=MIT — unified modes 1/2/3 are mapped by the ABI, 4/FORCE_POS is rejected)
 
 // Returns the last error message for the calling thread.
 //
@@ -81,6 +83,7 @@ MotorHandle* motor_controller_add_hexfellow_motor(MotorController* controller, u
 MotorHandle* motor_controller_add_myactuator_motor(MotorController* controller, uint16_t motor_id, uint16_t feedback_id, const char* model);
 MotorHandle* motor_controller_add_robstride_motor(MotorController* controller, uint16_t motor_id, uint16_t feedback_id, const char* model);
 MotorHandle* motor_controller_add_hightorque_motor(MotorController* controller, uint16_t motor_id, uint16_t feedback_id, const char* model);
+MotorHandle* motor_controller_add_huayi_motor(MotorController* controller, uint16_t motor_id, uint16_t feedback_id, const char* model);
 void motor_handle_free(MotorHandle* motor);
 
 int32_t motor_handle_enable(MotorHandle* motor);
@@ -182,6 +185,58 @@ int32_t motor_handle_hightorque_write_register(MotorHandle* motor, uint8_t addr,
 // Periodic status report (05 B4 02 <t_ms16>, extended frame): period_ms >= 1 ms;
 // pass 0 to stop the motor-initiated 27 01 status stream.
 int32_t motor_handle_hightorque_set_periodic_report(MotorHandle* motor, uint16_t period_ms);
+
+// Huayi-only extensions (reject non-Huayi motors). motor_id = CANopen node id
+// (1..=127). The generic motor_handle_*_register u8-rid interface cannot
+// address 16-bit CANopen indices — the typed SDO access below is the
+// canonical register interface for Huayi (the generic functions reject
+// Huayi motors). Unified motor_handle_get_state maps: status_code = 6061h
+// mode display, fault_code = 603Fh/EMCY low byte (full u16 via
+// motor_handle_huayi_get_error_code).
+// SDO typed access: 16-bit index + 8-bit sub, write timeout fixed at 300 ms.
+int32_t motor_handle_huayi_sdo_read_u16(MotorHandle* motor, uint16_t index, uint8_t sub, uint32_t timeout_ms, uint16_t* out_value);
+int32_t motor_handle_huayi_sdo_read_i16(MotorHandle* motor, uint16_t index, uint8_t sub, uint32_t timeout_ms, int16_t* out_value);
+int32_t motor_handle_huayi_sdo_read_i32(MotorHandle* motor, uint16_t index, uint8_t sub, uint32_t timeout_ms, int32_t* out_value);
+int32_t motor_handle_huayi_sdo_read_f32(MotorHandle* motor, uint16_t index, uint8_t sub, uint32_t timeout_ms, float* out_value);
+int32_t motor_handle_huayi_sdo_write_u16(MotorHandle* motor, uint16_t index, uint8_t sub, uint16_t value);
+int32_t motor_handle_huayi_sdo_write_i16(MotorHandle* motor, uint16_t index, uint8_t sub, int16_t value);
+int32_t motor_handle_huayi_sdo_write_i32(MotorHandle* motor, uint16_t index, uint8_t sub, int32_t value);
+int32_t motor_handle_huayi_sdo_write_f32(MotorHandle* motor, uint16_t index, uint8_t sub, float value);
+// Torque mode (6060h=4): target torque in Nm (6071h permille of the 6076h peak;
+// conversion and peak caching in the vendor layer).
+int32_t motor_handle_huayi_send_torque(MotorHandle* motor, float torque_nm);
+// Compressed MIT fast path (manual 5.2): one 8-byte classic frame to 0x500+node
+// per command (first call remaps RPDO4 and reads the range objects). All
+// arguments in unified SI units. The slow 2003h SDO path is motor_handle_send_mit.
+int32_t motor_handle_huayi_send_mit_compressed(MotorHandle* motor, float pos, float vel, float kp, float kd, float tau);
+// Position preset (3001h "pres"): requires Switch On Disabled (disable first);
+// |position_rev| <= 0.5 output-shaft revolutions.
+int32_t motor_handle_huayi_position_preset(MotorHandle* motor, float position_rev);
+// TPDO stream control (RobStride set_active_report role): period_ms 1..=65535;
+// 0 stops reporting. TPDO2 (pos/vel) anchors the sequence, TPDO1/TPDO3 patch in place.
+int32_t motor_handle_huayi_configure_periodic_report(MotorHandle* motor, uint32_t period_ms);
+// Last cached 603Fh/EMCY error code (u16, 0 = no error); no bus traffic, fails
+// when no feedback source has reported yet. EMCY fault bursts are recorded
+// even before a TPDO2 anchor (they only anchor the full state).
+int32_t motor_handle_huayi_get_error_code(MotorHandle* motor, uint16_t* out_code);
+// Error history (1003h walk): writes up to 32 codes into out_codes (oldest
+// first) and the count into out_count. Pass out_codes with room for 32 u16.
+int32_t motor_handle_huayi_get_error_history(MotorHandle* motor, uint16_t* out_codes, uint32_t* out_count);
+// Change the CANopen node id (2001h_1); effective after a node reset.
+int32_t motor_handle_huayi_set_node_id(MotorHandle* motor, uint8_t new_id);
+// Raw NMT master command on this motor's bus: command 0x01 start / 0x02 stop /
+// 0x80 enter pre-operational / 0x81 reset node / 0x82 reset communication;
+// node 0 broadcasts to every CANopen node on the bus.
+int32_t motor_handle_huayi_nmt(MotorHandle* motor, uint8_t command, uint8_t node);
+// Scan CANopen nodes: NMT start broadcast, then 6041h/6061h/603Fh SDO probes
+// for each id in start_id..=end_id (1..=127, start <= end). out_nodes must have
+// room for end_id - start_id + 1 u16 entries; out_count receives the hit count.
+// Returns an error if any motor is already registered on the controller (the
+// core receive thread would claim the probe replies) — call before
+// add_huayi_motor or from a separate controller on the same bus. The scan
+// holds the controller for its whole duration, so keep timeout_ms modest.
+// Huayi controllers only.
+int32_t motor_controller_huayi_scan_ids(MotorController* controller, uint16_t start_id, uint16_t end_id, uint32_t timeout_ms, uint16_t* out_nodes, uint32_t* out_count);
 
 #ifdef __cplusplus
 }

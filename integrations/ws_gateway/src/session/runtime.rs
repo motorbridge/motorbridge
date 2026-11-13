@@ -117,6 +117,39 @@ impl SessionCtx {
                 }
                 None => Ok(()),
             },
+            Some(MotorHandle::Huayi(motor)) => match self.active.as_ref() {
+                // Unified SI units; the vendor converts rad->Rev, kp/kd via
+                // the 2003h scale factor, torque via the cached 6076h peak.
+                // Mode handshake (6060h + 6061h verify) is inside the vendor
+                // send methods and cached after the first call.
+                Some(ActiveCommand::Mit {
+                    pos,
+                    vel,
+                    kp,
+                    kd,
+                    tau,
+                }) => motor
+                    .send_mit(*pos, *vel, *kp, *kd, *tau, Duration::from_millis(300))
+                    .map_err(|e| e.to_string()),
+                Some(ActiveCommand::PosVel { pos, vlim }) => motor
+                    .send_pos_vel(*pos, *vlim, Duration::from_millis(300))
+                    .map_err(|e| e.to_string()),
+                Some(ActiveCommand::Vel { vel }) => motor
+                    .send_vel(*vel, Duration::from_millis(300))
+                    .map_err(|e| e.to_string()),
+                // Torque mode (6060h=4, 6071h permille of 6076h peak): Huayi
+                // has a real standalone torque-target command.
+                Some(ActiveCommand::Torque { tau }) => motor
+                    .send_torque(*tau, Duration::from_millis(300))
+                    .map_err(|e| e.to_string()),
+                Some(ActiveCommand::PosVelAcc { .. }) => {
+                    Err("pos_vel_acc is not supported for huayi".to_string())
+                }
+                Some(ActiveCommand::ForcePos { .. }) => {
+                    Err("force_pos is not supported for huayi".to_string())
+                }
+                None => Ok(()),
+            },
             Some(MotorHandle::Myactuator(motor)) => match self.active.as_ref() {
                 Some(ActiveCommand::Vel { vel }) => motor
                     .send_velocity_setpoint(vel.to_degrees())
@@ -235,6 +268,31 @@ impl SessionCtx {
                     }))
                 } else {
                     Ok(json!({"vendor":"hightorque","has_value": false}))
+                }
+            }
+            (Some(ControllerHandle::Huayi(ctrl)), Some(MotorHandle::Huayi(motor))) => {
+                // TPDO stream (when active) keeps the cache fresh on the
+                // background receive thread; otherwise fall back to the
+                // blocking SDO query_status (which also refreshes the cache).
+                let _ = ctrl.poll_feedback_once();
+                let state = motor
+                    .latest_state()
+                    .or_else(|| motor.query_status(Duration::from_millis(200)).ok());
+                match state {
+                    Some(s) => Ok(json!({
+                        "vendor": "huayi",
+                        "has_value": true,
+                        "motor_id": self.target.motor_id,
+                        "mode_display": s.mode_display,
+                        "statusword": s.statusword,
+                        "error_code": s.error_code,
+                        "pos": s.pos_rad,
+                        "vel": s.vel_rad_s,
+                        "torq": s.torque_nm,
+                        "t_driver": s.t_driver_c,
+                        "t_motor": s.t_motor_c,
+                    })),
+                    None => Ok(json!({"vendor":"huayi","has_value": false})),
                 }
             }
             (Some(ControllerHandle::Myactuator(ctrl)), Some(MotorHandle::Myactuator(motor))) => {

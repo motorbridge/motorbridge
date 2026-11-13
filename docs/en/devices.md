@@ -6,7 +6,7 @@
 - Linux SocketCAN uses prepared interfaces directly: `can0`, `can1`. For CANable, use candleLight/gs_usb firmware so it appears as a SocketCAN interface such as `can0`.
 - Use PCAN or CANable candleLight/gs_usb for standard CAN.
 - Damiao-only adapter transports are available in CLI: serial bridge (`--transport dm-serial --serial-port /dev/ttyACM0 --serial-baud 921600`) and DM_Device SDK (`--transport dm-device --dm-device-type usb2canfd|usb2canfd-dual|linkx4c --dm-channel 0|1|2|3`; Damiao motors only; adapter must be in USB mode).
-- Generic MCU UART-to-CAN bridge: `--transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600`. Note this is a different protocol from the Damiao-only `dm-serial` bridge: `mcu-serial` relays classic CAN frames through the bridge firmware, while `dm-serial` carries the Damiao serial protocol. It covers all classic-CAN vendors (damiao / robstride / myactuator / hightorque; hexfellow is CAN-FD-only and not supported); the bridge firmware proactively reports structured link status on bus-off / TX failure / RX drop, and all four frontends (motor_abi / Python / motor_cli / ws_gateway) support it.
+- Generic MCU UART-to-CAN bridge: `--transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600`. Note this is a different protocol from the Damiao-only `dm-serial` bridge: `mcu-serial` relays classic CAN frames through the bridge firmware, while `dm-serial` carries the Damiao serial protocol. It covers all classic-CAN vendors (damiao / robstride / myactuator / hightorque / huayi; hexfellow is CAN-FD-only and not supported); the bridge firmware proactively reports structured link status on bus-off / TX failure / RX drop, and all four frontends (motor_abi / Python / motor_cli / ws_gateway) support it.
 - On Linux SocketCAN, do not append bitrate in `--channel` (for example `can0@1000000` is invalid).
 - On Windows (PCAN backend), `can0/can1` map to `PCAN_USBBUS1/2`; optional `@bitrate` suffix is supported.
 
@@ -39,6 +39,10 @@ mindmap
         hightorque (native ht_can v2.0.0)
         Modes
           scan / read / mit / pos-vel / vel / stop
+      Huayi
+        huayi-joint (CANopen/CiA402)
+        Modes
+          MIT / POS_VEL / VEL / torque / NMT / SDO typed access / node scan / error history
     Template
       template_vendor
         model_a
@@ -52,6 +56,7 @@ mindmap
 | RobStride | rs-00, rs-01, rs-02, rs-03, rs-04, rs-05, rs-05el, rs-06 | scan, ping, enable, disable, MIT, POS_VEL, VEL, parameter read/write, set-id, zero | Yes (i8/u8/u16/u32/f32) | Yes | Uses 29-bit extended CAN IDs; default host/feedback ID `0xFD`; set-id aligned to upper-tool frame layout |
 | MyActuator | X-series (runtime model string, default `X8`) | enable, disable, stop, status, current, vel, pos, version, mode-query | No (CLI command-level support) | Yes | Uses standard 11-bit IDs `0x140+id` / `0x240+id`; practical ID range 1..32 |
 | HighTorque | hightorque (runtime model string; native `ht_can v2.0.0`) | scan, read, MIT, POS_VEL, POS_VEL_ACC (trapezoid 07 2d), VEL, POS_CLASSIC (07 07), torque (05 13), dq_voltage / dq_current, set-mode (run mode switch), periodic-report, read-reg (17-family generic register read), write-reg (generic register write), stop, brake (mode 15), rezero | No (vendor command-level support) | Yes | Unified `rad/rad/s/Nm/V/A` physical-unit interface (torque/voltage/current encoded vendor-side with model torque coeff); MIT uses the `0x18000 \| id` bit-packed frame (firmware v4.6.0+); native payload scaling handled internally |
+| Huayi | huayi-joint (runtime model string, label only) | scan (node scan), enable, disable, MIT (incl. compressed RPDO4 fast path), POS_VEL, VEL, torque (6060h=4 + 6071h), position preset (3001h zero/preset), set-node-id (2001h), NMT, error history (1003h), store/restore (1010h/1011h) | Typed SDO (u16/i16/i32/f32, 16-bit indices) | Yes | CANopen/CiA402 over classic CAN; node id 1..=127; shares the CANopen semantic stack with RobStride (the shared motor_canopen framework) but mode numbering differs (6060h=5 is MIT, not CSP as in the RobStride proprietary protocol); mixed-bus use requires classic CAN (1 Mbit/s) — Hexfellow's CAN-FD bus does not apply; zeroing requires disable first (same as Damiao) |
 
 ## Template (Not Production)
 

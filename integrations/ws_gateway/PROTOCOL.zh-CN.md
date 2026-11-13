@@ -101,7 +101,7 @@ motorbridge-gateway -- --bind 127.0.0.1:9002 --vendor robstride --channel can0@1
 | 参数 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- |
 | `--bind` | string | `127.0.0.1:9002` | WebSocket 监听地址 |
-| `--vendor` | enum | `damiao` | 默认厂商：`damiao` / `robstride` / `hexfellow` / `myactuator` / `hightorque` |
+| `--vendor` | enum | `damiao` | 默认厂商：`damiao` / `robstride` / `hexfellow` / `myactuator` / `hightorque` / `huayi` |
 | `--transport` | enum | `auto` | 链路：`auto` / `socketcan` / `socketcanfd` / `mcu-serial` / `dm-serial` / `dm-device`（`mcu-serial` 为通用 MCU 串口转 CAN 桥，覆盖经典 CAN 品牌，与 `dm-serial` 是两种协议） |
 | `--channel` | string | `can0` | CAN 通道。Linux 通常 `can0`；Windows PCAN 可用 `can0@1000000` |
 | `--serial-port` | string | `/dev/ttyACM0` | `mcu-serial` 或 Damiao `dm-serial` 串口设备 |

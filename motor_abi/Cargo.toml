@@ -13,9 +13,11 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 motor_core = { path = "../motor_core" }
+motor_canopen = { path = "../motor_canopen" }
 motor_vendor_damiao = { path = "../motor_vendors/damiao" }
 motor_vendor_hexfellow = { path = "../motor_vendors/hexfellow" }
 motor_vendor_hightorque = { path = "../motor_vendors/hightorque" }
+motor_vendor_huayi = { path = "../motor_vendors/huayi" }
 motor_vendor_myactuator = { path = "../motor_vendors/myactuator" }
 motor_vendor_robstride = { path = "../motor_vendors/robstride" }
 

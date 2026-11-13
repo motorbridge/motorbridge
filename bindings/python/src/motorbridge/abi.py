@@ -162,6 +162,8 @@ class Abi:
         lib.motor_controller_add_robstride_motor.restype = c_void_p
         lib.motor_controller_add_hightorque_motor.argtypes = [c_void_p, c_uint16, c_uint16, c_char_p]
         lib.motor_controller_add_hightorque_motor.restype = c_void_p
+        lib.motor_controller_add_huayi_motor.argtypes = [c_void_p, c_uint16, c_uint16, c_char_p]
+        lib.motor_controller_add_huayi_motor.restype = c_void_p
 
         lib.motor_handle_free.argtypes = [c_void_p]
         lib.motor_handle_enable.argtypes = [c_void_p]
@@ -291,6 +293,58 @@ class Abi:
         lib.motor_handle_damiao_write_param_f32.restype = c_int32
         lib.motor_handle_damiao_write_param_u32.argtypes = [c_void_p, c_uint16, c_uint32]
         lib.motor_handle_damiao_write_param_u32.restype = c_int32
+
+        # Huayi (CANopen): typed SDO access (16-bit index + sub), compressed
+        # MIT fast path, position preset, TPDO periodic report, diagnostics,
+        # node management and scan. 6061h mode display numbering: 5 = MIT.
+        lib.motor_handle_huayi_sdo_read_u16.argtypes = [
+            c_void_p, c_uint16, c_uint8, c_uint32, POINTER(c_uint16)
+        ]
+        lib.motor_handle_huayi_sdo_read_u16.restype = c_int32
+        lib.motor_handle_huayi_sdo_read_i16.argtypes = [
+            c_void_p, c_uint16, c_uint8, c_uint32, POINTER(c_int16)
+        ]
+        lib.motor_handle_huayi_sdo_read_i16.restype = c_int32
+        lib.motor_handle_huayi_sdo_read_i32.argtypes = [
+            c_void_p, c_uint16, c_uint8, c_uint32, POINTER(c_int32)
+        ]
+        lib.motor_handle_huayi_sdo_read_i32.restype = c_int32
+        lib.motor_handle_huayi_sdo_read_f32.argtypes = [
+            c_void_p, c_uint16, c_uint8, c_uint32, POINTER(c_float)
+        ]
+        lib.motor_handle_huayi_sdo_read_f32.restype = c_int32
+        lib.motor_handle_huayi_sdo_write_u16.argtypes = [c_void_p, c_uint16, c_uint8, c_uint16]
+        lib.motor_handle_huayi_sdo_write_u16.restype = c_int32
+        lib.motor_handle_huayi_sdo_write_i16.argtypes = [c_void_p, c_uint16, c_uint8, c_int16]
+        lib.motor_handle_huayi_sdo_write_i16.restype = c_int32
+        lib.motor_handle_huayi_sdo_write_i32.argtypes = [c_void_p, c_uint16, c_uint8, c_int32]
+        lib.motor_handle_huayi_sdo_write_i32.restype = c_int32
+        lib.motor_handle_huayi_sdo_write_f32.argtypes = [c_void_p, c_uint16, c_uint8, c_float]
+        lib.motor_handle_huayi_sdo_write_f32.restype = c_int32
+        lib.motor_handle_huayi_send_torque.argtypes = [c_void_p, c_float]
+        lib.motor_handle_huayi_send_torque.restype = c_int32
+        lib.motor_handle_huayi_send_mit_compressed.argtypes = [
+            c_void_p, c_float, c_float, c_float, c_float, c_float
+        ]
+        lib.motor_handle_huayi_send_mit_compressed.restype = c_int32
+        lib.motor_handle_huayi_position_preset.argtypes = [c_void_p, c_float]
+        lib.motor_handle_huayi_position_preset.restype = c_int32
+        lib.motor_handle_huayi_configure_periodic_report.argtypes = [c_void_p, c_uint32]
+        lib.motor_handle_huayi_configure_periodic_report.restype = c_int32
+        lib.motor_handle_huayi_get_error_code.argtypes = [c_void_p, POINTER(c_uint16)]
+        lib.motor_handle_huayi_get_error_code.restype = c_int32
+        lib.motor_handle_huayi_get_error_history.argtypes = [
+            c_void_p, POINTER(c_uint16), POINTER(c_uint32)
+        ]
+        lib.motor_handle_huayi_get_error_history.restype = c_int32
+        lib.motor_handle_huayi_set_node_id.argtypes = [c_void_p, c_uint8]
+        lib.motor_handle_huayi_set_node_id.restype = c_int32
+        lib.motor_handle_huayi_nmt.argtypes = [c_void_p, c_uint8, c_uint8]
+        lib.motor_handle_huayi_nmt.restype = c_int32
+        lib.motor_controller_huayi_scan_ids.argtypes = [
+            c_void_p, c_uint16, c_uint16, c_uint32, POINTER(c_uint16), POINTER(c_uint32)
+        ]
+        lib.motor_controller_huayi_scan_ids.restype = c_int32
 
 
 _abi_singleton: Abi | None = None

@@ -112,6 +112,22 @@ fn handle_mit(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         Some(MotorHandle::Myactuator(_)) => {
             return Err("mit is not supported for myactuator".to_string());
         }
+        Some(MotorHandle::Huayi(m)) => {
+            // Slow 2003h SDO path (five writes; kp/kd via the scale factor).
+            // The RPDO4 one-frame fast path is a vendor-private ABI op not
+            // mirrored here (see motor_handle_huayi_send_mit_compressed).
+            if let ActiveCommand::Mit {
+                pos,
+                vel,
+                kp,
+                kd,
+                tau,
+            } = cmd
+            {
+                m.send_mit(pos, vel, kp, kd, tau, Duration::from_millis(300))
+                    .map_err(|e| e.to_string())?;
+            }
+        }
         None => return Err("motor not connected".to_string()),
     }
     ctx.active = if as_bool(v, "continuous", false) {
@@ -224,6 +240,19 @@ fn handle_pos_vel(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         Some(MotorHandle::Myactuator(_)) => {
             Err("pos_vel is not supported for myactuator".to_string())
         }
+        Some(MotorHandle::Huayi(m)) => {
+            // PP: 6081h profile velocity + 607Ah target + CW bit4 handshake.
+            if let ActiveCommand::PosVel { pos, vlim } = cmd {
+                m.send_pos_vel(pos, vlim, Duration::from_millis(300))
+                    .map_err(|e| e.to_string())?;
+            }
+            ctx.active = if as_bool(v, "continuous", false) {
+                Some(cmd)
+            } else {
+                None
+            };
+            Ok(json!({"op":"pos_vel","continuous": as_bool(v, "continuous", false)}))
+        }
         None => Err("motor not connected".to_string()),
     }
 }
@@ -261,6 +290,9 @@ fn handle_pos_vel_acc(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> 
         Some(MotorHandle::Robstride(_)) => {
             Err("pos_vel_acc is not supported for robstride".to_string())
         }
+        Some(MotorHandle::Huayi(_)) => {
+            Err("pos_vel_acc is not supported for huayi".to_string())
+        }
         None => Err("motor not connected".to_string()),
     }
 }
@@ -270,13 +302,26 @@ fn handle_torque(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
     let cmd = ActiveCommand::Torque {
         tau: as_f32(v, "tau", 0.0),
     };
-    // Direct torque-target command (05 13) is exclusive to the HighTorque
-    // protocol; other vendors express torque via MIT feedforward (the `mit`
-    // op), so reject here rather than degrade to an approximation.
+    // Direct torque-target command: HighTorque (05 13) and Huayi (6060h=4,
+    // 6071h permille of 6076h peak) have a real standalone torque command;
+    // other vendors express torque via MIT feedforward (the `mit` op), so
+    // reject here rather than degrade to an approximation.
     match ctx.motor.as_ref() {
         Some(MotorHandle::Hightorque(m)) => {
             if let ActiveCommand::Torque { tau } = cmd {
                 m.send_cmd_torque(tau).map_err(|e| e.to_string())?;
+            }
+            ctx.active = if as_bool(v, "continuous", false) {
+                Some(cmd)
+            } else {
+                None
+            };
+            Ok(json!({"op":"torque","continuous": as_bool(v, "continuous", false)}))
+        }
+        Some(MotorHandle::Huayi(m)) => {
+            if let ActiveCommand::Torque { tau } = cmd {
+                m.send_torque(tau, Duration::from_millis(300))
+                    .map_err(|e| e.to_string())?;
             }
             ctx.active = if as_bool(v, "continuous", false) {
                 Some(cmd)
@@ -352,6 +397,13 @@ fn handle_vel(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         Some(MotorHandle::Hexfellow(_)) => {
             return Err("vel is not supported for hexfellow; use pos_vel or mit".to_string())
         }
+        Some(MotorHandle::Huayi(m)) => {
+            // PV: 6060h=3 + 60FFh target (Rev/s Float32, converted).
+            if let ActiveCommand::Vel { vel } = cmd {
+                m.send_vel(vel, Duration::from_millis(300))
+                    .map_err(|e| e.to_string())?;
+            }
+        }
         None => return Err("motor not connected".to_string()),
     }
     ctx.active = if as_bool(v, "continuous", false) {
@@ -404,6 +456,9 @@ fn handle_force_pos(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         }
         Some(MotorHandle::Myactuator(_)) => {
             Err("force_pos is not supported for myactuator".to_string())
+        }
+        Some(MotorHandle::Huayi(_)) => {
+            Err("force_pos is not supported for huayi (no 6060h counterpart)".to_string())
         }
         None => Err("motor not connected".to_string()),
     }

@@ -1,11 +1,12 @@
 use crate::objects::*;
+use motor_canopen::node::CanopenNode;
+use motor_canopen::send_std_frame;
 use motor_core::bus::{CanBus, CanFrame};
 use motor_core::device::MotorDevice;
 use motor_core::error::{MotorError, Result};
 use motor_core::model::{ModelCatalog, MotorModelSpec, PvTLimits, StaticModelCatalog};
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::Duration;
 
 const ROBSTRIDE_CIA402_MODELS: &[MotorModelSpec] = &[
     MotorModelSpec {
@@ -94,10 +95,8 @@ pub struct RobstrideCia402Motor {
     pub motor_id: u16,
     pub feedback_id: u16,
     pub model: String,
-    bus: Arc<dyn CanBus>,
+    node: CanopenNode,
     limits: PvTLimits,
-    sdo_reply_queue: Mutex<VecDeque<[u8; 8]>>,
-    heartbeat_state: Mutex<Option<u8>>,
 }
 
 impl RobstrideCia402Motor {
@@ -114,182 +113,32 @@ impl RobstrideCia402Motor {
             motor_id,
             feedback_id,
             model: model.to_string(),
-            bus,
+            node: CanopenNode::new(motor_id, bus)?,
             limits: PvTLimits::from_spec(spec),
-            sdo_reply_queue: Mutex::new(VecDeque::new()),
-            heartbeat_state: Mutex::new(None),
         })
     }
 
-    fn sdo_req_id(&self) -> u32 {
-        sdo_req_id(self.motor_id)
-    }
-
-    fn sdo_rsp_id(&self) -> u32 {
-        sdo_rsp_id(self.motor_id)
-    }
-
-    fn heartbeat_id(&self) -> u32 {
-        heartbeat_id(self.motor_id)
-    }
-
-    fn send_std_frame(&self, arbitration_id: u32, payload: &[u8]) -> Result<()> {
-        if payload.len() > 8 {
-            return Err(MotorError::InvalidArgument(format!(
-                "payload too long: {}, expected <=8",
-                payload.len()
-            )));
-        }
-        let mut data = [0u8; 8];
-        data[..payload.len()].copy_from_slice(payload);
-        self.bus.send(CanFrame {
-            arbitration_id,
-            data,
-            dlc: payload.len() as u8,
-            is_extended: false,
-            is_rx: false,
-        })
-    }
+    // --- SDO / NMT plumbing now lives in motor_canopen::node; the typed
+    // wrappers below keep this crate's public surface stable. ---
 
     pub fn send_nmt(&self, command: u8, node_id: u8) -> Result<()> {
-        self.send_std_frame(NMT_ID, &[command, node_id])
-    }
-
-    fn build_sdo_upload(index: u16, subindex: u8) -> [u8; 8] {
-        [
-            0x40,
-            (index & 0xFF) as u8,
-            ((index >> 8) & 0xFF) as u8,
-            subindex,
-            0,
-            0,
-            0,
-            0,
-        ]
-    }
-
-    fn build_sdo_download(index: u16, subindex: u8, payload4: [u8; 4], nbytes: usize) -> [u8; 8] {
-        let cmd = match nbytes {
-            1 => 0x2F,
-            2 => 0x2B,
-            4 => 0x23,
-            _ => 0x23,
-        };
-        [
-            cmd,
-            (index & 0xFF) as u8,
-            ((index >> 8) & 0xFF) as u8,
-            subindex,
-            payload4[0],
-            payload4[1],
-            payload4[2],
-            payload4[3],
-        ]
-    }
-
-    fn pop_matching_sdo_reply(
-        &self,
-        index: u16,
-        subindex: u8,
-        timeout: Duration,
-    ) -> Result<[u8; 8]> {
-        let deadline = Instant::now() + timeout;
-        loop {
-            let mut pending = self
-                .sdo_reply_queue
-                .lock()
-                .map_err(|_| MotorError::Io("sdo queue lock poisoned".to_string()))?;
-            let mut hold = VecDeque::new();
-            let mut found = None;
-            while let Some(msg) = pending.pop_front() {
-                let idx = u16::from(msg[1]) | (u16::from(msg[2]) << 8);
-                let sub = msg[3];
-                if idx == index && sub == subindex {
-                    found = Some(msg);
-                    break;
-                }
-                hold.push_back(msg);
-            }
-            while let Some(m) = hold.pop_front() {
-                pending.push_back(m);
-            }
-            drop(pending);
-            if let Some(msg) = found {
-                return Ok(msg);
-            }
-            if Instant::now() >= deadline {
-                return Err(MotorError::Timeout(format!(
-                    "sdo response timeout idx=0x{index:04X} sub=0x{subindex:02X}"
-                )));
-            }
-            std::thread::sleep(Duration::from_millis(1));
-        }
-    }
-
-    fn sdo_read_raw(&self, index: u16, subindex: u8, timeout: Duration) -> Result<[u8; 4]> {
-        let req = Self::build_sdo_upload(index, subindex);
-        self.send_std_frame(self.sdo_req_id(), &req)?;
-        let rsp = self.pop_matching_sdo_reply(index, subindex, timeout)?;
-        let cmd = rsp[0];
-        if cmd == 0x80 {
-            let abort = u32::from_le_bytes([rsp[4], rsp[5], rsp[6], rsp[7]]);
-            return Err(MotorError::Protocol(format!(
-                "sdo abort idx=0x{index:04X} sub=0x{subindex:02X} code=0x{abort:08X}"
-            )));
-        }
-        if !matches!(cmd, 0x43 | 0x4B | 0x4F | 0x47) {
-            return Err(MotorError::Protocol(format!(
-                "unexpected sdo read cmd=0x{cmd:02X} idx=0x{index:04X} sub=0x{subindex:02X}"
-            )));
-        }
-        Ok([rsp[4], rsp[5], rsp[6], rsp[7]])
-    }
-
-    fn sdo_write_raw(
-        &self,
-        index: u16,
-        subindex: u8,
-        payload4: [u8; 4],
-        nbytes: usize,
-        timeout: Duration,
-    ) -> Result<()> {
-        let req = Self::build_sdo_download(index, subindex, payload4, nbytes);
-        self.send_std_frame(self.sdo_req_id(), &req)?;
-        let rsp = self.pop_matching_sdo_reply(index, subindex, timeout)?;
-        let cmd = rsp[0];
-        if cmd == 0x80 {
-            let abort = u32::from_le_bytes([rsp[4], rsp[5], rsp[6], rsp[7]]);
-            return Err(MotorError::Protocol(format!(
-                "sdo abort idx=0x{index:04X} sub=0x{subindex:02X} code=0x{abort:08X}"
-            )));
-        }
-        if cmd != 0x60 {
-            return Err(MotorError::Protocol(format!(
-                "unexpected sdo write ack cmd=0x{cmd:02X} idx=0x{index:04X} sub=0x{subindex:02X}"
-            )));
-        }
-        Ok(())
+        send_std_frame(self.node.bus().as_ref(), NMT_ID, &[command, node_id])
     }
 
     pub fn sdo_read_i8(&self, index: u16, subindex: u8, timeout: Duration) -> Result<i8> {
-        let raw = self.sdo_read_raw(index, subindex, timeout)?;
-        Ok(raw[0] as i8)
+        self.node.sdo_read_i8(index, subindex, timeout)
     }
 
     pub fn sdo_read_u16(&self, index: u16, subindex: u8, timeout: Duration) -> Result<u16> {
-        let raw = self.sdo_read_raw(index, subindex, timeout)?;
-        Ok(u16::from_le_bytes([raw[0], raw[1]]))
+        self.node.sdo_read_u16(index, subindex, timeout)
     }
 
     pub fn sdo_read_i16(&self, index: u16, subindex: u8, timeout: Duration) -> Result<i16> {
-        let raw = self.sdo_read_raw(index, subindex, timeout)?;
-        Ok(i16::from_le_bytes([raw[0], raw[1]]))
+        self.node.sdo_read_i16(index, subindex, timeout)
     }
 
     pub fn sdo_read_i32(&self, index: u16, subindex: u8, timeout: Duration) -> Result<i32> {
-        Ok(i32::from_le_bytes(
-            self.sdo_read_raw(index, subindex, timeout)?,
-        ))
+        self.node.sdo_read_i32(index, subindex, timeout)
     }
 
     pub fn sdo_write_i8(
@@ -299,7 +148,7 @@ impl RobstrideCia402Motor {
         value: i8,
         timeout: Duration,
     ) -> Result<()> {
-        self.sdo_write_raw(index, subindex, [value as u8, 0, 0, 0], 1, timeout)
+        self.node.sdo_write_i8(index, subindex, value, timeout)
     }
 
     pub fn sdo_write_u16(
@@ -309,8 +158,7 @@ impl RobstrideCia402Motor {
         value: u16,
         timeout: Duration,
     ) -> Result<()> {
-        let b = value.to_le_bytes();
-        self.sdo_write_raw(index, subindex, [b[0], b[1], 0, 0], 2, timeout)
+        self.node.sdo_write_u16(index, subindex, value, timeout)
     }
 
     pub fn sdo_write_i16(
@@ -320,8 +168,7 @@ impl RobstrideCia402Motor {
         value: i16,
         timeout: Duration,
     ) -> Result<()> {
-        let b = value.to_le_bytes();
-        self.sdo_write_raw(index, subindex, [b[0], b[1], 0, 0], 2, timeout)
+        self.node.sdo_write_i16(index, subindex, value, timeout)
     }
 
     pub fn sdo_write_i32(
@@ -331,11 +178,11 @@ impl RobstrideCia402Motor {
         value: i32,
         timeout: Duration,
     ) -> Result<()> {
-        self.sdo_write_raw(index, subindex, value.to_le_bytes(), 4, timeout)
+        self.node.sdo_write_i32(index, subindex, value, timeout)
     }
 
     pub fn start_node(&self) -> Result<()> {
-        self.send_nmt(NMT_START_REMOTE_NODE, self.motor_id as u8)
+        self.node.start_node()
     }
 
     pub fn set_mode(&self, mode: i8, timeout: Duration) -> Result<()> {
@@ -380,8 +227,7 @@ impl RobstrideCia402Motor {
     }
 
     pub fn set_can_watchdog_raw(&self, value: u32, timeout: Duration) -> Result<()> {
-        let b = value.to_le_bytes();
-        self.sdo_write_raw(CAN_WATCHDOG, 0x01, b, 4, timeout)
+        self.node.sdo_write_u32(CAN_WATCHDOG, 0x01, value, timeout)
     }
 
     pub fn set_can_watchdog_seconds(&self, seconds: f32, timeout: Duration) -> Result<()> {
@@ -572,11 +418,7 @@ impl RobstrideCia402Motor {
         let dc_link_mv = self
             .sdo_read_i32(DC_LINK_CIRCUIT_VOLTAGE, 0x00, timeout)
             .unwrap_or(0);
-        let heartbeat_state = self
-            .heartbeat_state
-            .lock()
-            .map_err(|_| MotorError::Io("heartbeat lock poisoned".to_string()))?
-            .to_owned();
+        let heartbeat_state = self.node.heartbeat_state();
         Ok(RobstrideCia402Status {
             mode_display,
             statusword,
@@ -617,25 +459,13 @@ impl MotorDevice for RobstrideCia402Motor {
     }
 
     fn accepts_frame(&self, frame: &CanFrame) -> bool {
-        !frame.is_extended
-            && (frame.arbitration_id == self.sdo_rsp_id()
-                || frame.arbitration_id == self.heartbeat_id())
+        self.node.accepts_std(frame)
     }
 
     fn process_feedback_frame(&self, frame: CanFrame) -> Result<()> {
-        if frame.arbitration_id == self.sdo_rsp_id() && frame.dlc >= 8 {
-            self.sdo_reply_queue
-                .lock()
-                .map_err(|_| MotorError::Io("sdo queue lock poisoned".to_string()))?
-                .push_back(frame.data);
-            return Ok(());
-        }
-        if frame.arbitration_id == self.heartbeat_id() && frame.dlc >= 1 {
-            self.heartbeat_state
-                .lock()
-                .map_err(|_| MotorError::Io("heartbeat lock poisoned".to_string()))?
-                .replace(frame.data[0]);
-        }
+        // SDO replies queue up for blocked round trips; heartbeats update the
+        // cached state. Anything else is not this motor's frame.
+        let _ = self.node.process(&frame);
         Ok(())
     }
 }

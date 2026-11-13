@@ -8,7 +8,8 @@ use super::{
 };
 use crate::vendors::transport_ws::{
     myactuator_feedback_default, open_damiao_controller, open_hexfellow_controller,
-    open_hightorque_bus, open_myactuator_controller, open_robstride_controller,
+    open_hightorque_bus, open_huayi_controller, open_myactuator_controller,
+    open_robstride_controller,
 };
 
 fn robstride_device_id(id: u16, name: &str) -> Result<u8, String> {
@@ -154,6 +155,25 @@ pub(crate) fn cmd_verify(v: &Value, base: &Target) -> Result<Value, String> {
                 "motor_id": mid,
                 "feedback_id": eff_fid,
                 "version": version,
+                "ok": true,
+            }))
+        }
+        Vendor::Huayi => {
+            // Node-alive probe: read 6041h statusword by SDO — a reply means
+            // a Huayi node is listening on that id.
+            let ctrl = open_huayi_controller(base, transport)?;
+            let motor = ctrl
+                .add_motor(mid, as_u16(v, "feedback_id", 0), &base.model)
+                .map_err(|e| e.to_string())?;
+            let statusword = motor
+                .sdo_read_u16(0x6041, 0x00, Duration::from_millis(timeout_ms))
+                .map_err(|e| e.to_string())?;
+            let _ = ctrl.close_bus();
+            Ok(json!({
+                "vendor": "huayi",
+                "transport": transport.as_str(),
+                "motor_id": mid,
+                "statusword": statusword,
                 "ok": true,
             }))
         }
@@ -303,7 +323,7 @@ pub(crate) fn cmd_set_id(v: &Value, base: &Target) -> Result<Value, String> {
             }
             Ok(out)
         }
-        Vendor::Hexfellow | Vendor::Myactuator | Vendor::Hightorque => {
+        Vendor::Hexfellow | Vendor::Myactuator | Vendor::Hightorque | Vendor::Huayi => {
             Err(format!("set_id is not supported for {}", vendor.as_str()))
         }
     }

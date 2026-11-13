@@ -6,7 +6,7 @@
 - Linux SocketCAN uses prepared interfaces directly: `can0`, `can1`. For CANable, use candleLight/gs_usb firmware so it appears as a SocketCAN interface such as `can0`.
 - Use PCAN or CANable candleLight/gs_usb for standard CAN.
 - Damiao-only adapter transports are available in CLI: serial bridge (`--transport dm-serial --serial-port /dev/ttyACM0 --serial-baud 921600`) and DM_Device SDK (`--transport dm-device --dm-device-type usb2canfd|usb2canfd-dual|linkx4c --dm-channel 0|1|2|3`; Damiao motors only; adapter must be in USB mode).
-- Generic MCU UART-to-CAN bridge: `--transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600`. Note this is a different protocol from the Damiao-only `dm-serial` bridge: `mcu-serial` relays classic CAN frames through the bridge firmware, while `dm-serial` carries the Damiao serial protocol. It covers all classic-CAN vendors (damiao / robstride / myactuator / hightorque; hexfellow is CAN-FD-only and not supported); the bridge firmware proactively reports structured link status on bus-off / TX failure / RX drop, and all four frontends (motor_abi / Python / motor_cli / ws_gateway) support it.
+- Generic MCU UART-to-CAN bridge: `--transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600`. Note this is a different protocol from the Damiao-only `dm-serial` bridge: `mcu-serial` relays classic CAN frames through the bridge firmware, while `dm-serial` carries the Damiao serial protocol. It covers all classic-CAN vendors (damiao / robstride / myactuator / hightorque / huayi; hexfellow is CAN-FD-only and not supported); the bridge firmware proactively reports structured link status on bus-off / TX failure / RX drop, and all four frontends (motor_abi / Python / motor_cli / ws_gateway) support it.
 - Damiao-only DM_Device SDK transport is available through
   `--transport dm-device --dm-device-type usb2canfd|usb2canfd-dual|linkx4c`.
   The adapter must be in USB mode. Linux x86_64 USB2CANFD_DUAL channel 0/1
@@ -67,6 +67,7 @@ If a vendor does not support one of these four baseline modes, gateway returns `
 | hexfellow | native MIT | native POS_VEL | unsupported | unsupported | `mit` supports `kp/kd/tau`; no standalone `vel` | CAN-FD path |
 | myactuator | unsupported | Position setpoint flow | native velocity setpoint | unsupported | `pos_vel` via position setpoint; `vel` in baseline set | native strengths: current/position/version/mode-query |
 | hightorque | native MIT (v2.0.0 bit-packed frame) | native POS_VEL (`0x07 0x35`) | native velocity frame | unsupported | all commands go through `motor_vendor_hightorque` (single implementation); feedback is physical units with model torque-coeff correction | additionally `pos_vel_acc` (trapezoid `07 2d`) and `torque` (`05 13`, physical Nm) modes plus `pos_classic`/`dq_voltage`/`dq_current`/`brake`/`run_mode`/`write_register`/`periodic_report`/`read_register` vendor ops; `enable` is a semantic no-op (plan B, 2026-10-08: succeeds without sending any frame) |
+| huayi | 6060h=5 MIT (`2003h` slow path; RPDO4 compressed fast path is ABI/CLI-only) | 6060h=1 PP (`6081h` + `607Ah` + CW bit4) | 6060h=3 PV (`60FFh`) | unsupported | `motor_id` is the CANopen node id (1..=127); `feedback_id` defaults to 0 (reuses node id) | CANopen/CiA402 over classic CAN; `torque` op supported (6060h=4 + `6071h`); `ensure_mode`/`request_feedback`/`set_active_report` (TPDO stream) unified; zeroing requires `disable` first (3001h guard); mode numbering follows CiA402 (`5`=MIT, not CSP as in RobStride private protocol) |
 
 ### Unified Core Ops Support Matrix
 
@@ -77,6 +78,7 @@ If a vendor does not support one of these four baseline modes, gateway returns `
 | hexfellow | supported | unsupported | supported | supported | supported | supported |
 | myactuator | supported | unsupported | supported | supported | supported | supported |
 | hightorque | supported | unsupported | rejected | supported (stop frame) | supported | supported |
+| huayi | supported (node scan) | unsupported (use CLI/ABI `set_node_id`; needs store + power cycle) | supported | supported | supported (controlled stop) | supported (TPDO stream or `6041h` SDO probe) |
 
 ### Parameter Notes by Mode
 
@@ -131,6 +133,12 @@ Recommended: client calls `{"op":"capabilities"}` on connect and adapts UI/flows
         "modes": ["mit", "pos_vel", "pos_vel_acc", "vel", "torque"],
         "ops_unified": ["scan", "disable", "stop", "state_once", "status", "verify"],
         "ops_vendor_native": ["read", "pos_classic", "read_register", "dq_voltage", "dq_current", "brake", "run_mode", "write_register", "periodic_report", "set_zero_position", "store_parameters"]
+      },
+      "huayi": {
+        "transports": ["auto", "socketcan", "mcu-serial"],
+        "modes": ["mit", "pos_vel", "vel", "torque"],
+        "ops_unified": ["scan", "enable", "disable", "stop", "state_once", "status", "verify", "ensure_mode", "request_feedback", "set_active_report", "store_parameters", "set_zero_position", "clear_error"],
+        "ops_vendor_native": []
       }
     },
     "unsupported_behavior": "return {ok:false,error:'unsupported ...'}"
@@ -333,7 +341,7 @@ RobStride parameter stream frame:
 
 ## Notes
 
-- `--vendor damiao|robstride|hexfellow|myactuator|hightorque` controls default target vendor.
+- `--vendor damiao|robstride|hexfellow|myactuator|hightorque|huayi` controls default target vendor.
 - `set_target` can switch vendor/transport/channel/serial/model/id on the fly per session.
 - `continuous=true` keeps sending that control command every tick.
 - `stop` clears continuous control and requests a vendor-aware controlled stop.

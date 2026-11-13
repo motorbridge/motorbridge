@@ -7,6 +7,7 @@ use motor_vendor_hexfellow::{
     PosVelTarget as HexfellowPosVelTarget,
 };
 use motor_vendor_hightorque::{HightorqueController, HightorqueMotor, ReadCmd};
+use motor_vendor_huayi::{HuayiController, HuayiMotor, RunMode as HuayiRunMode};
 use motor_vendor_myactuator::{
     ControlMode as MyActuatorControlMode, MyActuatorController, MyActuatorMotor,
 };
@@ -33,7 +34,7 @@ const ABI_CAPABILITIES: &str = r#"{
     "version": "__MOTORBRIDGE_VERSION__"
   },
   "transports": ["socketcan", "socketcanfd", "dm-serial", "dm-device", "mcu-serial"],
-  "vendors": ["damiao", "robstride", "myactuator", "hexfellow", "hightorque"],
+  "vendors": ["damiao", "robstride", "myactuator", "hexfellow", "hightorque", "huayi"],
   "features": {
     "state_cache": true,
     "state_snapshot_metadata": true,
@@ -43,7 +44,8 @@ const ABI_CAPABILITIES: &str = r#"{
     "robstride": ["ping", "ping_host_id", "fault_report", "active_report", "device_id", "param_i8", "param_u8", "param_u16", "param_u32", "param_f32", "param_f32_host_id", "pos_vel_pp", "pos_vel_csp"],
     "myactuator": ["param_i8", "param_u8", "param_u16", "param_u32", "param_f32"],
     "hexfellow": ["socketcanfd", "mit", "pos_vel"],
-    "hightorque": ["mit", "vel", "pos_vel", "pos_vel_acc", "pos_classic", "torque", "dq_voltage", "dq_current", "brake", "set_run_mode", "write_register", "periodic_report", "request_register", "get_register", "fault_code"]
+    "hightorque": ["mit", "vel", "pos_vel", "pos_vel_acc", "pos_classic", "torque", "dq_voltage", "dq_current", "brake", "set_run_mode", "write_register", "periodic_report", "request_register", "get_register", "fault_code"],
+    "huayi": ["sdo", "mit", "mit_compressed", "torque", "pos_vel", "vel", "position_preset", "periodic_report", "error_code", "error_history", "node_id", "nmt", "scan", "store_parameters", "restore_parameters"]
   }
 }"#;
 
@@ -94,6 +96,18 @@ fn to_myactuator_mode(mode: u32) -> Result<MyActuatorControlMode, &'static str> 
     }
 }
 
+/// Huayi mode display is the CANopen 6061h numbering — and it does NOT
+/// match RobStride's private numbering (Huayi 6060h=5 is MIT, on RobStride
+/// 5 is CSP). Mapping kept here so the trap stays visible at the ABI layer.
+fn to_huayi_mode(mode: u32) -> Result<HuayiRunMode, &'static str> {
+    match mode {
+        1 => Ok(HuayiRunMode::Mit),
+        2 => Ok(HuayiRunMode::ProfilePosition),
+        3 => Ok(HuayiRunMode::ProfileVelocity),
+        _ => Err("Huayi mode must be 1(MIT) / 2(POS_VEL) / 3(VEL); FORCE_POS is not supported"),
+    }
+}
+
 // Size difference is accepted: this enum lives behind the opaque C handle
 // (one instance per controller, never in arrays or hot loops), and boxing
 // Bound would churn every construction/match site for no practical gain.
@@ -137,6 +151,7 @@ struct BoundController {
     myactuator: Option<MyActuatorController>,
     robstride: Option<RobstrideController>,
     hightorque: Option<HightorqueController>,
+    huayi: Option<HuayiController>,
 }
 
 impl BoundController {
@@ -149,6 +164,7 @@ impl BoundController {
             myactuator: None,
             robstride: None,
             hightorque: None,
+            huayi: None,
         }
     }
 }
@@ -162,6 +178,7 @@ enum Vendor {
     MyActuator,
     Robstride,
     Hightorque,
+    Huayi,
 }
 
 impl Vendor {
@@ -172,6 +189,7 @@ impl Vendor {
             Vendor::MyActuator => "MyActuator",
             Vendor::Robstride => "RobStride",
             Vendor::Hightorque => "HighTorque",
+            Vendor::Huayi => "Huayi",
         }
     }
 
@@ -304,6 +322,12 @@ ensure_vendor_controller!(
     HightorqueController,
     hightorque
 );
+ensure_vendor_controller!(
+    ensure_huayi_controller,
+    Vendor::Huayi,
+    HuayiController,
+    huayi
+);
 
 // Damiao: the eager dm-serial/dm-device path keeps its own `DamiaoController`
 // (own core) and must short-circuit before `ensure_bound` (which only handles
@@ -328,6 +352,7 @@ enum MotorHandleInner {
     MyActuator(Arc<MyActuatorMotor>),
     Robstride(Arc<RobstrideMotor>),
     Hightorque(Arc<HightorqueMotor>),
+    Huayi(Arc<HuayiMotor>),
 }
 
 #[repr(C)]
@@ -451,6 +476,7 @@ mod tests {
             Vendor::MyActuator,
             Vendor::Robstride,
             Vendor::Hightorque,
+            Vendor::Huayi,
         ];
         for t in [Transport::McuSerial, Transport::SocketCan] {
             for v in classics {
@@ -474,6 +500,7 @@ mod tests {
             Vendor::MyActuator,
             Vendor::Robstride,
             Vendor::Hightorque,
+            Vendor::Huayi,
         ] {
             assert!(
                 !transport_supports_vendor(Transport::SocketCanFd, v),
@@ -493,6 +520,7 @@ mod tests {
             Vendor::MyActuator,
             Vendor::Robstride,
             Vendor::Hightorque,
+            Vendor::Huayi,
         ] {
             assert!(
                 !transport_supports_vendor(Transport::DmSerial, v),
@@ -515,6 +543,7 @@ mod tests {
             Vendor::MyActuator,
             Vendor::Robstride,
             Vendor::Hightorque,
+            Vendor::Huayi,
         ] {
             assert_eq!(v.socketcan_transport(), Transport::SocketCan);
         }

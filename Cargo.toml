@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "motor_core",
+  "motor_canopen",
   "motor_vendors/damiao",
   "motor_vendors/robstride",
   "motor_vendors/robstride_cia402",
@@ -8,6 +9,7 @@ members = [
   "motor_vendors/myactuator",
   "motor_vendors/hexfellow",
   "motor_vendors/hightorque",
+  "motor_vendors/huayi",
   "motor_vendors/template",
   "motor_cli",
   "motor_abi",

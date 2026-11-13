@@ -1,41 +1,40 @@
-pub const NMT_ID: u32 = 0x000;
+//! RobStride CiA402 vendor objects.
+//!
+//! Standard CANopen / CiA402 profile indices and command codes are
+//! re-exported from [`motor_canopen::objects`]; everything kept here is
+//! RobStride-specific: mode-number meanings (`6060h` values), unit
+//! conversions (pulses per rev, 0.1 rpm, 1000 = 5 N·m torque scaling), the
+//! `0xFFF` protocol-switch extended frame, and the `6099h` CAN watchdog.
 
-pub const NMT_START_REMOTE_NODE: u8 = 0x01;
+// --- shared CANopen / CiA402 profile objects (no vendor semantics) ---
+pub use motor_canopen::objects::{
+    heartbeat_id, sdo_req_id, sdo_rsp_id, CONTROLWORD, CW_ENABLE_OPERATION, CW_FAULT_RESET,
+    CW_QUICK_STOP, CW_SHUTDOWN, CW_SWITCH_ON, ERROR_CODE, MODES_OF_OPERATION,
+    MODES_OF_OPERATION_DISPLAY, NMT_ID, NMT_START_REMOTE_NODE, POSITION_ACTUAL_VALUE,
+    POSITION_DEMAND_VALUE, PROFILE_ACCELERATION, PROFILE_VELOCITY, STATUSWORD, TARGET_POSITION,
+    TARGET_TORQUE, TARGET_VELOCITY, TORQUE_ACTUAL_VALUE, VELOCITY_ACTUAL_VALUE,
+    VELOCITY_DEMAND_VALUE,
+};
 
-pub const CONTROLWORD: u16 = 0x6040;
-pub const STATUSWORD: u16 = 0x6041;
-pub const ERROR_CODE: u16 = 0x603F;
-pub const MODES_OF_OPERATION: u16 = 0x6060;
-pub const MODES_OF_OPERATION_DISPLAY: u16 = 0x6061;
-pub const POSITION_DEMAND_VALUE: u16 = 0x6062;
-pub const POSITION_ACTUAL_VALUE: u16 = 0x6064;
+// --- RobStride-specific profile objects ---
 pub const POSITION_WINDOW: u16 = 0x6067;
 pub const POSITION_WINDOW_TIME: u16 = 0x6068;
-pub const VELOCITY_DEMAND_VALUE: u16 = 0x606B;
-pub const VELOCITY_ACTUAL_VALUE: u16 = 0x606C;
-pub const TARGET_TORQUE: u16 = 0x6071;
-pub const TORQUE_ACTUAL_VALUE: u16 = 0x6077;
 pub const CURRENT_ACTUAL_VALUE: u16 = 0x6078;
 pub const DC_LINK_CIRCUIT_VOLTAGE: u16 = 0x6079;
-pub const TARGET_POSITION: u16 = 0x607A;
-pub const PROFILE_VELOCITY: u16 = 0x6081;
-pub const PROFILE_ACCELERATION: u16 = 0x6083;
 pub const HOMING_METHOD: u16 = 0x6098;
 pub const CAN_WATCHDOG: u16 = 0x6099;
-pub const TARGET_VELOCITY: u16 = 0x60FF;
 
+// --- RobStride mode numbers (6060h values are vendor facts) ---
 pub const MODE_PROFILE_POSITION: i8 = 1;
 pub const MODE_PROFILE_VELOCITY: i8 = 3;
 pub const MODE_TORQUE: i8 = 4;
 pub const MODE_CSP: i8 = 5;
 pub const MODE_HOMING: i8 = 6;
 
-pub const CW_SHUTDOWN: u16 = 0x0006;
-pub const CW_SWITCH_ON: u16 = 0x0007;
-pub const CW_ENABLE_OPERATION: u16 = 0x000F;
+// --- RobStride-specific controlword commands ---
+/// RobStride's disable command (command table has no `0x0001`-style
+/// distinction; `0x0001` reaches Switch On Disabled on this firmware).
 pub const CW_DISABLE_TO_SWITCH_ON_DISABLED: u16 = 0x0001;
-pub const CW_QUICK_STOP: u16 = 0x000B;
-pub const CW_FAULT_RESET: u16 = 0x0080;
 
 pub const PROTOCOL_SWITCH_EXT_ID: u32 = 0xFFF;
 pub const PROTOCOL_PRIVATE: u8 = 0;
@@ -45,18 +44,6 @@ pub const PROTOCOL_MIT: u8 = 2;
 pub const CAN_WATCHDOG_RAW_PER_SECOND: f32 = 20000.0;
 pub const PULSES_PER_REV: f32 = 16384.0;
 pub const TWO_PI: f32 = core::f32::consts::PI * 2.0;
-
-pub fn sdo_req_id(node_id: u16) -> u32 {
-    0x600 + u32::from(node_id)
-}
-
-pub fn sdo_rsp_id(node_id: u16) -> u32 {
-    0x580 + u32::from(node_id)
-}
-
-pub fn heartbeat_id(node_id: u16) -> u32 {
-    0x700 + u32::from(node_id)
-}
 
 pub fn rad_to_pulses(rad: f32) -> i32 {
     (rad / TWO_PI * PULSES_PER_REV).round() as i32

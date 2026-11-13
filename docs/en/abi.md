@@ -71,15 +71,18 @@ replies do not make cached feedback appear fresh.
 - RobStride: `motor_controller_add_robstride_motor(...)`
 - MyActuator: `motor_controller_add_myactuator_motor(...)`
 - HighTorque: `motor_controller_add_hightorque_motor(...)`
+- Huayi: `motor_controller_add_huayi_motor(controller, motor_id, feedback_id, model)` — CANopen/CiA402 over classic CAN; `motor_id` is the node id (1..=127), `feedback_id=0` reuses the node id; `model` is a label only, limits are read at runtime (peak torque `6076h`, compressed-MIT ranges `2004h`).
 
 ## Unified Mode to Native Protocol Mapping
 
-| Unified mode | Damiao native | Hexfellow native | RobStride native | MyActuator native | HighTorque native |
-|---|---|---|---|---|---|
-| `MIT` | `Mit` | mode `5` | `Mit` | not available | mapped to native pos+vel+tqe |
-| `POS_VEL` | `PosVel` | mode `1` | mapped to `Position` (`run_mode=1`, `limit_spd=0x7017`, `loc_ref=0x7016`) | `Position` setpoint flow | mapped to native pos+vel+tqe |
-| `VEL` | `Vel` | not available | `Velocity` | `Velocity` setpoint flow | mapped to native velocity command |
-| `FORCE_POS` | `ForcePos` | not available | not available | not available | mapped to native pos+vel+tqe |
+| Unified mode | Damiao native | Hexfellow native | RobStride native | MyActuator native | HighTorque native | Huayi native |
+|---|---|---|---|---|---|---|
+| `MIT` | `Mit` | mode `5` | `Mit` | not available | mapped to native pos+vel+tqe | **`6060h = 5` (MIT)** |
+| `POS_VEL` | `PosVel` | mode `1` | mapped to `Position` (`run_mode=1`, `limit_spd=0x7017`, `loc_ref=0x7016`) | `Position` setpoint flow | mapped to native pos+vel+tqe | `6060h = 1` (PP: `6081h` + `607Ah` + CW bit4 handshake) |
+| `VEL` | `Vel` | not available | `Velocity` | `Velocity` setpoint flow | mapped to native velocity command | `6060h = 3` (PV: `60FFh`) |
+| `FORCE_POS` | `ForcePos` | not available | not available | not available | mapped to native pos+vel+tqe | not available (no matching 6060h mode) |
+
+> **Mode-number trap (Huayi 5=MIT)**: Huayi's `6060h` values follow CiA402 numbering — `5` is MIT. In the RobStride **proprietary protocol**, `5` is CSP. Do not mix the two. The unified IDs (1/2/3/4) are mapped by the ABI layer; user code never touches raw `6060h` values.
 
 Behavior rule:
 
@@ -90,6 +93,9 @@ Behavior rule:
 - RobStride supports MIT / POS_VEL / VEL on unified APIs; torque/current remains parameter-level (`robstride_write_param_*`), not a unified mode.
 - Damiao set-zero sequence rule: call `motor_handle_disable` before `motor_handle_set_zero_position`; otherwise set-zero is rejected by core guard.
 - Damiao set-zero settle rule: core applies an internal fixed settle (`~20ms`) after successful `set_zero_position` (no extra ABI parameter).
+- Huayi set-zero mirrors the Damiao rule: the 3001h position preset requires Switch On Disabled — call `motor_handle_disable` before `motor_handle_set_zero_position`; persist with `motor_handle_store_parameters` (1010h "save").
+- Huayi `motor_handle_get_state` mapping: `status_code` = `6061h` mode display, `fault_code` = `603Fh`/EMCY low byte (full u16 via `motor_handle_huayi_get_error_code`); state comes from the TPDO stream (TPDO2 anchors the seq, TPDO1/TPDO3 patch in place).
+- Huayi `motor_handle_request_feedback`: a no-op when the TPDO stream is active (the background receiver thread keeps the cache fresh); otherwise it auto-activates the three default TPDOs (10ms event timer). `motor_handle_set_can_timeout_ms` is rejected for Huayi — the manual provides no watchdog object equivalent to `6099h`.
 
 ## Vendor-Specific Extensions
 
@@ -110,6 +116,20 @@ RobStride extensions:
 - `motor_handle_robstride_get_param_f32_host_id`
 - `motor_handle_robstride_write_param_i8/u8/u16/u32/f32`
 - `motor_handle_robstride_get_param_i8/u8/u16/u32/f32`
+
+Huayi extensions (typed SDO access + private fast paths; the generic u8-rid register APIs cannot address 16-bit CANopen indices and are always rejected for Huayi motors in favor of this set):
+
+- `motor_handle_huayi_sdo_read_u16/i16/i32/f32(index, sub, timeout_ms, out)`
+- `motor_handle_huayi_sdo_write_u16/i16/i32/f32(index, sub, value)`
+- `motor_handle_huayi_send_torque(torque_nm)` — torque mode (`6060h=4`, `6071h` in per-mille of peak)
+- `motor_handle_huayi_send_mit_compressed(pos, vel, kp, kd, tau)` — compressed-MIT realtime channel (RPDO4, one 8-byte frame per command to `0x500+node`; the slow path is unified `motor_handle_send_mit` via `2003h`)
+- `motor_handle_huayi_position_preset(position_rev)` — 3001h position preset (disable first; ±0.5 Rev of the output shaft)
+- `motor_handle_huayi_configure_periodic_report(period_ms)` — TPDO stream on/off (0 stops; plays the role of RobStride `set_active_report`)
+- `motor_handle_huayi_get_error_code(out)` — cached error code (u16, no bus traffic; EMCY codes are visible even before a TPDO2 anchor)
+- `motor_handle_huayi_get_error_history(out_codes, out_count)` — 1003h error-history walk
+- `motor_handle_huayi_set_node_id(new_id)` — 2001h node-id change (store + power cycle to apply)
+- `motor_handle_huayi_nmt(command, node)` — NMT master command (0x01/0x02/0x80/0x81/0x82; node 0 broadcasts)
+- `motor_controller_huayi_scan_ids(controller, start, end, timeout_ms, out_nodes, out_count)` — node scan (NMT start broadcast + 6041h/6061h/603Fh probes); the direct probes race the core receive thread, so this returns an error when any motor is already registered on the controller — scan before `add_huayi_motor`, or use a separate controller on the same bus
 
 ## Typical Call Flow
 

@@ -1,4 +1,5 @@
 use super::*;
+use motor_core::device::MotorDevice;
 use motor_core::feedback::FeedbackSnapshot;
 
 fn snapshot_metadata<T>(snapshot: &FeedbackSnapshot<T>) -> MotorStateMetadata {
@@ -51,6 +52,8 @@ fn damiao_fault_code(state: &motor_vendor_damiao::MotorFeedbackState) -> u8 {
 /// - Robstride: 状态帧六故障标志拼位域(`robstride_fault_code`)。
 /// - Damiao: 协议状态枚举 0x08–0x0E 故障段(`damiao_fault_code`)。
 /// - Hexfellow / MyActuator: 协议无故障码,恒 0。
+/// - Huayi: 603Fh/EMCY 错误码低字节(完整 u16 走
+///   `motor_handle_huayi_get_error_code`);status_code 承载 6061h 模式显示。
 fn latest_snapshot(
     motor: &MotorHandleInner,
 ) -> Result<Option<(MotorState, MotorStateMetadata)>, String> {
@@ -150,6 +153,36 @@ fn latest_snapshot(
                     fault_code: state.fault_code,
                 },
                 snapshot_metadata(&snapshot),
+            )
+        })),
+        // Huayi: cache fed by the TPDO anchor/patch stream (TPDO2 anchors
+        // pos/vel + seq, TPDO1/3 patch in place) and by query_status.
+        // status_code carries the 6061h mode display (Huayi numbering,
+        // 5 = MIT); fault_code the low byte of the 603Fh/EMCY error code —
+        // the full u16 is available via motor_handle_huayi_get_error_code.
+        // t_mos = driver temp (2204h_01), t_rotor = motor temp (2204h_02).
+        MotorHandleInner::Huayi(m) => Ok(m.latest_state().map(|state| {
+            (
+                MotorState {
+                    has_value: 1,
+                    can_id: m.motor_id() as u8,
+                    arbitration_id: 0,
+                    status_code: state.mode_display as u8,
+                    pos: state.pos_rad,
+                    vel: state.vel_rad_s,
+                    torq: state.torque_nm,
+                    t_mos: state.t_driver_c,
+                    t_rotor: state.t_motor_c,
+                    fault_code: state.error_code as u8,
+                },
+                MotorStateMetadata {
+                    feedback_age_ns: state
+                        .received_at
+                        .elapsed()
+                        .as_nanos()
+                        .min(u128::from(u64::MAX)) as u64,
+                    feedback_sequence: state.seq,
+                },
             )
         })),
     }

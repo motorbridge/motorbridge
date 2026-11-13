@@ -59,6 +59,12 @@ fn handle_clear_error(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> 
         Some(MotorHandle::Myactuator(_)) => {
             return Err("clear_error is not supported for myactuator".to_string())
         }
+        Some(MotorHandle::Huayi(m)) => {
+            // CiA402 fault reset 0x0080 -> 0x0000; also clears the cached
+            // 603Fh error code.
+            m.clear_error(Duration::from_millis(200))
+                .map_err(|e| e.to_string())?;
+        }
         None => return Err("motor not connected".to_string()),
     }
     Ok(json!({"cleared": true}))
@@ -91,6 +97,13 @@ fn handle_set_zero_position(v: &Value, ctx: &mut SessionCtx) -> Result<Value, St
             // the vendor has always supported the 0x40 zero-position frame
             // (auto-persists internally) — aligned with ABI/Python.
             m.set_zero_position().map_err(|e| e.to_string())?;
+        }
+        Some(MotorHandle::Huayi(m)) => {
+            // 3001h position preset requires Switch On Disabled — the vendor
+            // errors out if the drive is still enabled (same guard rule as
+            // Damiao zeroing); send `disable` first.
+            m.set_zero_position(Duration::from_millis(200))
+                .map_err(|e| e.to_string())?;
         }
         None => return Err("motor not connected".to_string()),
     }
@@ -134,6 +147,31 @@ fn handle_ensure_mode(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> 
         }
         Some(MotorHandle::Hightorque(_)) => {
             return Err("ensure_mode is not supported for hightorque".to_string())
+        }
+        Some(MotorHandle::Huayi(m)) => {
+            // Unified mode names map to 6060h numbering (5=MIT, 1=PP, 3=PV);
+            // force_pos has no counterpart and errors out. The write is
+            // verified against 6061h and cached by the vendor.
+            let mode = v
+                .get("mode")
+                .and_then(Value::as_str)
+                .unwrap_or("mit")
+                .to_lowercase();
+            let run_mode = match mode.as_str() {
+                "mit" | "5" => motor_vendor_huayi::RunMode::Mit,
+                "pos_vel" | "pos-vel" | "pp" | "1" => motor_vendor_huayi::RunMode::ProfilePosition,
+                "vel" | "pv" | "3" => motor_vendor_huayi::RunMode::ProfileVelocity,
+                "force_pos" | "force-pos" | "4" => {
+                    return Err("force_pos is not supported for huayi (no 6060h counterpart)".to_string())
+                }
+                other => {
+                    return Err(format!(
+                        "huayi mode must be mit|pos_vel|vel, got {other}"
+                    ))
+                }
+            };
+            m.ensure_mode_enabled(run_mode, Duration::from_millis(timeout_ms))
+                .map_err(|e| e.to_string())?;
         }
         None => return Err("motor not connected".to_string()),
     }
@@ -181,6 +219,18 @@ fn handle_request_feedback(v: &Value, ctx: &mut SessionCtx) -> Result<Value, Str
             // cached_register can all read it back.
             m.request_motor_feedback().map_err(|e| e.to_string())?;
         }
+        (Some(ControllerHandle::Huayi(c)), Some(MotorHandle::Huayi(m))) => {
+            // Same semantics as the ABI motor_handle_request_feedback: TPDO
+            // stream active -> no-op (the background receive thread keeps
+            // the cache fresh); not active -> activate the three default
+            // TPDOs with a 10 ms event timer.
+            if m.tpdos_active() {
+                c.poll_feedback_once().map_err(|e| e.to_string())?;
+            } else {
+                m.configure_periodic_report(10, Duration::from_millis(300))
+                    .map_err(|e| e.to_string())?;
+            }
+        }
         _ => return Err("motor not connected".to_string()),
     }
     Ok(json!({"requested": true}))
@@ -216,6 +266,15 @@ fn handle_set_active_report(v: &Value, ctx: &mut SessionCtx) -> Result<Value, St
         Some(MotorHandle::Myactuator(_)) => {
             return Err("set_active_report is not supported for myactuator".to_string())
         }
+        Some(MotorHandle::Huayi(m)) => {
+            // TPDO stream control plays the RobStride set_active_report
+            // role: 10 ms event timer on / 0 off.
+            m.configure_periodic_report(
+                if enabled { 10 } else { 0 },
+                Duration::from_millis(300),
+            )
+            .map_err(|e| e.to_string())?;
+        }
         None => return Err("motor not connected".to_string()),
     }
     Ok(json!({"active_report": enabled}))
@@ -249,6 +308,10 @@ fn handle_store_parameters(v: &Value, ctx: &mut SessionCtx) -> Result<Value, Str
             // persist — aligned with ABI/Python.
             m.store_parameters().map_err(|e| e.to_string())?;
         }
+        Some(MotorHandle::Huayi(m)) => {
+            m.store_parameters(Duration::from_millis(200))
+                .map_err(|e| e.to_string())?;
+        }
         Some(MotorHandle::Myactuator(_)) => {
             return Err("store_parameters is not supported for myactuator".to_string())
         }
@@ -280,6 +343,11 @@ fn handle_set_can_timeout_ms(v: &Value, ctx: &mut SessionCtx) -> Result<Value, S
         }
         Some(MotorHandle::Myactuator(_)) => {
             Err("set_can_timeout_ms is not supported for myactuator".to_string())
+        }
+        Some(MotorHandle::Huayi(_)) => {
+            // The Huayi manual has no 6099h-equivalent communication
+            // watchdog object; heartbeat consumption is a follow-up item.
+            Err("set_can_timeout_ms is not supported for huayi (no CAN watchdog object in the manual; heartbeat consumption is planned)".to_string())
         }
         None => Err("motor not connected".to_string()),
     }

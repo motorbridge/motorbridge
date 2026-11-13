@@ -25,7 +25,8 @@
       "motor_controller_add_hexfellow_motor",
       "motor_controller_add_myactuator_motor",
       "motor_controller_add_robstride_motor",
-      "motor_controller_add_hightorque_motor"
+      "motor_controller_add_hightorque_motor",
+      "motor_controller_add_huayi_motor"
     ],
     "motor_lifecycle": [
       "motor_handle_free",
@@ -77,6 +78,25 @@
       "motor_handle_robstride_get_param_u16",
       "motor_handle_robstride_get_param_u32",
       "motor_handle_robstride_get_param_f32"
+    ],
+    "huayi": [
+      "motor_handle_huayi_sdo_read_u16",
+      "motor_handle_huayi_sdo_read_i16",
+      "motor_handle_huayi_sdo_read_i32",
+      "motor_handle_huayi_sdo_read_f32",
+      "motor_handle_huayi_sdo_write_u16",
+      "motor_handle_huayi_sdo_write_i16",
+      "motor_handle_huayi_sdo_write_i32",
+      "motor_handle_huayi_sdo_write_f32",
+      "motor_handle_huayi_send_torque",
+      "motor_handle_huayi_send_mit_compressed",
+      "motor_handle_huayi_position_preset",
+      "motor_handle_huayi_configure_periodic_report",
+      "motor_handle_huayi_get_error_code",
+      "motor_handle_huayi_get_error_history",
+      "motor_handle_huayi_set_node_id",
+      "motor_handle_huayi_nmt",
+      "motor_controller_huayi_scan_ids"
     ]
   },
   "bindings": {
@@ -96,7 +116,9 @@
       "Controller.add_hexfellow_motor(motor_id, feedback_id, model)",
       "Controller.add_myactuator_motor(motor_id, feedback_id, model)",
       "Controller.add_robstride_motor(motor_id, feedback_id, model)",
-      "Controller.add_hightorque_motor(motor_id, feedback_id, model)"
+      "Controller.add_hightorque_motor(motor_id, feedback_id, model)",
+      "Controller.add_huayi_motor(motor_id, feedback_id, model)",
+      "Controller.huayi_scan_ids(start_id, end_id, timeout_ms)"
     ],
     "motor_methods": [
       "Motor.close()",
@@ -138,6 +160,22 @@
       "Motor.damiao_get_param_u32(param_id, timeout_ms)",
       "Motor.damiao_write_param_f32(param_id, value)",
       "Motor.damiao_write_param_u32(param_id, value)",
+      "Motor.huayi_sdo_read_u16(index, sub, timeout_ms)",
+      "Motor.huayi_sdo_read_i16(index, sub, timeout_ms)",
+      "Motor.huayi_sdo_read_i32(index, sub, timeout_ms)",
+      "Motor.huayi_sdo_read_f32(index, sub, timeout_ms)",
+      "Motor.huayi_sdo_write_u16(index, sub, value)",
+      "Motor.huayi_sdo_write_i16(index, sub, value)",
+      "Motor.huayi_sdo_write_i32(index, sub, value)",
+      "Motor.huayi_sdo_write_f32(index, sub, value)",
+      "Motor.huayi_send_torque(torque_nm)",
+      "Motor.huayi_send_mit_compressed(pos, vel, kp, kd, tau)",
+      "Motor.huayi_position_preset(position_rev)",
+      "Motor.huayi_configure_periodic_report(period_ms)",
+      "Motor.huayi_get_error_code()",
+      "Motor.huayi_get_error_history()",
+      "Motor.huayi_set_node_id(new_id)",
+      "Motor.huayi_nmt(command, node)",
       "Motor.get_state()",
       "Motor.get_state_snapshot()"
     ],
@@ -169,6 +207,7 @@
     "robstride",
     "myactuator",
     "hexfellow",
-    "hightorque"
+    "hightorque",
+    "huayi"
   ]
 }

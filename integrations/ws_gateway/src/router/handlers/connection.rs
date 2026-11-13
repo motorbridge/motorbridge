@@ -105,6 +105,12 @@ fn handle_capabilities(ctx: &SessionCtx) -> Result<Value, String> {
                     "set_zero_position", "store_parameters",
                 ],
             },
+            "huayi": {
+                "transports": ["auto", "socketcan", "mcu-serial"],
+                "modes": ["mit", "pos_vel", "vel", "torque"],
+                "ops_unified": ["scan", "enable", "disable", "stop", "state_once", "status", "verify", "ensure_mode", "request_feedback", "set_active_report", "store_parameters", "set_zero_position", "clear_error"],
+                "ops_vendor_native": []
+            },
         },
         "unsupported_behavior": "return {ok:false,error:'unsupported ...'}"
     }))
@@ -133,6 +139,7 @@ fn handle_ping(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         Vendor::Hexfellow => Ok(json!({"pong": true, "vendor":"hexfellow"})),
         Vendor::Myactuator => Ok(json!({"pong": true, "vendor":"myactuator"})),
         Vendor::Hightorque => Ok(json!({"pong": true, "vendor":"hightorque"})),
+        Vendor::Huayi => Ok(json!({"pong": true, "vendor":"huayi"})),
     }
 }
 
@@ -199,6 +206,13 @@ fn handle_set_target(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         if next.feedback_id == 0x11 {
             next.feedback_id = 0x01;
         }
+    } else if next.vendor == Vendor::Huayi {
+        if next.model == "4340" || next.model == "4340P" {
+            next.model = "huayi-joint".to_string();
+        }
+        if next.feedback_id == 0x11 {
+            next.feedback_id = 0;
+        }
     }
 
     ctx.disconnect(false);
@@ -242,6 +256,11 @@ fn handle_enable(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         }
         Some(MotorHandle::Myactuator(m)) => m.enable().map_err(|e| e.to_string())?,
         Some(MotorHandle::Robstride(m)) => m.enable().map_err(|e| e.to_string())?,
+        Some(MotorHandle::Huayi(m)) => {
+            // Full CiA402 sequence: NMT start + 0x0006/0x0007/0x000F.
+            m.enable_drive(std::time::Duration::from_millis(200))
+                .map_err(|e| e.to_string())?
+        }
         None => return Err("motor not connected".to_string()),
     }
     ctx.active = None;
@@ -272,6 +291,12 @@ fn handle_disable(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
         }
         Some(MotorHandle::Myactuator(m)) => m.disable().map_err(|e| e.to_string())?,
         Some(MotorHandle::Robstride(m)) => m.disable().map_err(|e| e.to_string())?,
+        Some(MotorHandle::Huayi(m)) => {
+            // Disable Voltage (0x0000) -> Switch On Disabled; not the
+            // RobStride private 0x0001.
+            m.disable_drive(std::time::Duration::from_millis(200))
+                .map_err(|e| e.to_string())?
+        }
         None => return Err("motor not connected".to_string()),
     }
     ctx.active = None;
@@ -308,6 +333,13 @@ fn handle_stop(ctx: &mut SessionCtx) -> Result<Value, String> {
                 m.disable().map_err(|e| e.to_string())?;
             }
             MotorHandle::Myactuator(mm) => mm.stop_motor().map_err(|e| e.to_string())?,
+            MotorHandle::Huayi(mm) => {
+                // Mode-aware stop that keeps the drive enabled: PV -> target
+                // 0, PP -> re-target current position, MIT -> all-zero MIT,
+                // torque -> target 0.
+                mm.controlled_stop(std::time::Duration::from_millis(300))
+                    .map_err(|e| e.to_string())?;
+            }
             MotorHandle::Robstride(mm) => {
                 let mode = mm
                     .controlled_stop(std::time::Duration::from_millis(300))
@@ -534,7 +566,8 @@ fn handle_status(ctx: &mut SessionCtx) -> Result<Value, String> {
         (Some(ControllerHandle::Hexfellow(_)), Some(MotorHandle::Hexfellow(_)))
         | (Some(ControllerHandle::Damiao(_)), Some(MotorHandle::Damiao(_)))
         | (Some(ControllerHandle::Robstride(_)), Some(MotorHandle::Robstride(_)))
-        | (Some(ControllerHandle::Hightorque(_)), Some(MotorHandle::Hightorque(_))) => {}
+        | (Some(ControllerHandle::Hightorque(_)), Some(MotorHandle::Hightorque(_)))
+        | (Some(ControllerHandle::Huayi(_)), Some(MotorHandle::Huayi(_))) => {}
         _ => return Err("motor not connected".to_string()),
     }
     Ok(json!({"state": ctx.build_state_snapshot()?}))
@@ -559,6 +592,9 @@ fn handle_poll_feedback_once(ctx: &mut SessionCtx) -> Result<Value, String> {
             ControllerHandle::Robstride(ctrl) => {
                 ctrl.poll_feedback_once().map_err(|e| e.to_string())?
             }
+            ControllerHandle::Huayi(ctrl) => {
+                ctrl.poll_feedback_once().map_err(|e| e.to_string())?
+            }
         }
     }
     Ok(json!({"polled": true}))
@@ -572,6 +608,7 @@ fn handle_shutdown(ctx: &mut SessionCtx) -> Result<Value, String> {
             ControllerHandle::Hightorque(ctrl) => ctrl.shutdown().map_err(|e| e.to_string())?,
             ControllerHandle::Myactuator(ctrl) => ctrl.shutdown().map_err(|e| e.to_string())?,
             ControllerHandle::Robstride(ctrl) => ctrl.shutdown().map_err(|e| e.to_string())?,
+            ControllerHandle::Huayi(ctrl) => ctrl.shutdown().map_err(|e| e.to_string())?,
         }
     }
     ctx.active = None;

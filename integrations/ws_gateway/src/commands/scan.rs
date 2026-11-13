@@ -12,7 +12,7 @@ use super::{
 use crate::vendors::damiao_ws::cmd_scan_damiao;
 use crate::vendors::transport_ws::{
     myactuator_feedback_default, open_hexfellow_controller, open_hightorque_bus,
-    open_myactuator_controller, open_robstride_controller,
+    open_huayi_controller, open_myactuator_controller, open_robstride_controller,
 };
 
 fn emit_scan_progress<F>(emit: &mut F, data: Value)
@@ -442,6 +442,42 @@ fn cmd_scan_hightorque(v: &Value, base: &Target) -> Result<Value, String> {
     }))
 }
 
+/// Huayi node scan: NMT start broadcast + 6041h/6061h/603Fh SDO probes via
+/// the shared motor_canopen procedure (works before any motor is added).
+fn cmd_scan_huayi(v: &Value, base: &Target) -> Result<Value, String> {
+    let transport = parse_transport_in_msg(v, base.transport)?;
+    let start_id = as_u16(v, "start_id", 1).clamp(1, 127);
+    let end_id = as_u16(v, "end_id", 127).clamp(1, 127);
+    if start_id > end_id {
+        return Err("invalid scan range after clamp (start_id > end_id)".to_string());
+    }
+    let timeout_ms = as_u64(v, "timeout_ms", 100);
+    let ctrl = open_huayi_controller(base, transport)?;
+    let found = ctrl
+        .scan_ids(start_id, end_id, Duration::from_millis(timeout_ms))
+        .map_err(|e| e.to_string())?;
+    let hits: Vec<Value> = found
+        .iter()
+        .map(|h| {
+            json!({
+                "node_id": h.node_id,
+                "statusword": h.statusword,
+                "mode_display": h.mode_display,
+                "error_code": h.error_code,
+            })
+        })
+        .collect();
+    let _ = ctrl.close_bus();
+    Ok(json!({
+        "vendor": "huayi",
+        "transport": transport.as_str(),
+        "count": hits.len(),
+        "start_id": start_id,
+        "end_id": end_id,
+        "hits": hits,
+    }))
+}
+
 pub(crate) fn cmd_scan(v: &Value, base: &Target) -> Result<Value, String> {
     match parse_vendor_in_msg(v, base.vendor)? {
         Vendor::Damiao => cmd_scan_damiao(v, base),
@@ -449,6 +485,7 @@ pub(crate) fn cmd_scan(v: &Value, base: &Target) -> Result<Value, String> {
         Vendor::Hexfellow => cmd_scan_hexfellow(v, base),
         Vendor::Myactuator => cmd_scan_myactuator(v, base),
         Vendor::Hightorque => cmd_scan_hightorque(v, base),
+        Vendor::Huayi => cmd_scan_huayi(v, base),
     }
 }
 

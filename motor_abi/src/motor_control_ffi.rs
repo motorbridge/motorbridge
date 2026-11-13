@@ -33,6 +33,14 @@ pub extern "C" fn motor_handle_ensure_mode(
             MotorHandleInner::Hightorque(m) => m
                 .ensure_control_mode(mode, Duration::from_millis(timeout_ms as u64))
                 .map_err(|e| e.to_string()),
+            // Huayi mode numbers are the CANopen 6060h numbering (5 = MIT,
+            // NOT RobStride CSP) — mapped via to_huayi_mode. FORCE_POS (4)
+            // has no Huayi equivalent and is rejected.
+            MotorHandleInner::Huayi(m) => {
+                let hy_mode = to_huayi_mode(mode).map_err(|e| e.to_string())?;
+                m.ensure_mode_enabled(hy_mode, Duration::from_millis(timeout_ms as u64))
+                    .map_err(|e| e.to_string())
+            }
         }
     })
 }
@@ -94,6 +102,20 @@ pub extern "C" fn motor_handle_send_mit(
                     feedforward_torque,
                 )
                 .map_err(|e| e.to_string()),
+            // Slow 2003h SDO path (one MIT command = 5 SDO writes; gains go
+            // through the unit chain Nm/rad → Nm/Rev → dimensionless). For
+            // the real-time 8-byte RPDO4 channel use
+            // motor_handle_huayi_send_mit_compressed.
+            MotorHandleInner::Huayi(m) => m
+                .send_mit(
+                    target_position,
+                    target_velocity,
+                    stiffness,
+                    damping,
+                    feedforward_torque,
+                    Duration::from_millis(300),
+                )
+                .map_err(|e| e.to_string()),
         }
     })
 }
@@ -144,6 +166,12 @@ pub extern "C" fn motor_handle_send_pos_vel(
             }
             MotorHandleInner::Hightorque(m) => m
                 .send_cmd_pos_vel(target_position, velocity_limit)
+                .map_err(|e| e.to_string()),
+            // PP (mode 2): 6081h profile velocity + 607Ah target, CW bit4
+            // new-target handshake. Position in rad → Rev conversion is in
+            // the vendor layer.
+            MotorHandleInner::Huayi(m) => m
+                .send_pos_vel(target_position, velocity_limit, Duration::from_millis(300))
                 .map_err(|e| e.to_string()),
         }
     })
@@ -201,6 +229,11 @@ pub extern "C" fn motor_handle_send_vel(motor: *mut MotorHandle, target_velocity
             MotorHandleInner::Hightorque(m) => {
                 m.send_cmd_vel(target_velocity).map_err(|e| e.to_string())
             }
+            // PV (mode 3): 60FFh target velocity, Float32 Rev/s.
+            MotorHandleInner::Huayi(m) => {
+                m.send_vel(target_velocity, Duration::from_millis(300))
+                    .map_err(|e| e.to_string())
+            }
         }
     })
 }
@@ -226,6 +259,9 @@ pub extern "C" fn motor_handle_send_force_pos(
             MotorHandleInner::Robstride(_) => {
                 Err("send_force_pos is not supported for RobStride".to_string())
             }
+            MotorHandleInner::Huayi(_) => {
+                Err("send_force_pos is not supported for Huayi".to_string())
+            }
             MotorHandleInner::Hightorque(m) => m
                 .send_cmd_force_pos(target_position, velocity_limit, torque_limit_ratio)
                 .map_err(|e| e.to_string()),
@@ -246,6 +282,10 @@ pub extern "C" fn motor_handle_store_parameters(motor: *mut MotorHandle) -> i32 
             }
             MotorHandleInner::Robstride(m) => m.save_parameters().map_err(|e| e.to_string()),
             MotorHandleInner::Hightorque(m) => m.store_parameters().map_err(|e| e.to_string()),
+            // 1010h "save" signature.
+            MotorHandleInner::Huayi(m) => m
+                .store_parameters(Duration::from_millis(200))
+                .map_err(|e| e.to_string()),
         }
     })
 }
@@ -278,6 +318,19 @@ pub extern "C" fn motor_handle_request_feedback(motor: *mut MotorHandle) -> i32 
             MotorHandleInner::Hightorque(m) => {
                 m.request_motor_feedback().map_err(|e| e.to_string())
             }
+            // Huayi: with the TPDO stream already active this is a no-op
+            // (rs-style — state arrives via the background receive thread).
+            // If reporting was never configured, activate the default
+            // TPDOs (10 ms event timer) so subsequent calls stream.
+            MotorHandleInner::Huayi(m) => {
+                if m.tpdos_active() {
+                    Ok(())
+                } else {
+                    m.configure_periodic_report(10, Duration::from_millis(300))
+                        .map(|_| ())
+                        .map_err(|e| e.to_string())
+                }
+            }
         }
     })
 }
@@ -293,6 +346,7 @@ pub extern "C" fn motor_handle_request_feedback(motor: *mut MotorHandle) -> i32 
 /// - MyActuator: calls `stop_motor()`
 /// - Robstride: mode-aware controlled stop (MIT holds position, PP writes vel_max=0, Velocity writes 0, CSP locks position)
 /// - Hightorque: sends the raw stop frame (same implementation as disable)
+/// - Huayi: mode-aware controlled stop (PV → target velocity 0, PP → re-target current position, torque → 0, MIT → zero-gain frame)
 #[unsafe(no_mangle)]
 pub extern "C" fn motor_handle_stop(motor: *mut MotorHandle) -> i32 {
     ffi_wrap_motor!(motor, |motor: &MotorHandleInner| {
@@ -317,6 +371,12 @@ pub extern "C" fn motor_handle_stop(motor: *mut MotorHandle) -> i32 {
                 .map(|_| ())
                 .map_err(|e| e.to_string()),
             MotorHandleInner::Hightorque(m) => m.disable().map_err(|e| e.to_string()),
+            // Mode-aware stop that keeps the drive enabled (PV → 60FFh=0,
+            // PP → re-target current position, torque → 6071h=0, MIT →
+            // zero-gain MIT frame).
+            MotorHandleInner::Huayi(m) => m
+                .controlled_stop(Duration::from_millis(300))
+                .map_err(|e| e.to_string()),
         }
     })
 }

@@ -142,6 +142,42 @@ class Controller:
             raise CallError(f"add_hightorque_motor failed: {_err_text()}")
         return Motor(m)
 
+    def add_huayi_motor(self, motor_id: int, feedback_id: int, model: str) -> "Motor":
+        """注册一台华翼 CANopen 关节电机。motor_id 即 CANopen 节点号
+        (1..=127, SDO 收发 COB-ID 由此推出); feedback_id=0 表示沿用节点号。
+        与 RobStride-CiA402 节点可混挂同一条经典 CAN 总线(共享接收线程,
+        按 arbitration id 分发)。"""
+        if not 1 <= int(motor_id) <= 127:
+            raise ValueError(f"Huayi motor_id must be a CANopen node id in 1..127, got {motor_id}")
+        if not 0 <= int(feedback_id) <= 127:
+            raise ValueError(f"Huayi feedback_id must be in 0..127, got {feedback_id}")
+        m = self._abi.lib.motor_controller_add_huayi_motor(
+            self._require_open(), motor_id, feedback_id, model.encode()
+        )
+        if not m:
+            raise CallError(f"add_huayi_motor failed: {_err_text()}")
+        return Motor(m)
+
+    def huayi_scan_ids(self, start_id: int = 1, end_id: int = 127, timeout_ms: int = 100) -> list[int]:
+        """CANopen 节点扫描(厂商无关探测过程): 先广播 NMT start, 再对
+        start_id..=end_id 逐个探测 6041h/6061h/603Fh, 任一应答即视为在线。
+        返回在线节点号列表。适合配置前发现总线上所有 CANopen 节点
+        (包括其他 CANopen 厂商的)。注意: 直连探测会与核心接收线程竞争,
+        控制器上已注册电机时报错——先扫描再 add_huayi_motor, 或用同一
+        总线上另一个控制器。"""
+        if not 1 <= int(start_id) <= 127 or not 1 <= int(end_id) <= 127 or start_id > end_id:
+            raise ValueError(f"invalid scan range {start_id}..{end_id} (expected 1..=127, start<=end)")
+        span = end_id - start_id + 1
+        nodes = (c_uint16 * span)()
+        count = c_uint32(0)
+        _ok(
+            self._abi.lib.motor_controller_huayi_scan_ids(
+                self._require_open(), start_id, end_id, timeout_ms, nodes, ctypes.byref(count)
+            ),
+            "huayi_scan_ids",
+        )
+        return [int(nodes[i]) for i in range(int(count.value))]
+
     def __enter__(self) -> "Controller":
         return self
 
@@ -180,6 +216,11 @@ class Motor:
         _ok(self._abi.lib.motor_handle_set_zero_position(self._require_open()), "set_zero_position")
 
     def ensure_mode(self, mode: Mode | int, timeout_ms: int = 1000) -> None:
+        """切换控制模式(统一编号 1=MIT / 2=POS_VEL / 3=VEL / 4=FORCE_POS)。
+        各厂商内部编号不同: Huayi 走 CANopen 6060h(1=PP, 3=PV, 4=力矩,
+        5=MIT——**注意 5 在 RobStride 私有协议里是 CSP, 勿混淆**), FORCE_POS
+        无对应模式报错; 模式切换含 6061h 回读校验, 校验通过后缓存, 后续
+        命令免握手轮次(掉使能/急停/清错后缓存失效)。"""
         _ok(self._abi.lib.motor_handle_ensure_mode(self._require_open(), int(mode), timeout_ms), "ensure_mode")
 
     def send_mit(self, pos: float, vel: float, kp: float, kd: float, tau: float) -> None:
@@ -221,7 +262,9 @@ class Motor:
         需要新鲜度判定用 get_state_snapshot 的 received_at; 需要"发同帧
         并阻塞等回"用 hightorque_get_register(0x01, 3)。Damiao/
         MyActuator 同为非阻塞; Robstride 为空操作(无单次状态查询命令);
-        Hexfellow 为阻塞查询(300ms)。"""
+        Hexfellow 为阻塞查询(300ms); Huayi 在 TPDO 周期上报已激活时为
+        空操作(对齐 RobStride 流式语义), 未激活时自动激活出厂 TPDO
+        (10ms 事件计时器)——之后状态经后台收帧线程持续入缓存。"""
         _ok(self._abi.lib.motor_handle_request_feedback(self._require_open()), "request_feedback")
 
     def hightorque_send_pos_vel_acc(self, pos: float, vlim: float, acc: float) -> None:
@@ -378,6 +421,204 @@ class Motor:
                 self._require_open(), int(period_ms)
             ),
             "hightorque_set_periodic_report",
+        )
+
+    # ------------------------------------------------------------------
+    # Huayi (CANopen) vendor-private interface
+    # ------------------------------------------------------------------
+
+    def huayi_sdo_read_u16(self, index: int, sub: int, timeout_ms: int = 1000) -> int:
+        """Huayi SDO 读 u16。index 为 16 位对象字典索引(如 0x6041 状态字),
+        sub 为子索引。对象含义查华翼手册的对象字典章节。仅 Huayi。"""
+        out = c_uint16(0)
+        _ok(
+            self._abi.lib.motor_handle_huayi_sdo_read_u16(
+                self._require_open(), int(index), int(sub), int(timeout_ms), ctypes.byref(out)
+            ),
+            "huayi_sdo_read_u16",
+        )
+        return int(out.value)
+
+    def huayi_sdo_read_i16(self, index: int, sub: int, timeout_ms: int = 1000) -> int:
+        """Huayi SDO 读 i16(如 6071h 目标力矩 ‰、2204h 温度 0.1°C)。仅 Huayi。"""
+        out = c_int16(0)
+        _ok(
+            self._abi.lib.motor_handle_huayi_sdo_read_i16(
+                self._require_open(), int(index), int(sub), int(timeout_ms), ctypes.byref(out)
+            ),
+            "huayi_sdo_read_i16",
+        )
+        return int(out.value)
+
+    def huayi_sdo_read_i32(self, index: int, sub: int, timeout_ms: int = 1000) -> int:
+        """Huayi SDO 读 i32。仅 Huayi。"""
+        out = c_int32(0)
+        _ok(
+            self._abi.lib.motor_handle_huayi_sdo_read_i32(
+                self._require_open(), int(index), int(sub), int(timeout_ms), ctypes.byref(out)
+            ),
+            "huayi_sdo_read_i32",
+        )
+        return int(out.value)
+
+    def huayi_sdo_read_f32(self, index: int, sub: int, timeout_ms: int = 1000) -> float:
+        """Huayi SDO 读 f32(位置/速度/加速度, 单位为输出轴 Rev 族)。仅 Huayi。"""
+        out = c_float(0.0)
+        _ok(
+            self._abi.lib.motor_handle_huayi_sdo_read_f32(
+                self._require_open(), int(index), int(sub), int(timeout_ms), ctypes.byref(out)
+            ),
+            "huayi_sdo_read_f32",
+        )
+        return float(out.value)
+
+    def huayi_sdo_write_u16(self, index: int, sub: int, value: int) -> None:
+        """Huayi SDO 写 u16。仅 Huayi。"""
+        _ok(
+            self._abi.lib.motor_handle_huayi_sdo_write_u16(
+                self._require_open(), int(index), int(sub), int(value)
+            ),
+            "huayi_sdo_write_u16",
+        )
+
+    def huayi_sdo_write_i16(self, index: int, sub: int, value: int) -> None:
+        """Huayi SDO 写 i16。仅 Huayi。"""
+        _ok(
+            self._abi.lib.motor_handle_huayi_sdo_write_i16(
+                self._require_open(), int(index), int(sub), int(value)
+            ),
+            "huayi_sdo_write_i16",
+        )
+
+    def huayi_sdo_write_i32(self, index: int, sub: int, value: int) -> None:
+        """Huayi SDO 写 i32。仅 Huayi。"""
+        _ok(
+            self._abi.lib.motor_handle_huayi_sdo_write_i32(
+                self._require_open(), int(index), int(sub), int(value)
+            ),
+            "huayi_sdo_write_i32",
+        )
+
+    def huayi_sdo_write_f32(self, index: int, sub: int, value: float) -> None:
+        """Huayi SDO 写 f32。仅 Huayi。"""
+        _ok(
+            self._abi.lib.motor_handle_huayi_sdo_write_f32(
+                self._require_open(), int(index), int(sub), float(value)
+            ),
+            "huayi_sdo_write_f32",
+        )
+
+    def huayi_send_torque(self, torque_nm: float) -> None:
+        """Huayi 力矩模式(6060h=4): 目标力矩 Nm → 6071h Int16, 单位为
+        6076h 峰值力矩的千分比(换算在后端, 峰值首次读取后缓存)。仅 Huayi。"""
+        _ok(
+            self._abi.lib.motor_handle_huayi_send_torque(
+                self._require_open(), float(torque_nm)
+            ),
+            "huayi_send_torque",
+        )
+
+    def huayi_send_mit_compressed(self, pos: float, vel: float, kp: float, kd: float, tau: float) -> None:
+        """Huayi 压缩 MIT 实时通道(手册 §5.2): RPDO4 重映射为 2004h_02/_03,
+        每条指令一帧 8 字节经典帧发往 0x500+节点号。64 位控制字按
+        2004h 范围寄存器线性映射打包 Pdes(16b)/Vdes(12b)/Kp(12b)/Kd(12b)/
+        Tff(12b)。参数为统一 SI 单位(rad, rad/s, Nm/rad, Nm·s/rad, Nm),
+        Kp/Kd 单位链: Nm/rad →(×2π)→ Nm/Rev →(线性映射)→ 12 位字段。
+        首次调用自动完成 RPDO 重映射与范围寄存器读取(随后各仅一帧)。
+        慢速 2003h SDO 路径为通用的 send_mit。仅 Huayi。"""
+        _ok(
+            self._abi.lib.motor_handle_huayi_send_mit_compressed(
+                self._require_open(),
+                float(pos),
+                float(vel),
+                float(kp),
+                float(kd),
+                float(tau),
+            ),
+            "huayi_send_mit_compressed",
+        )
+
+    def huayi_position_preset(self, position_rev: float) -> None:
+        """Huayi 位置预设(3001h, 魔数 "pres"): 将当前位置重新解释为
+        position_rev(输出轴转数, |值|≤0.5)。**必须处于 Switch On
+        Disabled 状态**——先 disable() 再调用, 否则报错(与 Damiao
+        set_zero_position 的"先 disable"守卫同构)。set_zero_position()
+        即本方法的 0 值形式。仅 Huayi。"""
+        _ok(
+            self._abi.lib.motor_handle_huayi_position_preset(
+                self._require_open(), float(position_rev)
+            ),
+            "huayi_position_preset",
+        )
+
+    def huayi_configure_periodic_report(self, period_ms: int) -> None:
+        """Huayi 周期上报(对齐 RobStride set_active_report 的角色):
+        period_ms>0 激活三个出厂 TPDO——TPDO2(位置/速度)为**锚定帧**
+        (seq+1、刷新时间戳), TPDO1(错误码/状态字/模式)与 TPDO3(力矩/
+        双温度)为**就地补丁帧**(不推进 seq, 同 hightorque 两帧反馈模型),
+        事件计时器=period_ms; period_ms=0 关闭(COB-ID 置无效位, 映射
+        保留, 再激活即恢复)。范围 1..=65535 ms。仅 Huayi。"""
+        if not 0 <= int(period_ms) <= 65535:
+            raise ValueError(f"period_ms must fit uint16, got {period_ms}")
+        _ok(
+            self._abi.lib.motor_handle_huayi_configure_periodic_report(
+                self._require_open(), int(period_ms)
+            ),
+            "huayi_configure_periodic_report",
+        )
+
+    def huayi_get_error_code(self) -> int:
+        """Huayi 最近缓存的错误码(603Fh/EMCY, u16; 0=无错误, 不发帧)。
+        从未收到过反馈时报错(先 configure_periodic_report 或
+        request_feedback)。错误码含义查手册表(0x2310 过流等)。
+        get_state 的 fault_code 字段是本值的低字节。仅 Huayi。"""
+        out = c_uint16(0)
+        _ok(
+            self._abi.lib.motor_handle_huayi_get_error_code(
+                self._require_open(), ctypes.byref(out)
+            ),
+            "huayi_get_error_code",
+        )
+        return int(out.value)
+
+    def huayi_get_error_history(self) -> list[int]:
+        """Huayi 错误历史(1003h 子索引遍历): 最多返回 32 条错误码,
+        从旧到新。仅 Huayi。"""
+        codes = (c_uint16 * 32)()
+        count = c_uint32(0)
+        _ok(
+            self._abi.lib.motor_handle_huayi_get_error_history(
+                self._require_open(), codes, ctypes.byref(count)
+            ),
+            "huayi_get_error_history",
+        )
+        return [int(codes[i]) for i in range(int(count.value))]
+
+    def huayi_set_node_id(self, new_id: int) -> None:
+        """Huayi 节点号修改(2001h_1): 节点复位后生效。new_id 1..=127。
+        仅 Huayi。"""
+        if not 1 <= int(new_id) <= 127:
+            raise ValueError(f"Huayi new_id must be a CANopen node id in 1..127, got {new_id}")
+        _ok(
+            self._abi.lib.motor_handle_huayi_set_node_id(
+                self._require_open(), int(new_id)
+            ),
+            "huayi_set_node_id",
+        )
+
+    def huayi_nmt(self, command: int, node: int = 0) -> None:
+        """Huayi 总线上的 NMT 主站命令(COB-ID 0x000, [command, node])。
+        command: 0x01 start / 0x02 stop / 0x80 进入预操作 / 0x81 节点复位 /
+        0x82 通信复位; node=0 广播总线上所有 CANopen 节点(含其他厂商)。
+        发完即走不等回复。仅 Huayi 电机句柄(命令作用于整条总线)。
+        指向本节点(或广播)的复位会使本地缓存失效: 0x81 清空模式/PP 握手/
+        TPDO 标记, 0x82 / 0x80 / 0x02 清 TPDO 标记——下一条命令自动重走
+        完整握手, 不会跳过驱动器已忘记的步骤。"""
+        if int(node) < 0 or int(node) > 127:
+            raise ValueError(f"NMT node must be in 0..127, got {node}")
+        _ok(
+            self._abi.lib.motor_handle_huayi_nmt(self._require_open(), int(command), int(node)),
+            "huayi_nmt",
         )
 
     def set_can_timeout_ms(self, timeout_ms: int) -> None:

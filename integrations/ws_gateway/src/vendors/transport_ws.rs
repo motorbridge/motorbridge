@@ -3,6 +3,7 @@ use motor_core::bus::CanBus;
 use motor_core::dm_device::DmDeviceType;
 use motor_vendor_damiao::DamiaoController;
 use motor_vendor_hexfellow::HexfellowController;
+use motor_vendor_huayi::HuayiController;
 use motor_vendor_myactuator::MyActuatorController;
 use motor_vendor_robstride::RobstrideController;
 use std::sync::Arc;
@@ -46,6 +47,36 @@ pub(crate) fn open_damiao_controller(
             &base.dm_channel,
         )
         .map_err(|e| e.to_string()),
+    }
+}
+
+/// Huayi is classic-CAN CANopen: socketcan / mcu-serial are valid, FD and
+/// damiao transports are rejected.
+pub(crate) fn open_huayi_controller(
+    base: &Target,
+    transport: Transport,
+) -> Result<HuayiController, String> {
+    let p = motor_core::bus::TransportParams {
+        channel: &base.channel,
+        serial_port: &base.serial_port,
+        serial_baud: base.serial_baud,
+    };
+    match transport {
+        Transport::Auto | Transport::SocketCan => {
+            motor_core::bus::open_transport(motor_core::bus::Transport::SocketCan, &p)
+                .map(HuayiController::new)
+                .map_err(|e| e.to_string())
+        }
+        Transport::McuSerial => {
+            motor_core::bus::open_transport(motor_core::bus::Transport::McuSerial, &p)
+                .map(HuayiController::new)
+                .map_err(|e| e.to_string())
+        }
+        Transport::SocketCanFd => Err(
+            "huayi is classic CAN only; use transport auto|socketcan|mcu-serial".to_string(),
+        ),
+        Transport::DmSerial => Err("transport dm-serial is damiao-only".to_string()),
+        Transport::DmDevice => Err("transport dm-device is damiao-only".to_string()),
     }
 }
 

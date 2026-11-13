@@ -24,6 +24,11 @@ pub extern "C" fn motor_handle_set_can_timeout_ms(motor: *mut MotorHandle, timeo
         MotorHandleInner::Hightorque(_) => {
             Err("set_can_timeout_ms is not supported for HighTorque".to_string())
         }
+        // Manual has no 6099h-equivalent watchdog; heartbeat consumption is
+        // a future item (0x1016h on the master side).
+        MotorHandleInner::Huayi(_) => {
+            Err("set_can_timeout_ms is not supported for Huayi".to_string())
+        }
     };
     ffi_rc(rc)
 }
@@ -41,6 +46,10 @@ pub extern "C" fn motor_handle_write_register_f32(
     let motor = lock_motor_inner!(motor, "motor is null");
     let rc = match &*motor {
         MotorHandleInner::Damiao(m) => m.write_register_f32(rid, value).map_err(|e| e.to_string()),
+        MotorHandleInner::Huayi(_) => Err(
+            "u8 rid cannot address 16-bit CANopen index; use motor_handle_huayi_sdo_write_f32"
+                .to_string(),
+        ),
         _ => Err("Damiao register write is only available for Damiao motors".to_string()),
     };
     ffi_rc(rc)
@@ -59,6 +68,10 @@ pub extern "C" fn motor_handle_write_register_u32(
     let motor = lock_motor_inner!(motor, "motor is null");
     let rc = match &*motor {
         MotorHandleInner::Damiao(m) => m.write_register_u32(rid, value).map_err(|e| e.to_string()),
+        MotorHandleInner::Huayi(_) => Err(
+            "u8 rid cannot address 16-bit CANopen index; use motor_handle_huayi_sdo_write_i32 for 32-bit values (a u32 SDO variant is not exported)"
+                .to_string(),
+        ),
         _ => Err("Damiao register write is only available for Damiao motors".to_string()),
     };
     ffi_rc(rc)
@@ -82,6 +95,10 @@ pub extern "C" fn motor_handle_get_register_f32(
             .get_register_f32(rid, Duration::from_millis(timeout_ms as u64))
             .map_err(|e| e.to_string())
             .map(|v| *out = v),
+        MotorHandleInner::Huayi(_) => Err(
+            "u8 rid cannot address 16-bit CANopen index; use motor_handle_huayi_sdo_read_f32"
+                .to_string(),
+        ),
         _ => Err("Damiao register read is only available for Damiao motors".to_string()),
     };
     ffi_rc(rc)
@@ -105,6 +122,10 @@ pub extern "C" fn motor_handle_get_register_u32(
             .get_register_u32(rid, Duration::from_millis(timeout_ms as u64))
             .map_err(|e| e.to_string())
             .map(|v| *out = v),
+        MotorHandleInner::Huayi(_) => Err(
+            "u8 rid cannot address 16-bit CANopen index; use motor_handle_huayi_sdo_read_i32 for 32-bit values (a u32 SDO variant is not exported)"
+                .to_string(),
+        ),
         _ => Err("Damiao register read is only available for Damiao motors".to_string()),
     };
     ffi_rc(rc)
@@ -128,7 +149,8 @@ pub extern "C" fn motor_handle_robstride_ping(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::Hightorque(_)
+        | MotorHandleInner::Huayi(_) => {
             Err("robstride_ping requires a RobStride motor".to_string())
         }
     };
@@ -167,7 +189,8 @@ pub extern "C" fn motor_handle_robstride_ping_host_id(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::Hightorque(_)
+        | MotorHandleInner::Huayi(_) => {
             Err("robstride_ping_host_id requires a RobStride motor".to_string())
         }
     };
@@ -214,7 +237,8 @@ pub extern "C" fn motor_handle_robstride_get_param_f32_host_id(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::Hightorque(_)
+        | MotorHandleInner::Huayi(_) => {
             Err("robstride_get_param_f32_host_id requires a RobStride motor".to_string())
         }
     };
@@ -244,7 +268,8 @@ pub extern "C" fn motor_handle_robstride_get_fault_report(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::Hightorque(_)
+        | MotorHandleInner::Huayi(_) => {
             set_last_error("robstride_get_fault_report requires a RobStride motor");
             -1
         }
@@ -266,7 +291,8 @@ pub extern "C" fn motor_handle_robstride_set_device_id(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::Hightorque(_)
+        | MotorHandleInner::Huayi(_) => {
             Err("robstride_set_device_id requires a RobStride motor".to_string())
         }
     };
@@ -290,7 +316,8 @@ pub extern "C" fn motor_handle_robstride_set_active_report(
         MotorHandleInner::Damiao(_)
         | MotorHandleInner::Hexfellow(_)
         | MotorHandleInner::MyActuator(_)
-        | MotorHandleInner::Hightorque(_) => {
+        | MotorHandleInner::Hightorque(_)
+        | MotorHandleInner::Huayi(_) => {
             Err("robstride_set_active_report requires a RobStride motor".to_string())
         }
     };

@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 extern "C" {
 #include "motor_abi.h"
@@ -363,6 +364,122 @@ class Motor {
     check_rc(motor_handle_damiao_write_param_u32(ptr_, param_id, value), "damiao_write_param_u32");
   }
 
+  // ---------------------------------------------------------------------
+  // Huayi (CANopen) vendor-private interface.
+  // Mode numbers are the 6060h numbering (5 = MIT; on RobStride's private
+  // protocol 5 is CSP — do not mix). register_f32/u32 are rejected for
+  // Huayi: u8 rids cannot address 16-bit CANopen indices, use the typed
+  // SDO access below.
+  // ---------------------------------------------------------------------
+
+  uint16_t huayi_sdo_read_u16(uint16_t index, uint8_t sub, uint32_t timeout_ms = 1000) {
+    require_open();
+    uint16_t out = 0;
+    check_rc(motor_handle_huayi_sdo_read_u16(ptr_, index, sub, timeout_ms, &out),
+             "huayi_sdo_read_u16");
+    return out;
+  }
+  int16_t huayi_sdo_read_i16(uint16_t index, uint8_t sub, uint32_t timeout_ms = 1000) {
+    require_open();
+    int16_t out = 0;
+    check_rc(motor_handle_huayi_sdo_read_i16(ptr_, index, sub, timeout_ms, &out),
+             "huayi_sdo_read_i16");
+    return out;
+  }
+  int32_t huayi_sdo_read_i32(uint16_t index, uint8_t sub, uint32_t timeout_ms = 1000) {
+    require_open();
+    int32_t out = 0;
+    check_rc(motor_handle_huayi_sdo_read_i32(ptr_, index, sub, timeout_ms, &out),
+             "huayi_sdo_read_i32");
+    return out;
+  }
+  float huayi_sdo_read_f32(uint16_t index, uint8_t sub, uint32_t timeout_ms = 1000) {
+    require_open();
+    float out = 0.0f;
+    check_rc(motor_handle_huayi_sdo_read_f32(ptr_, index, sub, timeout_ms, &out),
+             "huayi_sdo_read_f32");
+    return out;
+  }
+  void huayi_sdo_write_u16(uint16_t index, uint8_t sub, uint16_t value) {
+    require_open();
+    check_rc(motor_handle_huayi_sdo_write_u16(ptr_, index, sub, value), "huayi_sdo_write_u16");
+  }
+  void huayi_sdo_write_i16(uint16_t index, uint8_t sub, int16_t value) {
+    require_open();
+    check_rc(motor_handle_huayi_sdo_write_i16(ptr_, index, sub, value), "huayi_sdo_write_i16");
+  }
+  void huayi_sdo_write_i32(uint16_t index, uint8_t sub, int32_t value) {
+    require_open();
+    check_rc(motor_handle_huayi_sdo_write_i32(ptr_, index, sub, value), "huayi_sdo_write_i32");
+  }
+  void huayi_sdo_write_f32(uint16_t index, uint8_t sub, float value) {
+    require_open();
+    check_rc(motor_handle_huayi_sdo_write_f32(ptr_, index, sub, value), "huayi_sdo_write_f32");
+  }
+
+  /// Torque mode (6060h=4): target Nm -> 6071h permille of the 6076h peak.
+  void huayi_send_torque(float torque_nm) {
+    require_open();
+    check_rc(motor_handle_huayi_send_torque(ptr_, torque_nm), "huayi_send_torque");
+  }
+
+  /// Compressed MIT fast path (manual §5.2): one 8-byte classic frame to
+  /// 0x500 + node per command. All arguments in unified SI units; the
+  /// Kp/Kd unit chain (Nm/rad -> Nm/Rev -> 12-bit linear map) runs in the
+  /// backend. The slow 2003h SDO path is the generic send_mit.
+  void huayi_send_mit_compressed(float pos, float vel, float kp, float kd, float tau) {
+    require_open();
+    check_rc(motor_handle_huayi_send_mit_compressed(ptr_, pos, vel, kp, kd, tau),
+             "huayi_send_mit_compressed");
+  }
+
+  /// Position preset (3001h, "pres"): requires Switch On Disabled — call
+  /// disable() first. |position_rev| <= 0.5 (output shaft).
+  void huayi_position_preset(float position_rev) {
+    require_open();
+    check_rc(motor_handle_huayi_position_preset(ptr_, position_rev), "huayi_position_preset");
+  }
+
+  /// TPDO stream control (RobStride set_active_report role). 0 stops
+  /// reporting; valid range 1..=65535 ms.
+  void huayi_configure_periodic_report(uint32_t period_ms) {
+    require_open();
+    check_rc(motor_handle_huayi_configure_periodic_report(ptr_, period_ms),
+             "huayi_configure_periodic_report");
+  }
+
+  /// Last cached 603Fh/EMCY error code (u16, 0 = no error; no bus traffic).
+  uint16_t huayi_get_error_code() {
+    require_open();
+    uint16_t out = 0;
+    check_rc(motor_handle_huayi_get_error_code(ptr_, &out), "huayi_get_error_code");
+    return out;
+  }
+
+  /// Error history (1003h walk), oldest first, up to 32 codes.
+  std::vector<uint16_t> huayi_get_error_history() {
+    require_open();
+    std::array<uint16_t, 32> codes{};
+    uint32_t count = 0;
+    check_rc(motor_handle_huayi_get_error_history(ptr_, codes.data(), &count),
+             "huayi_get_error_history");
+    return std::vector<uint16_t>(codes.begin(), codes.begin() + count);
+  }
+
+  /// Change the node id (2001h_1; effective after a node reset).
+  void huayi_set_node_id(uint8_t new_id) {
+    require_open();
+    check_rc(motor_handle_huayi_set_node_id(ptr_, new_id), "huayi_set_node_id");
+  }
+
+  /// Raw NMT master command on this motor's bus. command: 0x01 start /
+  /// 0x02 stop / 0x80 enter pre-operational / 0x81 reset node / 0x82 reset
+  /// communication; node = 0 broadcasts to every CANopen node on the bus.
+  void huayi_nmt(uint8_t command, uint8_t node = 0) {
+    require_open();
+    check_rc(motor_handle_huayi_nmt(ptr_, command, node), "huayi_nmt");
+  }
+
   std::optional<State> get_state() const {
     require_open();
     MotorState st{};
@@ -513,6 +630,42 @@ class Controller {
       throw Error("add_hightorque_motor failed: " + last_error_message());
     }
     return Motor(handle_, m);
+  }
+
+  /// Huayi CANopen joint motor. motor_id is the CANopen node id (1..=127);
+  /// feedback_id = 0 keeps the node id. Mixes freely with other classic-CAN
+  /// vendors on one controller.
+  Motor add_huayi_motor(uint16_t motor_id, uint16_t feedback_id, const std::string& model) {
+    if (motor_id < 1 || motor_id > 127) {
+      throw Error("Huayi motor_id must be a CANopen node id in 1..127");
+    }
+    if (feedback_id > 127) {
+      throw Error("Huayi feedback_id must be in 0..127");
+    }
+    MotorHandle* m =
+        motor_controller_add_huayi_motor(handle_->ptr, motor_id, feedback_id, model.c_str());
+    if (!m) {
+      throw Error("add_huayi_motor failed: " + last_error_message());
+    }
+    return Motor(handle_, m);
+  }
+
+  /// Scan CANopen nodes: NMT start broadcast, then 6041h/6061h/603Fh SDO
+  /// probes for each id in start..=end. Returns the ids that answered.
+  /// Works before any motor is added.
+  std::vector<uint16_t> huayi_scan_ids(uint16_t start_id = 1, uint16_t end_id = 127,
+                                       uint32_t timeout_ms = 100) {
+    require_open();
+    if (start_id < 1 || end_id > 127 || start_id > end_id) {
+      throw Error("scan range must be within 1..=127 with start <= end");
+    }
+    std::vector<uint16_t> nodes(end_id - start_id + 1);
+    uint32_t count = 0;
+    check_rc(motor_controller_huayi_scan_ids(handle_->ptr, start_id, end_id, timeout_ms,
+                                             nodes.data(), &count),
+             "huayi_scan_ids");
+    nodes.resize(count);
+    return nodes;
   }
 
  private:

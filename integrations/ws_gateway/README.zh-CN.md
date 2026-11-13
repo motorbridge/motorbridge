@@ -6,7 +6,7 @@
 - Linux SocketCAN 直接使用已初始化的接口名：`can0`、`can1`。CANable 请刷 candleLight/gs_usb 固件，让系统识别为 `can0` 这类 SocketCAN 接口。
 - 标准 CAN 推荐 PCAN 或 CANable candleLight/gs_usb。
 - 仅 Damiao 可选两类适配器链路：串口桥 `--transport dm-serial --serial-port /dev/ttyACM0 --serial-baud 921600`，以及 DM_Device SDK `--transport dm-device --dm-device-type usb2canfd|usb2canfd-dual|linkx4c --dm-channel 0|1|2|3`。DM_Device 链路当前只配 Damiao 电机协议使用，适配器需处于 USB 模式。
-- 通用 MCU 串口转 CAN 桥：`--transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600`。注意与 Damiao 专用串口桥 `dm-serial` 是两种协议：`mcu-serial` 由桥固件透传经典 CAN 帧，`dm-serial` 承载 Damiao 串口协议。适配经典 CAN 全品牌（damiao / robstride / myactuator / hightorque；hexfellow 仅 CAN-FD 不适用）；桥固件在 bus-off / 发送失败 / 接收丢弃时会主动上报结构化链路状态；四个前端（motor_abi / Python / motor_cli / ws_gateway）均支持。
+- 通用 MCU 串口转 CAN 桥：`--transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600`。注意与 Damiao 专用串口桥 `dm-serial` 是两种协议：`mcu-serial` 由桥固件透传经典 CAN 帧，`dm-serial` 承载 Damiao 串口协议。适配经典 CAN 全品牌（damiao / robstride / myactuator / hightorque / huayi；hexfellow 仅 CAN-FD 不适用）；桥固件在 bus-off / 发送失败 / 接收丢弃时会主动上报结构化链路状态；四个前端（motor_abi / Python / motor_cli / ws_gateway）均支持。
 - 仅 Damiao 可选 DM_Device SDK 链路：
   `--transport dm-device --dm-device-type usb2canfd|usb2canfd-dual|linkx4c`。
   适配器需要处于 USB 模式。Linux x86_64 下 USB2CANFD_DUAL 的通道 0/1
@@ -70,6 +70,7 @@ WS API 主链路已实现。
 | hexfellow | 原生 MIT | 原生 POS_VEL | 不支持 | 不支持 | `mit` 支持 `kp/kd/tau`，无独立 `vel` | CAN-FD 链路 |
 | myactuator | 不支持 | Position 设定流程 | 原生速度设定 | 不支持 | `pos_vel` 通过 position setpoint 实现；基线里 `vel` 可用 | 强项是 current/position/version/mode-query |
 | hightorque | 原生 MIT（v2.0.0 位打包帧） | 原生 POS_VEL（`0x07 0x35` 协同） | 原生速度帧 | 不支持 | 全部命令经 `motor_vendor_hightorque`（唯一实现）；回帧为物理量并带型号力矩系数补偿 | 另有 `pos_vel_acc`（梯形 `07 2d`）与 `torque`（`05 13`，物理量 Nm）模式，以及 `pos_classic`/`dq_voltage`/`dq_current`/`brake`/`run_mode`/`write_register`/`periodic_report`/`read_register` 专属 op；`enable` 为语义空操作（方案 B，2026-10-08，不发帧直接成功） |
+| huayi | 6060h=5 MIT（`2003h` 慢速路径；RPDO4 压缩快速通道仅 ABI/CLI） | 6060h=1 PP（`6081h` + `607Ah` + CW bit4） | 6060h=3 PV（`60FFh`） | 不支持 | `motor_id` 即 CANopen 节点号（1..=127）；`feedback_id` 缺省 0（沿用节点号） | 经典 CAN 上的 CANopen/CiA402；`torque` op 支持（6060h=4 + `6071h`）；`ensure_mode`/`request_feedback`/`set_active_report`（TPDO 流）统一；置零须先 `disable`（3001h 防护）；模式编号遵循 CiA402（`5`=MIT，非 RobStride 私有协议的 CSP） |
 
 ### 统一核心操作支持矩阵
 
@@ -80,6 +81,7 @@ WS API 主链路已实现。
 | hexfellow | 支持 | 不支持 | 支持 | 支持 | 支持 | 支持 |
 | myactuator | 支持 | 不支持 | 支持 | 支持 | 支持 | 支持 |
 | hightorque | 支持 | 不支持 | 如实拒绝 | 支持（停止帧） | 支持 | 支持 |
+| huayi | 支持（节点扫描） | 不支持（走 CLI/ABI `set_node_id`；需 store + 断电） | 支持 | 支持 | 支持（受控停止） | 支持（TPDO 流或 `6041h` SDO 探测） |
 
 ### 模式参数差异说明
 
@@ -134,6 +136,12 @@ WS API 主链路已实现。
         "modes": ["mit", "pos_vel", "pos_vel_acc", "vel", "torque"],
         "ops_unified": ["scan", "disable", "stop", "state_once", "status", "verify"],
         "ops_vendor_native": ["read", "pos_classic", "read_register", "dq_voltage", "dq_current", "brake", "run_mode", "write_register", "periodic_report", "set_zero_position", "store_parameters"]
+      },
+      "huayi": {
+        "transports": ["auto", "socketcan", "mcu-serial"],
+        "modes": ["mit", "pos_vel", "vel", "torque"],
+        "ops_unified": ["scan", "enable", "disable", "stop", "state_once", "status", "verify", "ensure_mode", "request_feedback", "set_active_report", "store_parameters", "set_zero_position", "clear_error"],
+        "ops_vendor_native": []
       }
     },
     "unsupported_behavior": "return {ok:false,error:'unsupported ...'}"
@@ -332,7 +340,7 @@ or offline joints return `has_value:false` instead of failing the whole request.
 
 ## 说明
 
-- `--vendor damiao|robstride|hexfellow|myactuator|hightorque` 用于设置会话默认厂商。
+- `--vendor damiao|robstride|hexfellow|myactuator|hightorque|huayi` 用于设置会话默认厂商。
 - `set_target` 可在单个会话中动态切换厂商/transport/通道/串口/型号/ID。
 - `continuous=true` 会在每个 tick 持续发送该控制命令。
 - `stop` 用于清除持续控制并请求厂商感知的受控停车。RobStride 会读取

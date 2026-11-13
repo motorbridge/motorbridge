@@ -2,6 +2,7 @@ mod args;
 mod damiao_cli;
 mod hexfellow_cli;
 mod hightorque_cli;
+mod huayi_cli;
 mod myactuator_cli;
 mod robstride_cia402_cli;
 mod robstride_cli;
@@ -11,6 +12,7 @@ use args::{get_str, get_u16_hex_or_dec, print_help};
 use damiao_cli::run_damiao;
 use hexfellow_cli::run_hexfellow;
 use hightorque_cli::run_hightorque;
+use huayi_cli::run_huayi;
 use myactuator_cli::run_myactuator;
 use robstride_cia402_cli::run_robstride_cia402;
 use robstride_cli::run_robstride;
@@ -40,6 +42,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "X8"
         } else if vendor == "hexfellow" {
             "hexfellow"
+        } else if vendor == "huayi" {
+            "huayi-joint"
         } else {
             "4340"
         };
@@ -47,7 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let motor_id = get_u16_hex_or_dec(&args, "motor-id", 0x01)?;
     let feedback_default = match vendor.as_str() {
         "robstride" | "robstride_mit" => 0x00FD,
-        "robstride_cia402" | "hexfellow" => 0x0000,
+        "robstride_cia402" | "hexfellow" | "huayi" => 0x0000,
         "hightorque" => 0x0001,
         "myactuator" => 0x0241,
         _ => 0x0011,
@@ -58,7 +62,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "mode",
         match vendor.as_str() {
             "robstride" => "ping",
-            "robstride_mit" | "robstride_cia402" | "myactuator" | "hexfellow" => "status",
+            "robstride_mit" | "robstride_cia402" | "myactuator" | "hexfellow" | "huayi" => {
+                "status"
+            }
             "hightorque" => "read",
             "all" => "scan",
             _ => "mit",
@@ -131,6 +137,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if vendor == "hexfellow" && transport != "auto" && transport != "socketcanfd" {
         return Err("vendor=hexfellow supports only --transport auto|socketcanfd".into());
     }
+    if vendor == "huayi" && transport != "auto" && transport != "socketcan" && transport != "mcu-serial"
+    {
+        return Err(
+            "vendor=huayi is classic CAN; supports only --transport auto|socketcan|mcu-serial"
+                .into(),
+        );
+    }
 
     if vendor == "all" {
         if mode != "scan" {
@@ -180,6 +193,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "hightorque" => run_hightorque(&args, &channel, &model, motor_id, feedback_id),
         "myactuator" => run_myactuator(&args, &channel, &model, motor_id, feedback_id),
         "hexfellow" => run_hexfellow(&args, &channel, &model, motor_id, feedback_id),
+        "huayi" => run_huayi(&args, &channel, &model, motor_id, feedback_id),
         _ => Err(format!("unknown vendor: {vendor}").into()),
     }
 }

@@ -7,7 +7,7 @@
 - Use PCAN or CANable candleLight/gs_usb for standard CAN.
 - Damiao-only CAN-FD transport is available in CLI (`--transport socketcanfd`), independent from classic `socketcan`.
 - Damiao-only adapter transports are available in CLI: serial bridge (`--transport dm-serial --serial-port /dev/ttyACM0 --serial-baud 921600`) and DM_Device SDK (`--transport dm-device --dm-device-type usb2canfd|usb2canfd-dual|linkx4c --dm-channel 0|1|2|3`; Damiao motors only; adapter must be in USB mode).
-- Generic MCU UART-to-CAN bridge: `--transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600`. Note this is a different protocol from the Damiao-only `dm-serial` bridge: `mcu-serial` relays classic CAN frames through the bridge firmware, while `dm-serial` carries the Damiao serial protocol. It covers all classic-CAN vendors (damiao / robstride / myactuator / hightorque; hexfellow is CAN-FD-only and not supported); the bridge firmware proactively reports structured link status on bus-off / TX failure / RX drop, and all four frontends (motor_abi / Python / motor_cli / ws_gateway) support it.
+- Generic MCU UART-to-CAN bridge: `--transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600`. Note this is a different protocol from the Damiao-only `dm-serial` bridge: `mcu-serial` relays classic CAN frames through the bridge firmware, while `dm-serial` carries the Damiao serial protocol. It covers all classic-CAN vendors (damiao / robstride / myactuator / hightorque / huayi; hexfellow is CAN-FD-only and not supported); the bridge firmware proactively reports structured link status on bus-off / TX failure / RX drop, and all four frontends (motor_abi / Python / motor_cli / ws_gateway) support it.
 - On Linux SocketCAN, do not append bitrate in `--channel` (for example `can0@1000000` is invalid).
 - On Windows (PCAN backend), `can0/can1` map to `PCAN_USBBUS1/2`; optional `@bitrate` suffix is supported.
 
@@ -32,8 +32,8 @@ cargo build -p motor_cli --release
 
 ## Common
 
-- `--vendor damiao|robstride|hightorque|myactuator|hexfellow|all`
-- `--transport auto|socketcan|socketcanfd|mcu-serial|dm-serial|dm-device` (`dm-serial`/`dm-device` are Damiao-only; `mcu-serial` is the generic MCU UART-to-CAN bridge covering classic-CAN vendors; `socketcanfd` required for Hexfellow)
+- `--vendor damiao|robstride|hightorque|myactuator|hexfellow|huayi|all`
+- `--transport auto|socketcan|socketcanfd|mcu-serial|dm-serial|dm-device` (`dm-serial`/`dm-device` are Damiao-only; `mcu-serial` is the generic MCU UART-to-CAN bridge covering classic-CAN vendors; `socketcanfd` required for Hexfellow; Huayi is classic-CAN only: `auto|socketcan|mcu-serial`)
 - `--channel can0`
 - `--serial-port /dev/ttyACM0 --serial-baud 921600` (used with `--transport mcu-serial` or `--transport dm-serial`)
 - `--dm-device-type usb2canfd|usb2canfd-dual|linkx4c --dm-channel 0|1|2|3` (used with `--transport dm-device`; in scan mode, omit `--dm-channel` to scan all channels on the selected adapter)
@@ -198,6 +198,60 @@ cargo run -p motor_cli --release -- \
 cargo run -p motor_cli --release -- \
   --vendor myactuator --channel can0 --model X8 --motor-id 1 --feedback-id 0x241 \
   --mode set-zero --loop 1
+```
+
+## Huayi (CANopen/CiA402 over classic CAN)
+
+`motor_id` is the CANopen node id (1..=127); `model` is a label only (default `huayi-joint`); `feedback_id` defaults to 0 (reuses the node id).
+
+Supported modes:
+
+- `scan` (node scan): `--start-id` (default 1) / `--end-id` (default 127)
+- `status` (full query: 6041h/6061h/603Fh + 6064h/606Ch/6077h)
+- `enable` / `disable` / `stop` (controlled stop) / `quick-stop` (CW bit2) / `clear-error`
+- `mit` / `mit-compressed` (RPDO4 compressed fast path) / `pos-vel` / `vel` / `torque` (`--tau <Nm>`)
+- `zero` / `set-zero` / `preset` (3001h position preset: `zero` is an alias of `set-zero` and auto-disables first; `preset` takes `--preset-rev <±0.5>`)
+- `save` / `restore` (1010h store / 1011h restore)
+- `set-node-id`: `--set-motor-id <1..=127>` (2001h; applies after store + power cycle)
+- `history` (1003h error-history walk, printed as `0x{:04X}`)
+- `report`: `--period-ms` (>=1 enables the TPDO status stream, 0 stops)
+- `nmt`: `--nmt-cmd 0x01|0x02|0x80|0x81|0x82 --nmt-node <0..=127>` (0 broadcasts)
+- `read-obj` / `write-obj`: `--index 0x6041 --sub 0x00 --ty u8|i8|u16|i16|u32|i32|f32 [--value ...]` (`--index` accepts hex/dec)
+
+Examples:
+
+```bash
+# Scan the bus for Huayi nodes
+cargo run -p motor_cli --release -- \
+  --vendor huayi --channel can0 --mode scan --start-id 1 --end-id 127
+```
+
+```bash
+# Status query
+cargo run -p motor_cli --release -- \
+  --vendor huayi --channel can0 --motor-id 1 --mode status
+```
+
+```bash
+# MIT run (unified rad/rad/s/Nm interface; kp/kd/tau converted vendor-side)
+cargo run -p motor_cli --release -- \
+  --vendor huayi --channel can0 --motor-id 1 \
+  --mode mit --pos 1.5 --vel 0 --kp 20 --kd 0.5 --tau 0 --loop 100 --dt-ms 20
+```
+
+```bash
+# Zero (auto-disables, then 3001h preset; save persists)
+cargo run -p motor_cli --release -- \
+  --vendor huayi --channel can0 --motor-id 1 --mode zero
+cargo run -p motor_cli --release -- \
+  --vendor huayi --channel can0 --motor-id 1 --mode save
+```
+
+```bash
+# Read an object-dictionary entry (e.g. peak torque 6076h)
+cargo run -p motor_cli --release -- \
+  --vendor huayi --channel can0 --motor-id 1 \
+  --mode read-obj --index 0x6076 --sub 0x00 --ty i16
 ```
 
 ## Unified scan

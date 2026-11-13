@@ -11,8 +11,11 @@ flowchart TB
   CORE --> MYACT["motor_vendors/myactuator"]
   CORE --> HIGHTORQUE["motor_vendors/hightorque"]
   CORE --> HEXFELLOW["motor_vendors/hexfellow"]
+  CORE --> HUAYI["motor_vendors/huayi"]
   CORE --> TEMPLATE["motor_vendors/template（接入模板）"]
-  DAMIAO --> CAN["CAN 总线后端"]
+  HUAYI --> CANOPEN["motor_canopen（CANopen 公用框架）"]
+  CANOPEN --> CAN["CAN 总线后端"]
+  DAMIAO --> CAN
   ROBSTRIDE --> CAN
   MYACT --> CAN
   HIGHTORQUE --> CAN
@@ -51,12 +54,14 @@ sequenceDiagram
 ```text
 motorbridge/
 ├── motor_core/                  # 与厂商无关的运行时
+├── motor_canopen/               # CANopen 阵营公用框架（SDO/CiA402/PDO/NMT/扫描）
 ├── motor_vendors/
 │   ├── damiao/                  # 生产可用实现
 │   ├── robstride/               # 生产可用实现（扩展 ID / 参数协议）
 │   ├── myactuator/              # 生产可用实现（RMD 协议）
 │   ├── hightorque/              # 生产可用实现（ht_can 协议）
 │   ├── hexfellow/               # 生产可用实现（CANopen over CAN-FD）
+│   ├── huayi/                   # 华翼关节驱动器（CANopen/CiA402，经典 CAN）
 │   └── template/                # 新厂商模板
 ├── motor_cli/                   # Rust CLI
 ├── motor_abi/                   # C ABI (cdylib + staticlib)
@@ -87,16 +92,29 @@ motorbridge/
 - `socketcanfd.rs`：Linux 独立 SocketCAN-FD 后端
 - `pcan.rs`：Windows PEAK PCAN 后端（实验性）
 
-### 2) `motor_vendors/*`
+### 2) `motor_canopen`
+
+CANopen 阵营的公用协议层，收拢"怎么发帧、怎么握手"：
+
+- SDO 读写（快速收发 + 分段）
+- CiA402 状态机序列（enable/disable/quick-stop）
+- PDO 重配置与 TPDO 流解析
+- NMT 主站命令与节点扫描
+- COB-ID 规则（`0x600+node` / `0x580+node` 等）
+
+厂商 crate 只保留语义差异：对象字典条目、单位与缩放、`6060h` 模式编号映射。
+Huayi 与 `robstride_cia402` 均组合这一层；一条经典 CAN 总线上两个 CANopen 厂商可共存。
+
+### 3) `motor_vendors/*`
 
 每个厂商 crate 负责：
 
-- 帧编码/解码
+- 帧编码/解码（CANopen 阵营除外，见 `motor_canopen`）
 - 寄存器语义
 - 型号限制参数
 - 基于 `CoreController` 的控制器封装
 
-### 3) `motor_abi`
+### 4) `motor_abi`
 
 - 导出 C 兼容句柄与函数
 - Rust 错误转换为返回码 + `motor_last_error_message()`
@@ -106,7 +124,7 @@ motorbridge/
 - `motor_controller_free` / `motor_handle_free` 是独占所有权操作：
   不要与同一指针上的其它操作并发调用，释放后也不能继续使用该指针
 
-### 4) SDK 与示例
+### 5) SDK 与示例
 
 - `motor_cli`：运维/调试命令行
 - `bindings/python`：可直接集成的 Python 包

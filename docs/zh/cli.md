@@ -7,7 +7,7 @@
 - 标准 CAN 推荐 PCAN 或 CANable candleLight/gs_usb。
 - 仅 Damiao 可选独立 CAN-FD 链路：`--transport socketcanfd`（与经典 `socketcan` 并存）。
 - 仅 Damiao 可选两类适配器链路：串口桥 `--transport dm-serial --serial-port /dev/ttyACM0 --serial-baud 921600`，以及 DM_Device SDK `--transport dm-device --dm-device-type usb2canfd|usb2canfd-dual|linkx4c --dm-channel 0|1|2|3`。DM_Device 链路当前只配 Damiao 电机协议使用，适配器需处于 USB 模式。
-- 通用 MCU 串口转 CAN 桥：`--transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600`。注意与 Damiao 专用串口桥 `dm-serial` 是两种协议：`mcu-serial` 由桥固件透传经典 CAN 帧，`dm-serial` 承载 Damiao 串口协议。适配经典 CAN 全品牌（damiao / robstride / myactuator / hightorque；hexfellow 仅 CAN-FD 不适用）；桥固件在 bus-off / 发送失败 / 接收丢弃时会主动上报结构化链路状态；四个前端（motor_abi / Python / motor_cli / ws_gateway）均支持。
+- 通用 MCU 串口转 CAN 桥：`--transport mcu-serial --serial-port /dev/ttyACM0 --serial-baud 921600`。注意与 Damiao 专用串口桥 `dm-serial` 是两种协议：`mcu-serial` 由桥固件透传经典 CAN 帧，`dm-serial` 承载 Damiao 串口协议。适配经典 CAN 全品牌（damiao / robstride / myactuator / hightorque / huayi；hexfellow 仅 CAN-FD 不适用）；桥固件在 bus-off / 发送失败 / 接收丢弃时会主动上报结构化链路状态；四个前端（motor_abi / Python / motor_cli / ws_gateway）均支持。
 - Linux SocketCAN 下 `--channel` 不要带 `@bitrate`（例如 `can0@1000000` 无效）。
 - Windows（PCAN 后端）中，`can0/can1` 映射 `PCAN_USBBUS1/2`，可选 `@bitrate` 后缀。
 
@@ -32,8 +32,8 @@ cargo build -p motor_cli --release
 
 ## 通用参数
 
-- `--vendor damiao|robstride|hightorque|myactuator|hexfellow|all`
-- `--transport auto|socketcan|socketcanfd|mcu-serial|dm-serial|dm-device`（`dm-serial`/`dm-device` 仅 Damiao；`mcu-serial` 为通用 MCU 串口转 CAN 桥，覆盖经典 CAN 品牌；`socketcanfd` 用于 Hexfellow）
+- `--vendor damiao|robstride|hightorque|myactuator|hexfellow|huayi|all`
+- `--transport auto|socketcan|socketcanfd|mcu-serial|dm-serial|dm-device`（`dm-serial`/`dm-device` 仅 Damiao；`mcu-serial` 为通用 MCU 串口转 CAN 桥，覆盖经典 CAN 品牌；`socketcanfd` 用于 Hexfellow；Huayi 仅支持经典 CAN：`auto|socketcan|mcu-serial`）
 - `--channel can0`
 - `--serial-port /dev/ttyACM0 --serial-baud 921600`（配合 `--transport mcu-serial` 或 `--transport dm-serial`）
 - `--dm-device-type usb2canfd|usb2canfd-dual|linkx4c --dm-channel 0|1|2|3`（配合 `--transport dm-device`；扫描模式不传 `--dm-channel` 会扫描所选适配器全部通道）
@@ -198,6 +198,60 @@ cargo run -p motor_cli --release -- \
 cargo run -p motor_cli --release -- \
   --vendor myactuator --channel can0 --model X8 --motor-id 1 --feedback-id 0x241 \
   --mode set-zero --loop 1
+```
+
+## Huayi 示例（CANopen/CiA402，经典 CAN）
+
+`motor_id` 即 CANopen 节点号（1..=127）；`model` 仅为标签（默认 `huayi-joint`）；`feedback_id` 缺省 0（沿用节点号）。
+
+支持模式：
+
+- `scan`（节点扫描）：`--start-id`（默认 1）/ `--end-id`（默认 127）
+- `status`（6041h/6061h/603Fh + 6064h/606Ch/6077h 全量查询）
+- `enable` / `disable` / `stop`（受控停止）/ `quick-stop`（CW bit2 快停）/ `clear-error`
+- `mit` / `mit-compressed`（RPDO4 压缩快速通道）/ `pos-vel` / `vel` / `torque`（`--tau <Nm>`）
+- `zero` / `set-zero` / `preset`（3001h 位置预设：`zero` 等同 `set-zero`，自动先 disable；`preset` 用 `--preset-rev <±0.5>` 指定预设值）
+- `save` / `restore`（1010h store / 1011h restore）
+- `set-node-id`：`--set-motor-id <1..=127>`（2001h；store + 断电重启生效）
+- `history`（1003h 错误历史遍历，`0x{:04X}` 格式）
+- `report`：`--period-ms`（≥1 开启 TPDO 状态流，0 停止）
+- `nmt`：`--nmt-cmd 0x01|0x02|0x80|0x81|0x82 --nmt-node <0..=127>`（0 为广播）
+- `read-obj` / `write-obj`：`--index 0x6041 --sub 0x00 --ty u8|i8|u16|i16|u32|i32|f32 [--value ...]`（`--index` 支持 hex/dec）
+
+示例：
+
+```bash
+# 扫描总线上的 Huayi 节点
+cargo run -p motor_cli --release -- \
+  --vendor huayi --channel can0 --mode scan --start-id 1 --end-id 127
+```
+
+```bash
+# 状态查询
+cargo run -p motor_cli --release -- \
+  --vendor huayi --channel can0 --motor-id 1 --mode status
+```
+
+```bash
+# MIT 运行（统一 rad/rad/s/Nm 接口；kp/kd/tau 物理量由 vendor 换算）
+cargo run -p motor_cli --release -- \
+  --vendor huayi --channel can0 --motor-id 1 \
+  --mode mit --pos 1.5 --vel 0 --kp 20 --kd 0.5 --tau 0 --loop 100 --dt-ms 20
+```
+
+```bash
+# 置零（自动先 disable，再 3001h 预设；save 落盘）
+cargo run -p motor_cli --release -- \
+  --vendor huayi --channel can0 --motor-id 1 --mode zero
+cargo run -p motor_cli --release -- \
+  --vendor huayi --channel can0 --motor-id 1 --mode save
+```
+
+```bash
+# 读对象字典（如峰值力矩 6076h）
+cargo run -p motor_cli --release -- \
+  --vendor huayi --channel can0 --motor-id 1 \
+  --mode read-obj --index 0x6076 --sub 0x00 --ty i16
 ```
 
 ## 全品牌扫描
