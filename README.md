@@ -15,6 +15,74 @@ Unified CAN motor control stack with a vendor-agnostic Rust core, stable C ABI, 
 - `motorbridge-studio`: https://github.com/motorbridge/motorbridge-studio
   Standalone web control UI built on top of `ws_gateway`.
 
+## Update (2026-11): v0.6.0
+
+- `v0.6.0` lands the HighTorque native `ht_can` **v2.0.0** protocol stack
+  end-to-end: bit-packed MIT control (`0x18000 | id`, firmware v4.6.0+),
+  trapezoid `pos_vel_acc`, `pos_classic` with optional torque limit, physical
+  N·m torque mode with model coefficient correction, DQ voltage / DQ current,
+  run-mode switching (modes 0-17), brake, periodic status report, and generic
+  register read/write against the v2.0.0 register table. Fault codes 0-47 and
+  run modes 0-17 are decoded. HighTorque state queries are now non-blocking
+  (`request_feedback()` sends and returns while the RX thread caches the
+  reply; `request_fresh_state(timeout)` blocks for fresh state).
+- `v0.6.0` adds mixed-vendor shared bus support: every vendor controller
+  gained `new_shared(core)`, so several vendors can share one bus and one RX
+  drain thread through a single `CoreController`.
+- `v0.6.0` adds `get_state_snapshot()` across all vendors and bindings: the
+  cached state plus its age (host monotonic clock) and a per-motor sequence
+  number. Only complete state updates advance the sequence, so stale feedback
+  is distinguishable from fresh. This supersedes the RobStride-only freshness
+  counter from #25.
+- `v0.6.0` RobStride: new `rs-05el` (EDULITE 05) model; parameter replies are
+  matched by echoed index and failed replies are rejected; active-report
+  frames now feed the state cache instead of being dropped; `run_mode`
+  (0x7005) must be written as Int8 (**usage change**); the host-tool-only
+  `0x30xx` observation registers were removed from the register table and
+  gateway parameter-stream profiles.
+- **Breaking** (HighTorque): the typed parameter FFI family
+  `motor_handle_hightorque_{get,write}_param_*` is removed from the C ABI and
+  Python SDK (replaced by generic register access), the CLI `--ty` register
+  read-type parameter is removed (reads are fixed Int16 with physical
+  conversion), and the firmware-version query (`15 B5 02`) is removed across
+  all layers.
+- `v0.6.0` aligns mcu-serial documentation and capability tables everywhere:
+  `mcu-serial` is a different protocol from `dm-serial`, covers damiao /
+  robstride / myactuator / hightorque (hexfellow is CAN-FD-only and rejected),
+  and reports structured link status.
+- `v0.6.0` fixes `Controller.from_mcu_serial()` / C++ defaults and the
+  hightorque/robstride all-interfaces example scripts to `/dev/ttyACM0`, in
+  line with the CLI.
+- New Python real-bus example scripts:
+  `hightorque_all_interfaces_demo.py`, `robstride_all_interfaces_demo.py`,
+  and `damiao_all_interfaces_demo.py`, plus the HighTorque v2.0.0 protocol
+  reference under `docs/zh/`.
+
+## Update (2026-09): v0.5.6
+
+- `v0.5.6` makes the mcu-serial transport work end-to-end across all four
+  frontends (motor_abi, Python CLI, Rust motor_cli, ws_gateway) for damiao,
+  robstride, myactuator, and hightorque, and adds structured link-status
+  monitoring: the MCU pushes a STATUS frame on bus-off / TX-ACK-failure /
+  RX-drop, surfaced as `MotorError::BusStatus`.
+- `v0.5.6` introduces `Transport` + `open_transport()` in `motor_core::bus`
+  as the single dispatch point for every platform CAN driver.
+- `v0.5.5` fixes PCAN `set_id`/`verify` ops in `ws_gateway`: the active
+  session bus is released before stateless ops open their own bus, resolving
+  `PCAN_ERROR_INITIALIZE` on Windows/macOS.
+- `v0.5.3`/`v0.5.4` added then removed the pre-enable zero-point gate on
+  `enable_all`; gripper identity and pre-enable safety policy now stay at the
+  application layer.
+- `v0.5.2` aligns the RobStride `set_zero_position` frame with the vendor
+  manual (full 8-byte data area, DLC=8).
+- `v0.5.1` adds mode-aware RobStride `controlled_stop` (per-mode zeroing), the
+  `motor_handle_stop` FFI, and a RobStride CLI `stop` mode; it also fixes the
+  PP-mode `pos_vel` register misdirection so `vlim` actually writes
+  `vel_max (0x7024)`.
+- `v0.5.0` adds RobStride firmware version request/reply decoding and fixes
+  the RobStride MIT velocity normalization (`rs-00`/`rs-03`/`rs-06` vmax) and
+  `rs-05` limit alignment.
+
 ## Update (2026-07): v0.4.9
 
 - `v0.4.9` aligns the RobStride `rs-00` and `rs-06` torque-limit metadata with

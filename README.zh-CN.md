@@ -15,6 +15,59 @@
 - `motorbridge-studio`：https://github.com/motorbridge/motorbridge-studio
   基于 `ws_gateway` 的独立 Web 控制台。
 
+## 更新说明（2026-11）：v0.6.0
+
+- `v0.6.0` 完成 HighTorque 原生 `ht_can` **v2.0.0** 协议栈的全链路接入：
+  位压缩 MIT 控制帧（`0x18000 | id`，固件 v4.6.0+）、梯形 `pos_vel_acc`、
+  带可选扭矩上限的 `pos_classic`、带型号系数修正的物理 N·m 扭矩模式、
+  DQ 电压 / DQ 电流、运行模式切换（0-17）、brake、周期状态上报，以及按
+  v2.0.0 寄存器表的通用寄存器读写。故障码 0-47 和运行模式 0-17 均已解码。
+  HighTorque 状态查询改为非阻塞：`request_feedback()` 发送即返回，由后台
+  RX 线程缓存应答；`request_fresh_state(timeout)` 阻塞等待新鲜状态。
+- `v0.6.0` 新增多厂商共享总线：每个厂商 controller 都支持 `new_shared(core)`，
+  多个厂商可通过同一个 `CoreController` 共享一条总线和同一个 RX drain 线程。
+- `v0.6.0` 在所有厂商和绑定中新增 `get_state_snapshot()`：返回缓存状态及其
+  年龄（宿主单调时钟）和每电机的序列号。只有完整状态更新才会推进序列号，
+  可区分新鲜与过期反馈。该能力取代 #25 中 RobStride 专属的新鲜度计数器。
+- `v0.6.0` RobStride：新增 `rs-05el`（EDULITE 05）型号；参数应答按回显 index
+  匹配并拒绝失败应答；主动上报帧不再被丢弃，会正常进入状态缓存；
+  `run_mode`（0x7005）必须按 Int8 写入（**用法变更**）；仅限上位机工具使用的
+  `0x30xx` 观测寄存器从寄存器表和 gateway 参数流 profile 中移除。
+- **破坏性变更**（HighTorque）：类型化参数 FFI 家族
+  `motor_handle_hightorque_{get,write}_param_*` 从 C ABI 和 Python SDK 中移除
+  （由通用寄存器访问替代）；CLI 寄存器读取的 `--ty` 参数移除（读取固定为
+  Int16 并换算物理值）；固件版本查询（`15 B5 02`）在所有层移除。
+- `v0.6.0` 对齐全部 mcu-serial 文档与能力表：`mcu-serial` 与 `dm-serial`
+  是不同协议，覆盖 damiao / robstride / myactuator / hightorque
+  （hexfellow 仅支持 CAN-FD，会被拒绝），并上报结构化链路状态。
+- `v0.6.0` 将 `Controller.from_mcu_serial()` / C++ 默认值以及
+  hightorque/robstride 全接口示例脚本
+  的串口默认值统一为 `/dev/ttyACM0`，与 CLI 一致。
+- 新增 Python 真机示例脚本：`hightorque_all_interfaces_demo.py`、
+  `robstride_all_interfaces_demo.py`、`damiao_all_interfaces_demo.py`，
+  以及 `docs/zh/` 下的 HighTorque v2.0.0 协议参考文档。
+
+## 更新说明（2026-09）：v0.5.6
+
+- `v0.5.6` 让 mcu-serial 传输链路在全部四个前端（motor_abi、Python CLI、
+  Rust motor_cli、ws_gateway）对 damiao、robstride、myactuator、hightorque
+  端到端可用，并新增结构化链路状态监控：MCU 在 bus-off / TX-ACK 失败 /
+  RX 丢帧时推送 STATUS 帧，上层以 `MotorError::BusStatus` 呈现。
+- `v0.5.6` 在 `motor_core::bus` 引入 `Transport` + `open_transport()`，
+  作为所有平台 CAN 驱动的统一分发入口。
+- `v0.5.5` 修复 `ws_gateway` 在 PCAN 上的 `set_id`/`verify` 操作：无状态
+  操作开总线前先释放会话总线，解决 Windows/macOS 上的
+  `PCAN_ERROR_INITIALIZE` 报错。
+- `v0.5.3`/`v0.5.4` 在 `enable_all` 上先加入后又移除了使能前零点安全门；
+  夹爪身份判断与使能前安全策略由应用层负责。
+- `v0.5.2` 将 RobStride `set_zero_position` 帧对齐厂商手册（完整 8 字节数据区，
+  DLC=8）。
+- `v0.5.1` 新增模式感知的 RobStride `controlled_stop`（按当前模式置零）、
+  `motor_handle_stop` FFI 和 RobStride CLI `stop` 模式；同时修复 PP 模式下
+  `pos_vel` 寄存器指向错误的问题，`vlim` 现在真正写入 `vel_max (0x7024)`。
+- `v0.5.0` 新增 RobStride 固件版本请求与应答解码，并修复 RobStride MIT
+  速度归一化（`rs-00`/`rs-03`/`rs-06` vmax）及 `rs-05` 限值对齐。
+
 ## 更新说明（2026-07）：v0.4.9
 
 - `v0.4.9` 将 RobStride `rs-00` 和 `rs-06` 的扭矩上限元数据对齐到厂商提供值，
