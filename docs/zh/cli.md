@@ -144,6 +144,10 @@ cargo run -p motor_cli --release -- \
 
 - `--raw-pos`、`--raw-vel`（力矩/电压/电流已统一为物理量 `--tau`/`--volt`/`--cur`，由 vendor 侧编码）
 
+逐周期状态回读（2026-11-13，默认开启）：HT 控制帧不带状态回报（电机只回 DLC=0 空 ACK），因此控制类模式（`pos`/`vel`/`tqe`/`mit`/`volt`/`cur`/`pos-vel-tqe`/`pos-vel-acc`/`stop`/`brake`）每次发送后会补发 vendor 的两帧合成状态查询（`17 01` 位置/速度/力矩 + `16 0E` 温度/故障，总线占用约 1.5ms），输出格式与 DM/RS 对齐为**单行 `#i`**：状态 + 指令回显（`cmd_*`）+ 误差（`e_pos`/`e_vel`/`e_tau`），例如 `#0 id=2 arb=0x200 pos=+0.123 vel=+0.499 torq=+0.050 status=0 fault=0 temp=31.0C cmd_vel=+0.500 e_vel=+0.001`（`arb` 为回复帧仲裁 ID：电机 ID 在高字节、目的主机在低字节，电机 2 即 0x200；查询帧的发送 ID 是扩展帧 `0x8000|id`，不会出现在这里）。`--feedback 0` 恢复纯发送行为（每周期仍打印一行 `#i cmd_*` 指令回显）；`--feedback-timeout-ms`（默认 200）限制每次等待。HT 只有一个温度寄存器，状态行只打印一个 `temp` 字段（无 t_mos/t_rotor 之分）。
+
+循环结束自动停机（2026-11-13，与 DM/RS 对齐）：控制目标类模式（`pos`/`vel`/`tqe`/`mit`/`volt`/`cur`/`pos-vel-tqe`/`pos-vel-acc`）循环结束后 CLI 自动 disable（run mode 0）再退出——HT 运动指令是锁存目标，不主动停的话 `--mode vel --loop 40` 结束后电机会带着最后一条目标速度继续转。`stop`/`brake` 本身已处于安全状态、查询/配置类模式（ping/read/read-reg/write-reg/set-mode/rezero/conf-write/periodic-report）不应有额外停机副作用，这些模式退出时只关总线不发停机帧。
+
 示例：
 
 ```bash

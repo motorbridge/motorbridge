@@ -90,9 +90,14 @@ fn print_scan_hit(prefix: &str, s: HtScanHit) {
 /// Convergence (2026-09-29): read/ping print vendor-decoded physical values
 /// (with torque coeff compensation and status/fault/temperature), replacing
 /// the old hand-written raw + self-computed conversion.
+///
+/// 2026-11-13: single temperature — HT has exactly one temperature register
+/// (0x0E, patched into `t_mos` by the 2026-10-24 bridge; `t_rotor` is never
+/// populated on this protocol), so the CLI prints one `temp` field instead
+/// of the DM-style t_mos/t_rotor pair.
 fn print_state(prefix: &str, s: &HightorqueFeedbackState) {
     println!(
-        "{} id={} arb_id=0x{:X} status={} fault={} pos={:+.4}rad vel={:+.4}rad/s torq={:+.3}Nm t_mos={:.1}C t_rotor={:.1}C",
+        "{} id={} arb_id=0x{:X} status={} fault={} pos={:+.4}rad vel={:+.4}rad/s torq={:+.3}Nm temp={:.1}C",
         prefix,
         s.can_id,
         s.arbitration_id,
@@ -101,8 +106,7 @@ fn print_state(prefix: &str, s: &HightorqueFeedbackState) {
         s.pos,
         s.vel,
         s.torq,
-        s.t_mos,
-        s.t_rotor
+        s.t_mos
     );
 }
 
@@ -218,6 +222,15 @@ pub fn run_hightorque(
     let mode = get_str(args, "mode", "ping");
     let loop_n = get_u64(args, "loop", 1)?;
     let dt_ms = get_u64(args, "dt-ms", 20)?;
+    // 2026-11-13: per-loop state feedback for control modes, DEFAULT ON —
+    // HT control frames carry no status reply (only a DLC=0 ACK), but the
+    // vendor's `request_fresh_state` (two register reads: `17 01` pos/vel/tq
+    // + `16 0E` temp/fault, ~1.5ms on the bus) synthesizes the DM/RS-style
+    // per-iteration state line. `--feedback 0` restores the old send-only
+    // behavior (useful when saturating the loop rate matters more than
+    // visibility). Applied after each send of the control-target modes.
+    let feedback_each_loop = get_u64(args, "feedback", 1)? != 0;
+    let feedback_timeout_ms = get_u64(args, "feedback-timeout-ms", 200)?.max(1);
     let transport = get_str(args, "transport", "auto");
     let serial_port = get_str(args, "serial-port", "/dev/ttyACM0");
     let serial_baud_u64 = get_u64(args, "serial-baud", 921600)?;
@@ -268,6 +281,16 @@ pub fn run_hightorque(
     }
 
     for i in 0..send_count {
+        // 2026-11-13: DM/RS-aligned output — one `#i` line per iteration
+        // carrying the state (feedback on) or the command echo (feedback
+        // off), replacing the old [tx]/[rx]/[loop] three-line noise.
+        // Command targets parsed in-branch are mirrored into cmd_pos/
+        // cmd_vel/cmd_tau so the feedback block can append DM-style
+        // e_pos/e_vel/e_tau error fields.
+        let mut cmd_desc = String::new();
+        let mut cmd_pos = 0.0f32;
+        let mut cmd_vel = 0.0f32;
+        let mut cmd_tau = 0.0f32;
         match mode.as_str() {
             "ping" | "read" => {
                 // Block for a fresh state (≤500ms): vendor request_fresh_state;
@@ -284,9 +307,12 @@ pub fn run_hightorque(
                 // default unlimited (0x8000).
                 let pos = pos_rad_from_args(args)?;
                 let tqe = tau_nm_from_args(args)?;
-                println!(
-                    "[tx] mode=pos id={} pos={:+.4}rad tqe_limit={:?}",
-                    motor_id, pos, tqe
+                cmd_pos = pos;
+                cmd_desc = format!(
+                    "cmd_pos={:+.3}{}",
+                    pos,
+                    tqe.map(|t| format!(" tqe_limit={:+.3}", t))
+                        .unwrap_or_default()
                 );
                 motor
                     .send_cmd_pos_classic(pos, tqe)
@@ -294,7 +320,8 @@ pub fn run_hightorque(
             }
             "vel" => {
                 let vel = vel_rad_s_from_args(args)?;
-                println!("[tx] mode=vel id={} vel={:+.4}rad/s", motor_id, vel);
+                cmd_vel = vel;
+                cmd_desc = format!("cmd_vel={:+.3}", vel);
                 motor.send_cmd_vel(vel).map_err(|e| e.to_string())?;
             }
             "tqe" => {
@@ -306,12 +333,8 @@ pub fn run_hightorque(
                     );
                 }
                 let tau = get_f32(args, "tau", 0.0)?;
-                println!(
-                    "[tx] mode=tqe id={} tau={:+.3}Nm (model coeff k={:.3})",
-                    motor_id,
-                    tau,
-                    motor.torque_coeff().k
-                );
+                cmd_tau = tau;
+                cmd_desc = format!("cmd_tau={:+.3}", tau);
                 motor.send_cmd_torque(tau).map_err(|e| e.to_string())?;
             }
             "mit" => {
@@ -323,9 +346,12 @@ pub fn run_hightorque(
                 let tau = get_f32(args, "tau", 0.0)?;
                 let kp = get_f32(args, "kp", 0.0)?;
                 let kd = get_f32(args, "kd", 0.0)?;
-                println!(
-                    "[tx] mode=mit id={} pos={:+.4}rad vel={:+.4}rad/s tau={:+.3}Nm kp={:.3} kd={:.3}",
-                    motor_id, pos, vel, tau, kp, kd
+                cmd_pos = pos;
+                cmd_vel = vel;
+                cmd_tau = tau;
+                cmd_desc = format!(
+                    "cmd_pos={:+.3} cmd_vel={:+.3} kp={:.3} kd={:.3} cmd_tau={:+.3}",
+                    pos, vel, kp, kd, tau
                 );
                 motor
                     .send_cmd_mit(pos, vel, kp, kd, tau)
@@ -341,7 +367,7 @@ pub fn run_hightorque(
                     );
                 }
                 let volt = get_f32(args, "volt", 0.0)?;
-                println!("[tx] mode=volt id={} volt={:+.3}V", motor_id, volt);
+                cmd_desc = format!("cmd_volt={:+.3}", volt);
                 motor.send_cmd_dq_voltage(volt).map_err(|e| e.to_string())?;
             }
             "cur" => {
@@ -353,7 +379,7 @@ pub fn run_hightorque(
                     );
                 }
                 let cur = get_f32(args, "cur", 0.0)?;
-                println!("[tx] mode=cur id={} cur={:+.3}A", motor_id, cur);
+                cmd_desc = format!("cmd_cur={:+.3}", cur);
                 motor.send_cmd_dq_current(cur).map_err(|e| e.to_string())?;
             }
             "set-mode" => {
@@ -379,10 +405,9 @@ pub fn run_hightorque(
                 // the vendor, raw-tqe no longer accepted.
                 let pos = pos_rad_from_args(args)?;
                 let vel = vel_rad_s_from_args(args)?;
-                println!(
-                    "[tx] mode=pos-vel-tqe id={} pos={:+.4}rad vel={:+.4}rad/s (torque unlimited)",
-                    motor_id, pos, vel
-                );
+                cmd_pos = pos;
+                cmd_vel = vel;
+                cmd_desc = format!("cmd_pos={:+.3} vlim={:+.3}", pos, vel);
                 motor
                     .send_cmd_pos_vel(pos, vel)
                     .map_err(|e| e.to_string())?;
@@ -394,10 +419,9 @@ pub fn run_hightorque(
                 let pos = pos_rad_from_args(args)?;
                 let vlim = get_f32(args, "vlim", 1.0)?;
                 let acc = get_f32(args, "acc", 1.0)?;
-                println!(
-                    "[tx] mode=pos-vel-acc id={} pos={:+.4}rad vlim={:+.4}rad/s acc={:+.4}rad/s^2",
-                    motor_id, pos, vlim, acc
-                );
+                cmd_pos = pos;
+                cmd_vel = vlim;
+                cmd_desc = format!("cmd_pos={:+.3} vlim={:+.3} acc={:+.3}", pos, vlim, acc);
                 motor
                     .send_cmd_pos_vel_acc(pos, vlim, acc)
                     .map_err(|e| e.to_string())?;
@@ -440,12 +464,13 @@ pub fn run_hightorque(
                 }
             }
             "stop" => {
+                cmd_desc = "cmd=stop(run mode 0)".to_string();
                 motor.disable().map_err(|e| e.to_string())?;
             }
             "brake" => {
                 // Brake (table 2 mode 15): vendor brake, three-phase shorted
                 // damping brake.
-                println!("[tx] mode=brake id={} (run mode 15)", motor_id);
+                cmd_desc = "cmd=brake(run mode 15)".to_string();
                 motor.brake().map_err(|e| e.to_string())?;
             }
             "conf-write" => {
@@ -523,15 +548,101 @@ pub fn run_hightorque(
             .into());
             }
         }
-        if send_count > 1 {
-            println!("[loop] #{i} sent mode={mode}");
+        // Per-loop state feedback (2026-11-13, default on): after each
+        // control-target send, block briefly for a fresh synthesized state
+        // (17 01 + 16 0E register reads) and print it, DM/RS-aligned as a
+        // single `#i` line: state + command echo + e_pos/e_vel/e_tau error
+        // fields. Timeout only warns; motion commands keep flowing. Not
+        // applied to query/config modes (ping/read/read-reg/write-reg/...)
+        // which already report or are one-shot side effects.
+        if feedback_each_loop
+            && matches!(
+                mode.as_str(),
+                "pos" | "vel" | "tqe" | "mit" | "volt" | "cur" | "pos-vel-tqe" | "pos-vel-acc"
+                    | "stop" | "brake"
+            )
+        {
+            match motor.request_fresh_state(Duration::from_millis(feedback_timeout_ms)) {
+                Ok(s) => {
+                    let mut line = format!(
+                        "#{i} id={} arb=0x{:X} pos={:+.3} vel={:+.3} torq={:+.3} status={} fault={}{} temp={:.1}C",
+                        s.can_id,
+                        s.arbitration_id,
+                        s.pos,
+                        s.vel,
+                        s.torq,
+                        s.status_code,
+                        s.fault_code,
+                        if s.fault_code != 0 {
+                            format!("({})", s.fault_description())
+                        } else {
+                            String::new()
+                        },
+                        s.t_mos
+                    );
+                    if !cmd_desc.is_empty() {
+                        line.push_str(&format!(" {cmd_desc}"));
+                    }
+                    // DM-style error fields (command minus measured).
+                    match mode.as_str() {
+                        "pos" | "pos-vel-tqe" | "pos-vel-acc" | "mit" => {
+                            line.push_str(&format!(" e_pos={:+.3}", cmd_pos - s.pos));
+                        }
+                        _ => {}
+                    }
+                    match mode.as_str() {
+                        "vel" | "mit" => {
+                            line.push_str(&format!(" e_vel={:+.3}", cmd_vel - s.vel));
+                        }
+                        _ => {}
+                    }
+                    if mode == "tqe" {
+                        line.push_str(&format!(" e_tau={:+.3}", cmd_tau - s.torq));
+                    }
+                    println!("{line}");
+                }
+                Err(_) => {
+                    if cmd_desc.is_empty() {
+                        println!(
+                            "#{i} [warn] no fresh state within {feedback_timeout_ms}ms"
+                        );
+                    } else {
+                        println!(
+                            "#{i} [warn] no fresh state within {feedback_timeout_ms}ms {cmd_desc}"
+                        );
+                    }
+                }
+            }
+        } else if !cmd_desc.is_empty() {
+            // feedback disabled: command echo only, still one numbered line
+            // per iteration (DM/RS numbering, no state fields).
+            println!("#{i} {cmd_desc}");
         }
         if i + 1 < send_count {
             std::thread::sleep(Duration::from_millis(dt_ms));
         }
     }
 
-    ctrl.close_bus()?;
+    // 2026-11-13: auto-stop after the control loop, DM/RS-aligned
+    // (`CoreController::shutdown` -> `disable_all`, run mode 0). HT motion
+    // commands are latched targets — without this, `--mode vel --vel 0.5
+    // --loop 40` leaves the motor spinning the last target after the CLI
+    // exits. Applied only to control-target modes: `stop`/`brake` already
+    // leave the motor in a safe state, and query/config modes (ping/read/
+    // read-reg/write-reg/set-mode/rezero/conf-write/periodic-report) must
+    // not fire a surprise stop frame — those keep the bus-only `close_bus`.
+    if matches!(
+        mode.as_str(),
+        "pos" | "vel" | "tqe" | "mit" | "volt" | "cur" | "pos-vel-tqe" | "pos-vel-acc"
+    ) {
+        println!(
+            "[stop] loop finished; disabling motor id={} (run mode 0)",
+            motor_id
+        );
+        ctrl.shutdown()?;
+    } else {
+        ctrl.close_bus()?;
+    }
     Ok(())
 }
 

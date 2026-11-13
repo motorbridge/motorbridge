@@ -144,6 +144,10 @@ Raw interface (debug, position/velocity only):
 
 - `--raw-pos`, `--raw-vel` (torque/voltage/current are physical-only `--tau`/`--volt`/`--cur`; encoding is vendor-side)
 
+Per-loop state feedback (2026-11-13, default on): HT control frames carry no status reply (the motor ACKs with an empty DLC=0 frame), so after each send of a control-target mode (`pos`/`vel`/`tqe`/`mit`/`volt`/`cur`/`pos-vel-tqe`/`pos-vel-acc`/`stop`/`brake`) the CLI issues the vendor's two-read synthesized state query (`17 01` pos/vel/tq + `16 0E` temp/fault, ~1.5ms on the bus) and prints a **DM/RS-aligned single `#i` line**: state + command echo (`cmd_*`) + error fields (`e_pos`/`e_vel`/`e_tau`), e.g. `#0 id=2 arb=0x200 pos=+0.123 vel=+0.499 torq=+0.050 status=0 fault=0 temp=31.0C cmd_vel=+0.500 e_vel=+0.001` (`arb` is the reply frame's arbitration ID: motor id in the high byte, destination host in the low byte — motor 2 replies as 0x200; the query frames' send ID, extended `0x8000|id`, never appears here). `--feedback 0` restores the send-only behavior (still one `#i cmd_*` echo line per iteration); `--feedback-timeout-ms` (default 200) bounds each wait. HT has a single temperature register, so the state line prints one `temp` field (no t_mos/t_rotor pair).
+
+Auto-stop after the loop (2026-11-13, DM/RS-aligned): control-target modes (`pos`/`vel`/`tqe`/`mit`/`volt`/`cur`/`pos-vel-tqe`/`pos-vel-acc`) disable the motor (run mode 0) before the CLI exits — HT motion commands are latched targets, so without this, `--mode vel --loop 40` leaves the motor spinning the last target after exit. `stop`/`brake` already leave a safe state, and query/config modes (ping/read/read-reg/write-reg/set-mode/rezero/conf-write/periodic-report) must not fire a surprise stop frame — those exit with a bus-only teardown.
+
 Examples:
 
 ```bash
