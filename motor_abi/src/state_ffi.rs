@@ -220,7 +220,7 @@ mod tests {
         let motor =
             Arc::new(RobstrideMotor::new(2, 0xFD, "rs-00", Arc::new(MockBus::new())).unwrap());
         let mut handle = MotorHandle {
-            inner: Mutex::new(MotorHandleInner::Robstride(motor.clone())),
+            inner: FairMutex::new(MotorHandleInner::Robstride(motor.clone())),
         };
         let mut state = MotorState::default();
         let mut metadata = MotorStateMetadata {
@@ -294,7 +294,7 @@ mod tests {
         let motor =
             Arc::new(RobstrideMotor::new(2, 0xFD, "rs-00", Arc::new(MockBus::new())).unwrap());
         let mut handle = MotorHandle {
-            inner: Mutex::new(MotorHandleInner::Robstride(motor)),
+            inner: FairMutex::new(MotorHandleInner::Robstride(motor)),
         };
         let mut state = MotorState::default();
         let mut metadata = MotorStateMetadata {

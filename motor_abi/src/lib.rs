@@ -13,6 +13,7 @@ use motor_vendor_myactuator::{
 use motor_vendor_robstride::{
     ControlMode as RobstrideControlMode, ParameterValue, RobstrideController, RobstrideMotor,
 };
+use parking_lot::FairMutex;
 use std::cell::RefCell;
 use std::f32::consts::PI;
 use std::ffi::{c_char, CStr, CString};
@@ -337,7 +338,7 @@ pub struct MotorController {
 
 #[repr(C)]
 pub struct MotorHandle {
-    inner: Mutex<MotorHandleInner>,
+    inner: FairMutex<MotorHandleInner>,
 }
 
 #[repr(C)]
@@ -399,13 +400,7 @@ macro_rules! lock_motor_inner {
             return -1;
         }
         let motor = unsafe { &*$motor_ptr };
-        match motor.inner.lock() {
-            Ok(inner) => inner,
-            Err(_) => {
-                set_last_error("motor handle lock poisoned");
-                return -1;
-            }
-        }
+        motor.inner.lock()
     }};
 }
 
