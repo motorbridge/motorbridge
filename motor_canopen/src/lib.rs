@@ -37,11 +37,7 @@ use motor_core::error::{MotorError, Result};
 /// Send a classic (11-bit) CAN data frame with `payload` left-justified into
 /// an 8-byte data field, as required by CANopen (fixed 8-byte SDO frames,
 /// zero-padded unused bytes).
-pub fn send_std_frame(
-    bus: &dyn CanBus,
-    arbitration_id: u32,
-    payload: &[u8],
-) -> Result<()> {
+pub fn send_std_frame(bus: &dyn CanBus, arbitration_id: u32, payload: &[u8]) -> Result<()> {
     if payload.len() > 8 {
         return Err(MotorError::InvalidArgument(format!(
             "payload too long: {}, expected <=8",

@@ -62,9 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "mode",
         match vendor.as_str() {
             "robstride" => "ping",
-            "robstride_mit" | "robstride_cia402" | "myactuator" | "hexfellow" | "huayi" => {
-                "status"
-            }
+            "robstride_mit" | "robstride_cia402" | "myactuator" | "hexfellow" | "huayi" => "status",
             "hightorque" => "read",
             "all" => "scan",
             _ => "mit",
@@ -137,7 +135,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if vendor == "hexfellow" && transport != "auto" && transport != "socketcanfd" {
         return Err("vendor=hexfellow supports only --transport auto|socketcanfd".into());
     }
-    if vendor == "huayi" && transport != "auto" && transport != "socketcan" && transport != "mcu-serial"
+    if vendor == "huayi"
+        && transport != "auto"
+        && transport != "socketcan"
+        && transport != "mcu-serial"
     {
         return Err(
             "vendor=huayi is classic CAN; supports only --transport auto|socketcan|mcu-serial"

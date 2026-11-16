@@ -162,13 +162,11 @@ fn handle_ensure_mode(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> 
                 "pos_vel" | "pos-vel" | "pp" | "1" => motor_vendor_huayi::RunMode::ProfilePosition,
                 "vel" | "pv" | "3" => motor_vendor_huayi::RunMode::ProfileVelocity,
                 "force_pos" | "force-pos" | "4" => {
-                    return Err("force_pos is not supported for huayi (no 6060h counterpart)".to_string())
+                    return Err(
+                        "force_pos is not supported for huayi (no 6060h counterpart)".to_string(),
+                    )
                 }
-                other => {
-                    return Err(format!(
-                        "huayi mode must be mit|pos_vel|vel, got {other}"
-                    ))
-                }
+                other => return Err(format!("huayi mode must be mit|pos_vel|vel, got {other}")),
             };
             m.ensure_mode_enabled(run_mode, Duration::from_millis(timeout_ms))
                 .map_err(|e| e.to_string())?;
@@ -269,11 +267,8 @@ fn handle_set_active_report(v: &Value, ctx: &mut SessionCtx) -> Result<Value, St
         Some(MotorHandle::Huayi(m)) => {
             // TPDO stream control plays the RobStride set_active_report
             // role: 10 ms event timer on / 0 off.
-            m.configure_periodic_report(
-                if enabled { 10 } else { 0 },
-                Duration::from_millis(300),
-            )
-            .map_err(|e| e.to_string())?;
+            m.configure_periodic_report(if enabled { 10 } else { 0 }, Duration::from_millis(300))
+                .map_err(|e| e.to_string())?;
         }
         None => return Err("motor not connected".to_string()),
     }

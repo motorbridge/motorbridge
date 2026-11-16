@@ -321,14 +321,34 @@ mod tests {
         let sent = bus.sent.lock().expect("sent").clone();
         assert_eq!(sent.len(), 7);
         // mapping entries map 2004h_02 / 2004h_03
-        let e1 = u32::from_le_bytes([sent[2].data[4], sent[2].data[5], sent[2].data[6], sent[2].data[7]]);
+        let e1 = u32::from_le_bytes([
+            sent[2].data[4],
+            sent[2].data[5],
+            sent[2].data[6],
+            sent[2].data[7],
+        ]);
         assert_eq!(e1, 0x20040220);
-        let e2 = u32::from_le_bytes([sent[3].data[4], sent[3].data[5], sent[3].data[6], sent[3].data[7]]);
+        let e2 = u32::from_le_bytes([
+            sent[3].data[4],
+            sent[3].data[5],
+            sent[3].data[6],
+            sent[3].data[7],
+        ]);
         assert_eq!(e2, 0x20040320);
         // invalidate has bit31, activate does not
-        let w0 = u32::from_le_bytes([sent[0].data[4], sent[0].data[5], sent[0].data[6], sent[0].data[7]]);
+        let w0 = u32::from_le_bytes([
+            sent[0].data[4],
+            sent[0].data[5],
+            sent[0].data[6],
+            sent[0].data[7],
+        ]);
         assert_eq!(w0, 0x0000_0501 | COB_ID_INVALID);
-        let w6 = u32::from_le_bytes([sent[6].data[4], sent[6].data[5], sent[6].data[6], sent[6].data[7]]);
+        let w6 = u32::from_le_bytes([
+            sent[6].data[4],
+            sent[6].data[5],
+            sent[6].data[6],
+            sent[6].data[7],
+        ]);
         assert_eq!(w6, 0x0000_0501);
         // transmission type 255
         assert_eq!(sent[5].data[4], 255);
@@ -347,15 +367,30 @@ mod tests {
         // 1. invalidate: COB-ID word (sub 1) has bit31|bit30 set
         assert_eq!(sent[0].data[0], 0x23);
         assert_eq!(sent[0].data[1..4], [0x01, 0x18, 0x01]);
-        let word = u32::from_le_bytes([sent[0].data[4], sent[0].data[5], sent[0].data[6], sent[0].data[7]]);
+        let word = u32::from_le_bytes([
+            sent[0].data[4],
+            sent[0].data[5],
+            sent[0].data[6],
+            sent[0].data[7],
+        ]);
         assert_eq!(word, 0x4000_0281 | COB_ID_INVALID);
         // 2. mapping clear + entries + count
         assert_eq!(sent[1].data[0], 0x2F);
         assert_eq!(sent[1].data[3], 0x00);
         assert_eq!(sent[1].data[4], 0x00);
-        let entry = u32::from_le_bytes([sent[2].data[4], sent[2].data[5], sent[2].data[6], sent[2].data[7]]);
+        let entry = u32::from_le_bytes([
+            sent[2].data[4],
+            sent[2].data[5],
+            sent[2].data[6],
+            sent[2].data[7],
+        ]);
         assert_eq!(entry, 0x60640020);
-        let entry = u32::from_le_bytes([sent[3].data[4], sent[3].data[5], sent[3].data[6], sent[3].data[7]]);
+        let entry = u32::from_le_bytes([
+            sent[3].data[4],
+            sent[3].data[5],
+            sent[3].data[6],
+            sent[3].data[7],
+        ]);
         assert_eq!(entry, 0x606C0020);
         assert_eq!(sent[4].data[3], 0x00);
         assert_eq!(sent[4].data[4], 0x02);
@@ -367,7 +402,12 @@ mod tests {
         assert_eq!(sent[7].data[3], 0x05);
         assert_eq!(u16::from_le_bytes([sent[7].data[4], sent[7].data[5]]), 10);
         // 4. activate: bit31 clear, bit30 kept
-        let word = u32::from_le_bytes([sent[8].data[4], sent[8].data[5], sent[8].data[6], sent[8].data[7]]);
+        let word = u32::from_le_bytes([
+            sent[8].data[4],
+            sent[8].data[5],
+            sent[8].data[6],
+            sent[8].data[7],
+        ]);
         assert_eq!(word, 0x4000_0281);
     }
 
@@ -377,12 +417,16 @@ mod tests {
         let node = CanopenNode::new(1, bus).expect("node");
         let mut cfg = config();
         cfg.number = 5;
-        let err = cfg.apply(&node, Duration::from_millis(5)).expect_err("number");
+        let err = cfg
+            .apply(&node, Duration::from_millis(5))
+            .expect_err("number");
         assert!(err.to_string().contains("TPDO number"));
 
         let mut cfg = config();
         cfg.entries.clear();
-        let err = cfg.apply(&node, Duration::from_millis(5)).expect_err("empty");
+        let err = cfg
+            .apply(&node, Duration::from_millis(5))
+            .expect_err("empty");
         assert!(err.to_string().contains("at least one"));
 
         let mut cfg = config();

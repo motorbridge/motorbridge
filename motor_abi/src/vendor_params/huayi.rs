@@ -7,7 +7,9 @@
 //! is the canonical register interface for Huayi — the register functions
 //! reject Huayi motors with a pointer here.
 
-use crate::{ensure_huayi_controller, ffi_rc, set_last_error, MotorController, MotorHandle, MotorHandleInner};
+use crate::{
+    ensure_huayi_controller, ffi_rc, set_last_error, MotorController, MotorHandle, MotorHandleInner,
+};
 use motor_canopen::nmt::NmtCommand;
 use std::time::Duration;
 
@@ -346,12 +348,8 @@ pub extern "C" fn motor_controller_huayi_scan_ids(
     let span = (end_id - start_id + 1) as usize;
     let rc = ensure_huayi_controller(&mut inner)
         .and_then(|ctrl| {
-            ctrl.scan_ids(
-                start_id,
-                end_id,
-                Duration::from_millis(timeout_ms as u64),
-            )
-            .map_err(|e| e.to_string())
+            ctrl.scan_ids(start_id, end_id, Duration::from_millis(timeout_ms as u64))
+                .map_err(|e| e.to_string())
         })
         .map(|hits| unsafe {
             let n = hits.len().min(span);
@@ -446,12 +444,8 @@ mod tests {
         motor_of(&handle)
             .process_feedback_frame(sdo_rsp(0x60, 0x6060, 0x00, [0; 4]))
             .expect("queue ack");
-        let rc = motor_handle_huayi_sdo_write_u16(
-            (&mut handle) as *mut MotorHandle,
-            0x6060,
-            0x00,
-            5,
-        );
+        let rc =
+            motor_handle_huayi_sdo_write_u16((&mut handle) as *mut MotorHandle, 0x6060, 0x00, 5);
         assert_eq!(rc, 0);
         let sent = bus.sent.lock().expect("sent");
         assert_eq!(sent.len(), 1);
@@ -491,10 +485,7 @@ mod tests {
                 .process_feedback_frame(sdo_rsp(0x60, 0x1800 + n - 1, 0x01, [0; 4]))
                 .expect("queue ack");
         }
-        let rc = motor_handle_huayi_configure_periodic_report(
-            (&mut handle) as *mut MotorHandle,
-            0,
-        );
+        let rc = motor_handle_huayi_configure_periodic_report((&mut handle) as *mut MotorHandle, 0);
         assert_eq!(rc, 0);
         let sent = bus.sent.lock().expect("sent");
         assert_eq!(sent.len(), 3);
@@ -522,15 +513,13 @@ mod tests {
         let (_bus, mut handle) = huayi_handle();
         // Before any feedback: rc -1 with a readable message.
         let mut code = 0u16;
-        let rc =
-            motor_handle_huayi_get_error_code((&mut handle) as *mut MotorHandle, &mut code);
+        let rc = motor_handle_huayi_get_error_code((&mut handle) as *mut MotorHandle, &mut code);
         assert_eq!(rc, -1);
         // EMCY frame: COB-ID 0x80 + node, data[1..3] = error code LE.
         motor_of(&handle)
             .process_feedback_frame(rx_frame(0x81, [0, 0x10, 0x23, 0, 0, 0, 0, 0], 4))
             .expect("emcy");
-        let rc =
-            motor_handle_huayi_get_error_code((&mut handle) as *mut MotorHandle, &mut code);
+        let rc = motor_handle_huayi_get_error_code((&mut handle) as *mut MotorHandle, &mut code);
         assert_eq!(rc, 0);
         assert_eq!(code, 0x2310);
     }
@@ -627,18 +616,12 @@ mod tests {
             .expect("tpdo2");
         // TPDO1 patch: error 0x2310, statusword 0x0237, mode 5.
         motor
-            .process_feedback_frame(rx_frame(
-                0x181,
-                [0x10, 0x23, 0x37, 0x02, 0x05, 0, 0, 0],
-                5,
-            ))
+            .process_feedback_frame(rx_frame(0x181, [0x10, 0x23, 0x37, 0x02, 0x05, 0, 0, 0], 5))
             .expect("tpdo1");
 
         let mut state = MotorState::default();
-        let rc = crate::state_ffi::motor_handle_get_state(
-            (&mut handle) as *mut MotorHandle,
-            &mut state,
-        );
+        let rc =
+            crate::state_ffi::motor_handle_get_state((&mut handle) as *mut MotorHandle, &mut state);
         assert_eq!(rc, 0);
         assert_eq!(state.has_value, 1);
         assert_eq!(state.can_id, 1);

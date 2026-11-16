@@ -84,9 +84,20 @@ pub fn run_huayi(
         );
         let hits = controller.scan_ids(start_id, end_id, timeout)?;
         for hit in &hits {
+            // failed probes print "-" (aligned with the dm/rs numeric style,
+            // no Option debug leaking)
             println!(
-                "[hit] vendor=huayi node={} statusword={:?} mode_display={:?} error_code={:?}",
-                hit.node_id, hit.statusword, hit.mode_display, hit.error_code
+                "[hit] vendor=huayi node={} statusword={} mode_display={} error_code={}",
+                hit.node_id,
+                hit.statusword
+                    .map(|v| format!("0x{v:04X}"))
+                    .unwrap_or_else(|| "-".into()),
+                hit.mode_display
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "-".into()),
+                hit.error_code
+                    .map(|v| format!("0x{v:04X}"))
+                    .unwrap_or_else(|| "-".into()),
             );
         }
         println!("[scan] done vendor=huayi hits={}", hits.len());
@@ -241,9 +252,7 @@ pub fn run_huayi(
             // routed through the vendor so a reset targeting this node (or a
             // broadcast) also invalidates the motor's mode/PP/TPDO caches
             motor.nmt(cmd, node as u8)?;
-            println!(
-                "[ok] huayi NMT 0x{cmd_raw:02X} node={node} sent (node 0 = broadcast)"
-            );
+            println!("[ok] huayi NMT 0x{cmd_raw:02X} node={node} sent (node 0 = broadcast)");
             controller.close_bus()?;
             return Ok(());
         }
@@ -358,6 +367,16 @@ pub fn run_huayi(
         _ => {}
     }
 
+    // Per-loop state output (dm/rs-style observability): the background
+    // receive thread feeds the TPDO stream, so the loop only spends bus
+    // time on command frames while the state cache stays fresh. Commands
+    // and feedback are decoupled channels in CANopen — unlike the dm/rs
+    // private protocols there is no per-command reply to print.
+    if !motor.tpdos_active() {
+        motor.configure_periodic_report(10, timeout)?;
+        println!("[info] huayi TPDO report activated (10 ms event timer) for loop state output");
+    }
+
     for i in 0..loop_n {
         match mode.as_str() {
             "pos-vel" => {
@@ -419,6 +438,24 @@ pub fn run_huayi(
                 return Err(format!("unknown huayi mode: {mode}").into());
             }
         }
+        // latest cached state after the command (TPDO2 anchors pos/vel,
+        // TPDO1/3 patch in place — same line shape as the dm loop)
+        match motor.latest_state() {
+            Some(s) => println!(
+                "#{i} node={} pos={:+.3} vel={:+.3} torq={:+.3} status=0x{:04X}({} {}) t_driver={:.1}C t_motor={:.1}C err=0x{:04X}",
+                motor_id,
+                s.pos_rad,
+                s.vel_rad_s,
+                s.torque_nm,
+                s.statusword,
+                mode_name(s.mode_display),
+                s.mode_display,
+                s.t_driver_c,
+                s.t_motor_c,
+                s.error_code
+            ),
+            None => println!("#{i} node={} (no feedback yet — waiting for the first TPDO2 anchor)", motor_id),
+        }
         if loop_n > 1 {
             std::thread::sleep(Duration::from_millis(dt_ms));
         }
@@ -432,6 +469,18 @@ fn parse_u32_hex_or_dec(s: &str) -> Result<u32, String> {
     if let Some(hex) = s.strip_prefix("0x") {
         u32::from_str_radix(hex, 16).map_err(|e| format!("invalid --value: {e}"))
     } else {
-        s.parse::<u32>().map_err(|e| format!("invalid --value: {e}"))
+        s.parse::<u32>()
+            .map_err(|e| format!("invalid --value: {e}"))
+    }
+}
+
+/// 6061h mode-display value to a short label (dm-style `status=code(name)`).
+fn mode_name(mode_display: i8) -> &'static str {
+    match mode_display {
+        1 => "PP",
+        3 => "PV",
+        4 => "TQ",
+        5 => "MIT",
+        _ => "?",
     }
 }

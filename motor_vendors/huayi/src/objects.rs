@@ -138,8 +138,14 @@ mod tests {
         // Semantic red line: on Huayi 6060h=5 means MIT (CSP on RobStride).
         assert_eq!(RunMode::from_raw(5).expect("mode 5"), RunMode::Mit);
         assert_eq!(RunMode::Mit as i8, 5);
-        assert_eq!(RunMode::from_raw(1).expect("mode 1"), RunMode::ProfilePosition);
-        assert_eq!(RunMode::from_raw(3).expect("mode 3"), RunMode::ProfileVelocity);
+        assert_eq!(
+            RunMode::from_raw(1).expect("mode 1"),
+            RunMode::ProfilePosition
+        );
+        assert_eq!(
+            RunMode::from_raw(3).expect("mode 3"),
+            RunMode::ProfileVelocity
+        );
         assert_eq!(RunMode::from_raw(4).expect("mode 4"), RunMode::Torque);
         assert!(RunMode::from_raw(0).is_err());
         assert!(RunMode::from_raw(2).is_err());

@@ -72,9 +72,9 @@ pub(crate) fn open_huayi_controller(
                 .map(HuayiController::new)
                 .map_err(|e| e.to_string())
         }
-        Transport::SocketCanFd => Err(
-            "huayi is classic CAN only; use transport auto|socketcan|mcu-serial".to_string(),
-        ),
+        Transport::SocketCanFd => {
+            Err("huayi is classic CAN only; use transport auto|socketcan|mcu-serial".to_string())
+        }
         Transport::DmSerial => Err("transport dm-serial is damiao-only".to_string()),
         Transport::DmDevice => Err("transport dm-device is damiao-only".to_string()),
     }

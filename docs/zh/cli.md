@@ -218,6 +218,8 @@ cargo run -p motor_cli --release -- \
 - `nmt`：`--nmt-cmd 0x01|0x02|0x80|0x81|0x82 --nmt-node <0..=127>`（0 为广播）
 - `read-obj` / `write-obj`：`--index 0x6041 --sub 0x00 --ty u8|i8|u16|i16|u32|i32|f32 [--value ...]`（`--index` 支持 hex/dec）
 
+控制模式（`mit` / `mit-compressed` / `pos-vel` / `vel` / `torque`）循环时自动激活 TPDO 状态流（10 ms 事件计时器）并在每次迭代打印一行缓存状态（`#i node=1 pos=+0.123 vel=+0.456 ... status=0x0237(MIT 5) ...`），与 dm/rs 的循环输出同构——CANopen 命令与反馈是解耦通道，状态来自后台流而非命令应答。
+
 示例：
 
 ```bash

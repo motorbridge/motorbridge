@@ -91,10 +91,7 @@ pub fn build_sdo_download(index: u16, subindex: u8, value: SdoValue) -> [u8; 8] 
 
 /// Extract `(index, subindex)` from an SDO reply frame.
 pub fn reply_target(data: &[u8; 8]) -> (u16, u8) {
-    (
-        u16::from(data[1]) | (u16::from(data[2]) << 8),
-        data[3],
-    )
+    (u16::from(data[1]) | (u16::from(data[2]) << 8), data[3])
 }
 
 /// Classification of an SDO reply frame matched by `(index, subindex)`.
@@ -113,9 +110,7 @@ pub enum SdoReplyKind {
 pub fn classify_sdo_reply(data: &[u8; 8]) -> SdoReplyKind {
     match data[0] {
         0x60 => SdoReplyKind::WriteAck,
-        0x80 => SdoReplyKind::Abort(u32::from_le_bytes([
-            data[4], data[5], data[6], data[7],
-        ])),
+        0x80 => SdoReplyKind::Abort(u32::from_le_bytes([data[4], data[5], data[6], data[7]])),
         cmd @ (0x43 | 0x4B | 0x4F | 0x47) => SdoReplyKind::UploadData(match cmd {
             0x4F => 1,
             0x4B => 2,

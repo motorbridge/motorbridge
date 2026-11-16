@@ -24,7 +24,7 @@ use motor_canopen::objects::{
     TORQUE_ACTUAL_VALUE, VELOCITY_ACTUAL_VALUE,
 };
 use motor_canopen::pdo::{
-    tpdo_comm_index, COB_ID_INVALID, COB_ID_NO_RTR, PdoMappingEntry, RpdoConfig, TpdoConfig,
+    tpdo_comm_index, PdoMappingEntry, RpdoConfig, TpdoConfig, COB_ID_INVALID, COB_ID_NO_RTR,
 };
 use motor_core::error::Result;
 
@@ -351,21 +351,11 @@ mod tests {
         assert_eq!(word, 0x4000_0181 | COB_ID_INVALID);
         // last frame of TPDO1: activate without bit31
         let last1 = &sent[9];
-        let word = u32::from_le_bytes([
-            last1.data[4],
-            last1.data[5],
-            last1.data[6],
-            last1.data[7],
-        ]);
+        let word = u32::from_le_bytes([last1.data[4], last1.data[5], last1.data[6], last1.data[7]]);
         assert_eq!(word, 0x4000_0181);
         // TPDO2 activate word (block 2: frames 10..19)
         let last2 = &sent[10 + 9 - 1];
-        let word = u32::from_le_bytes([
-            last2.data[4],
-            last2.data[5],
-            last2.data[6],
-            last2.data[7],
-        ]);
+        let word = u32::from_le_bytes([last2.data[4], last2.data[5], last2.data[6], last2.data[7]]);
         assert_eq!(word, 0x4000_0281);
         // TPDO1 event timer: sub 0x05, value 10 (frame 8 of block 1)
         let ev = &sent[8];
@@ -386,9 +376,7 @@ mod tests {
         assert_eq!(sent.len(), 3);
         let words: Vec<u32> = sent
             .iter()
-            .map(|f| {
-                u32::from_le_bytes([f.data[4], f.data[5], f.data[6], f.data[7]])
-            })
+            .map(|f| u32::from_le_bytes([f.data[4], f.data[5], f.data[6], f.data[7]]))
             .collect();
         assert_eq!(words[0], 0x4000_0181 | COB_ID_INVALID);
         assert_eq!(words[1], 0x4000_0281 | COB_ID_INVALID);
@@ -447,11 +435,7 @@ mod tests {
         assert!(decode_tpdo2(&buf, 7).is_none());
 
         // TPDO3: -250‰, 25.5 °C (255), -10.0 °C (-100)
-        let d = decode_tpdo3(
-            &[0x06, 0xFF, 0xFF, 0x00, 0x9C, 0xFF],
-            6,
-        )
-        .expect("tpdo3");
+        let d = decode_tpdo3(&[0x06, 0xFF, 0xFF, 0x00, 0x9C, 0xFF], 6).expect("tpdo3");
         assert_eq!(d.torque_permille, -250);
         assert_eq!(d.t_driver_raw, 255);
         assert_eq!(d.t_motor_raw, -100);

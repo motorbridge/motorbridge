@@ -23,8 +23,10 @@ use crate::classify::{is_heartbeat, is_sdo_rsp};
 use crate::nmt::nmt_payload;
 use crate::nmt::NmtCommand;
 use crate::objects::{sdo_req_id, NMT_ID, NMT_START_REMOTE_NODE};
+use crate::sdo::{
+    build_sdo_download, build_sdo_upload, expect_write_ack, upload_payload, SdoQueue, SdoValue,
+};
 use crate::send_std_frame;
-use crate::sdo::{build_sdo_download, build_sdo_upload, expect_write_ack, upload_payload, SdoQueue, SdoValue};
 
 /// Result of handing a received frame to [`CanopenNode::process`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,31 +142,73 @@ impl CanopenNode {
 
     // --- typed SDO writes ---------------------------------------------------
 
-    pub fn sdo_write_u8(&self, index: u16, subindex: u8, value: u8, timeout: Duration) -> Result<()> {
+    pub fn sdo_write_u8(
+        &self,
+        index: u16,
+        subindex: u8,
+        value: u8,
+        timeout: Duration,
+    ) -> Result<()> {
         self.sdo_write(index, subindex, SdoValue::U8(value), timeout)
     }
 
-    pub fn sdo_write_i8(&self, index: u16, subindex: u8, value: i8, timeout: Duration) -> Result<()> {
+    pub fn sdo_write_i8(
+        &self,
+        index: u16,
+        subindex: u8,
+        value: i8,
+        timeout: Duration,
+    ) -> Result<()> {
         self.sdo_write(index, subindex, SdoValue::I8(value), timeout)
     }
 
-    pub fn sdo_write_u16(&self, index: u16, subindex: u8, value: u16, timeout: Duration) -> Result<()> {
+    pub fn sdo_write_u16(
+        &self,
+        index: u16,
+        subindex: u8,
+        value: u16,
+        timeout: Duration,
+    ) -> Result<()> {
         self.sdo_write(index, subindex, SdoValue::U16(value), timeout)
     }
 
-    pub fn sdo_write_i16(&self, index: u16, subindex: u8, value: i16, timeout: Duration) -> Result<()> {
+    pub fn sdo_write_i16(
+        &self,
+        index: u16,
+        subindex: u8,
+        value: i16,
+        timeout: Duration,
+    ) -> Result<()> {
         self.sdo_write(index, subindex, SdoValue::I16(value), timeout)
     }
 
-    pub fn sdo_write_u32(&self, index: u16, subindex: u8, value: u32, timeout: Duration) -> Result<()> {
+    pub fn sdo_write_u32(
+        &self,
+        index: u16,
+        subindex: u8,
+        value: u32,
+        timeout: Duration,
+    ) -> Result<()> {
         self.sdo_write(index, subindex, SdoValue::U32(value), timeout)
     }
 
-    pub fn sdo_write_i32(&self, index: u16, subindex: u8, value: i32, timeout: Duration) -> Result<()> {
+    pub fn sdo_write_i32(
+        &self,
+        index: u16,
+        subindex: u8,
+        value: i32,
+        timeout: Duration,
+    ) -> Result<()> {
         self.sdo_write(index, subindex, SdoValue::I32(value), timeout)
     }
 
-    pub fn sdo_write_f32(&self, index: u16, subindex: u8, value: f32, timeout: Duration) -> Result<()> {
+    pub fn sdo_write_f32(
+        &self,
+        index: u16,
+        subindex: u8,
+        value: f32,
+        timeout: Duration,
+    ) -> Result<()> {
         self.sdo_write(index, subindex, SdoValue::F32(value), timeout)
     }
 
@@ -273,10 +317,7 @@ mod tests {
         let sent = bus.sent.lock().expect("sent").clone();
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].arbitration_id, 0x601);
-        assert_eq!(
-            sent[0].data,
-            [0x40, 0x41, 0x60, 0x00, 0, 0, 0, 0]
-        );
+        assert_eq!(sent[0].data, [0x40, 0x41, 0x60, 0x00, 0, 0, 0, 0]);
     }
 
     #[test]
@@ -367,7 +408,10 @@ mod tests {
         let sent = bus.sent.lock().expect("sent").clone();
         assert_eq!(sent.len(), 3);
         assert_eq!(sent[0].data[0], 0x2B);
-        assert_eq!(u16::from_le_bytes([sent[0].data[4], sent[0].data[5]]), CW_SHUTDOWN);
+        assert_eq!(
+            u16::from_le_bytes([sent[0].data[4], sent[0].data[5]]),
+            CW_SHUTDOWN
+        );
         assert_eq!(
             u16::from_le_bytes([sent[1].data[4], sent[1].data[5]]),
             CW_SWITCH_ON

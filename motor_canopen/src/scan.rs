@@ -12,9 +12,7 @@ use std::time::{Duration, Instant};
 use motor_core::bus::CanBus;
 use motor_core::error::{MotorError, Result};
 
-use crate::objects::{
-    sdo_req_id, sdo_rsp_id, ERROR_CODE, MODES_OF_OPERATION_DISPLAY, STATUSWORD,
-};
+use crate::objects::{sdo_req_id, sdo_rsp_id, ERROR_CODE, MODES_OF_OPERATION_DISPLAY, STATUSWORD};
 use crate::sdo::{build_sdo_upload, classify_sdo_reply, SdoReplyKind};
 
 /// Send an expedited SDO upload and read the reply directly from the bus
@@ -151,8 +149,14 @@ mod tests {
         // reply to 6041h read for node 1: statusword 0x0237
         mock.push_rx(sdo_rsp(1, [0x43, 0x41, 0x60, 0x00, 0x37, 0x02, 0, 0]));
         let bus: Arc<MockBus> = Arc::new(mock);
-        let v = sdo_read_direct(&(bus.clone() as Arc<dyn CanBus>), 1, 0x6041, 0x00, Duration::from_millis(50))
-            .expect("read");
+        let v = sdo_read_direct(
+            &(bus.clone() as Arc<dyn CanBus>),
+            1,
+            0x6041,
+            0x00,
+            Duration::from_millis(50),
+        )
+        .expect("read");
         assert_eq!(v, 0x0237);
         // request frame was sent to 0x601
         let sent = bus.sent.lock().expect("sent").clone();
@@ -189,8 +193,13 @@ mod tests {
         // node 1 answers the statusword probe only
         mock.push_rx(sdo_rsp(1, [0x43, 0x41, 0x60, 0x00, 0x31, 0x02, 0, 0]));
         let bus: Arc<MockBus> = Arc::new(mock);
-        let hits = scan_ids(&(bus.clone() as Arc<dyn CanBus>), 1, 2, Duration::from_millis(5))
-            .expect("scan");
+        let hits = scan_ids(
+            &(bus.clone() as Arc<dyn CanBus>),
+            1,
+            2,
+            Duration::from_millis(5),
+        )
+        .expect("scan");
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].node_id, 1);
         assert_eq!(hits[0].statusword, Some(0x0231));

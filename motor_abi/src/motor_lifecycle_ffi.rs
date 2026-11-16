@@ -57,9 +57,9 @@ pub extern "C" fn motor_handle_clear_error(motor: *mut MotorHandle) -> i32 {
             MotorHandleInner::Hightorque(m) => m.clear_error().map_err(|e| e.to_string()),
             // CiA402 fault reset (0x0006→0x0007); also clears the cached
             // 603Fh error code from the last TPDO1/EMCY patch.
-            MotorHandleInner::Huayi(m) => {
-                m.clear_error(Duration::from_millis(200)).map_err(|e| e.to_string())
-            }
+            MotorHandleInner::Huayi(m) => m
+                .clear_error(Duration::from_millis(200))
+                .map_err(|e| e.to_string()),
         }
     })
 }
@@ -80,9 +80,9 @@ pub extern "C" fn motor_handle_set_zero_position(motor: *mut MotorHandle) -> i32
             // 3001h position preset (code "pres"): requires Switch On
             // Disabled — the vendor layer errors with a clear message if
             // the drive is still enabled.
-            MotorHandleInner::Huayi(m) => {
-                m.set_zero_position(Duration::from_millis(200)).map_err(|e| e.to_string())
-            }
+            MotorHandleInner::Huayi(m) => m
+                .set_zero_position(Duration::from_millis(200))
+                .map_err(|e| e.to_string()),
         }
     })
 }

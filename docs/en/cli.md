@@ -218,6 +218,8 @@ Supported modes:
 - `nmt`: `--nmt-cmd 0x01|0x02|0x80|0x81|0x82 --nmt-node <0..=127>` (0 broadcasts)
 - `read-obj` / `write-obj`: `--index 0x6041 --sub 0x00 --ty u8|i8|u16|i16|u32|i32|f32 [--value ...]` (`--index` accepts hex/dec)
 
+Control modes (`mit` / `mit-compressed` / `pos-vel` / `vel` / `torque`) activate the TPDO stream automatically while looping (10 ms event timer) and print one cached-state line per iteration (`#i node=1 pos=+0.123 vel=+0.456 ... status=0x0237(MIT 5) ...`) — same loop-output shape as dm/rs. CANopen decouples commands from feedback, so state comes from the background stream, not from a per-command reply.
+
 Examples:
 
 ```bash

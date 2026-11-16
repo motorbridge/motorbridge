@@ -26,12 +26,12 @@
 
 use motor_core::error::Result;
 
+use crate::node::CanopenNode;
 use crate::objects::{
     CONTROLWORD, CW_DISABLE_OPERATION, CW_DISABLE_VOLTAGE, CW_ENABLE_OPERATION, CW_FAULT_RESET,
     CW_QUICK_STOP, CW_SHUTDOWN, CW_SWITCH_ON, MODES_OF_OPERATION, MODES_OF_OPERATION_DISPLAY,
     STATUSWORD,
 };
-use crate::node::CanopenNode;
 
 /// CiA402 drive state derived from `6041h` (statusword).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,7 +101,11 @@ pub fn decode_statusword(statusword: u16) -> Cia402State {
 }
 
 /// Write `6040h` (controlword).
-pub fn write_controlword(node: &CanopenNode, command: u16, timeout: std::time::Duration) -> Result<()> {
+pub fn write_controlword(
+    node: &CanopenNode,
+    command: u16,
+    timeout: std::time::Duration,
+) -> Result<()> {
     node.sdo_write_u16(CONTROLWORD, 0x00, command, timeout)
 }
 

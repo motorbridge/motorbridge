@@ -290,9 +290,7 @@ fn handle_pos_vel_acc(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> 
         Some(MotorHandle::Robstride(_)) => {
             Err("pos_vel_acc is not supported for robstride".to_string())
         }
-        Some(MotorHandle::Huayi(_)) => {
-            Err("pos_vel_acc is not supported for huayi".to_string())
-        }
+        Some(MotorHandle::Huayi(_)) => Err("pos_vel_acc is not supported for huayi".to_string()),
         None => Err("motor not connected".to_string()),
     }
 }

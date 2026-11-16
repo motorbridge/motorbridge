@@ -18,8 +18,8 @@ use std::time::{Duration, Instant};
 
 use motor_canopen::cia402::{self, Cia402State};
 use motor_canopen::classify::{is_emcy, is_tpdo, tpdo_owner};
-use motor_canopen::node::{CanopenNode, NodeOutcome};
 use motor_canopen::nmt::{send_nmt, NmtCommand};
+use motor_canopen::node::{CanopenNode, NodeOutcome};
 use motor_canopen::objects::{
     rpdo_id, ERROR_CODE, MODES_OF_OPERATION_DISPLAY, POSITION_ACTUAL_VALUE, PROFILE_VELOCITY,
     STATUSWORD, TARGET_POSITION, TARGET_TORQUE, TARGET_VELOCITY,
@@ -29,7 +29,7 @@ use motor_core::bus::{CanBus, CanFrame};
 use motor_core::device::MotorDevice;
 use motor_core::error::{MotorError, Result};
 
-use crate::objects::{error_code_description, od, MOTOR_PEAK_TORQUE, RunMode};
+use crate::objects::{error_code_description, od, RunMode, MOTOR_PEAK_TORQUE};
 use crate::pdo as hpdo;
 use crate::units::{self, MitRanges};
 
@@ -132,12 +132,13 @@ impl HuayiMotor {
             ));
         }
         let node = CanopenNode::new(motor_id, bus).map_err(|e| {
-            MotorError::InvalidArgument(format!(
-                "invalid Huayi motor-id {}: {}",
-                motor_id, e
-            ))
+            MotorError::InvalidArgument(format!("invalid Huayi motor-id {}: {}", motor_id, e))
         })?;
-        let feedback_id = if feedback_id == 0 { motor_id } else { feedback_id };
+        let feedback_id = if feedback_id == 0 {
+            motor_id
+        } else {
+            feedback_id
+        };
         Ok(Self {
             node,
             feedback_id,
@@ -323,9 +324,8 @@ impl HuayiMotor {
         for (i, sub) in units::MIT_RANGE_SUBS.iter().enumerate() {
             values[i] = self.node.sdo_read_f32(od::MIT_COMPRESSED, *sub, timeout)?;
         }
-        let pairs = pairs_from_slice(&values).ok_or_else(|| {
-            MotorError::Protocol("invalid 2004h MIT range registers".to_string())
-        })?;
+        let pairs = pairs_from_slice(&values)
+            .ok_or_else(|| MotorError::Protocol("invalid 2004h MIT range registers".to_string()))?;
         let ranges = MitRanges {
             pos: pairs[0],
             vel: pairs[1],
@@ -459,12 +459,7 @@ impl HuayiMotor {
     /// target position `607Ah` (Rev Float32), then the new-target
     /// handshake — controlword bit 4 toggled 1→0→1 (bit 5 = take effect
     /// immediately, bit 6 = absolute).
-    pub fn send_pos_vel(
-        &self,
-        pos_rad: f32,
-        vlim_rad_s: f32,
-        timeout: Duration,
-    ) -> Result<()> {
+    pub fn send_pos_vel(&self, pos_rad: f32, vlim_rad_s: f32, timeout: Duration) -> Result<()> {
         self.ensure_mode_enabled(RunMode::ProfilePosition, timeout)?;
         self.node.sdo_write_f32(
             PROFILE_VELOCITY,
@@ -494,7 +489,8 @@ impl HuayiMotor {
         self.ensure_mode_enabled(RunMode::Torque, timeout)?;
         let peak = self.peak_torque_nm(timeout)?;
         let permille = units::torque_nm_to_permille(tau_nm, peak)?;
-        self.node.sdo_write_i16(TARGET_TORQUE, 0x00, permille, timeout)
+        self.node
+            .sdo_write_i16(TARGET_TORQUE, 0x00, permille, timeout)
     }
 
     /// Mode-aware stop that keeps the drive enabled (aligned with the
@@ -508,7 +504,9 @@ impl HuayiMotor {
                 .map_err(|_| MotorError::Io("mode cache lock poisoned".to_string()))?;
             match *cached {
                 Some(raw) => raw,
-                None => self.node.sdo_read_i8(MODES_OF_OPERATION_DISPLAY, 0x00, timeout)?,
+                None => self
+                    .node
+                    .sdo_read_i8(MODES_OF_OPERATION_DISPLAY, 0x00, timeout)?,
             }
         };
         match mode {
@@ -517,8 +515,11 @@ impl HuayiMotor {
                 // same bit4 new-target handshake send_pos_vel uses — without
                 // the set edge the drive ignores the re-target and keeps
                 // moving toward the old one
-                let pos_rev = self.node.sdo_read_f32(POSITION_ACTUAL_VALUE, 0x00, timeout)?;
-                self.node.sdo_write_f32(TARGET_POSITION, 0x00, pos_rev, timeout)?;
+                let pos_rev = self
+                    .node
+                    .sdo_read_f32(POSITION_ACTUAL_VALUE, 0x00, timeout)?;
+                self.node
+                    .sdo_write_f32(TARGET_POSITION, 0x00, pos_rev, timeout)?;
                 self.pp_new_target(timeout)
             }
             3 => self.node.sdo_write_f32(TARGET_VELOCITY, 0x00, 0.0, timeout),
@@ -583,19 +584,24 @@ impl HuayiMotor {
                 "invalid Huayi node id {new_id}, expected 1..127"
             )));
         }
-        self.node.sdo_write_u8(od::DEVICE_SETTING, 0x01, new_id as u8, timeout)
+        self.node
+            .sdo_write_u8(od::DEVICE_SETTING, 0x01, new_id as u8, timeout)
     }
 
     /// 1003h error-history walk (sub 1..=count; §4.1).
     pub fn get_error_history(&self, timeout: Duration) -> Result<Vec<u16>> {
-        let count = self
-            .node
-            .sdo_read_u8(motor_canopen::objects::PRE_DEFINED_ERROR_FIELD, 0x00, timeout)?;
+        let count = self.node.sdo_read_u8(
+            motor_canopen::objects::PRE_DEFINED_ERROR_FIELD,
+            0x00,
+            timeout,
+        )?;
         let mut history = Vec::with_capacity(usize::from(count));
         for sub in 1..=count {
-            let code = self
-                .node
-                .sdo_read_u16(motor_canopen::objects::PRE_DEFINED_ERROR_FIELD, sub, timeout)?;
+            let code = self.node.sdo_read_u16(
+                motor_canopen::objects::PRE_DEFINED_ERROR_FIELD,
+                sub,
+                timeout,
+            )?;
             history.push(code);
         }
         Ok(history)
@@ -621,21 +627,32 @@ impl HuayiMotor {
     /// Blocking SDO status query — the backup path when TPDO streaming is
     /// off (aligned with the hexfellow `query_status` role, §5.3).
     pub fn query_status(&self, timeout: Duration) -> Result<HuayiStatus> {
-        let mode_display = self.node.sdo_read_i8(MODES_OF_OPERATION_DISPLAY, 0x00, timeout)?;
+        let mode_display = self
+            .node
+            .sdo_read_i8(MODES_OF_OPERATION_DISPLAY, 0x00, timeout)?;
         let statusword = self.node.sdo_read_u16(STATUSWORD, 0x00, timeout)?;
-        let error_code = self.node.sdo_read_u16(ERROR_CODE, 0x00, timeout).unwrap_or(0);
-        let pos_rev = self.node.sdo_read_f32(POSITION_ACTUAL_VALUE, 0x00, timeout)?;
-        let vel_rev_s = self.node.sdo_read_f32(
-            motor_canopen::objects::VELOCITY_ACTUAL_VALUE,
-            0x00,
-            timeout,
-        )?;
+        let error_code = self
+            .node
+            .sdo_read_u16(ERROR_CODE, 0x00, timeout)
+            .unwrap_or(0);
+        let pos_rev = self
+            .node
+            .sdo_read_f32(POSITION_ACTUAL_VALUE, 0x00, timeout)?;
+        let vel_rev_s =
+            self.node
+                .sdo_read_f32(motor_canopen::objects::VELOCITY_ACTUAL_VALUE, 0x00, timeout)?;
         let torque_permille = self
             .node
             .sdo_read_i16(motor_canopen::objects::TORQUE_ACTUAL_VALUE, 0x00, timeout)
             .unwrap_or(0);
-        let t_driver_raw = self.node.sdo_read_i16(od::TEMPERATURES, 0x01, timeout).unwrap_or(0);
-        let t_motor_raw = self.node.sdo_read_i16(od::TEMPERATURES, 0x02, timeout).unwrap_or(0);
+        let t_driver_raw = self
+            .node
+            .sdo_read_i16(od::TEMPERATURES, 0x01, timeout)
+            .unwrap_or(0);
+        let t_motor_raw = self
+            .node
+            .sdo_read_i16(od::TEMPERATURES, 0x02, timeout)
+            .unwrap_or(0);
         let torque_nm = self
             .peak_torque_nm(timeout)
             .ok()
@@ -706,32 +723,76 @@ impl HuayiMotor {
     pub fn sdo_read_f32(&self, index: u16, subindex: u8, timeout: Duration) -> Result<f32> {
         self.node.sdo_read_f32(index, subindex, timeout)
     }
-    pub fn sdo_write_u8(&self, index: u16, subindex: u8, value: u8, timeout: Duration) -> Result<()> {
+    pub fn sdo_write_u8(
+        &self,
+        index: u16,
+        subindex: u8,
+        value: u8,
+        timeout: Duration,
+    ) -> Result<()> {
         self.node.sdo_write_u8(index, subindex, value, timeout)
     }
-    pub fn sdo_write_i8(&self, index: u16, subindex: u8, value: i8, timeout: Duration) -> Result<()> {
+    pub fn sdo_write_i8(
+        &self,
+        index: u16,
+        subindex: u8,
+        value: i8,
+        timeout: Duration,
+    ) -> Result<()> {
         self.node.sdo_write_i8(index, subindex, value, timeout)
     }
-    pub fn sdo_write_u16(&self, index: u16, subindex: u8, value: u16, timeout: Duration) -> Result<()> {
+    pub fn sdo_write_u16(
+        &self,
+        index: u16,
+        subindex: u8,
+        value: u16,
+        timeout: Duration,
+    ) -> Result<()> {
         self.node.sdo_write_u16(index, subindex, value, timeout)
     }
-    pub fn sdo_write_i16(&self, index: u16, subindex: u8, value: i16, timeout: Duration) -> Result<()> {
+    pub fn sdo_write_i16(
+        &self,
+        index: u16,
+        subindex: u8,
+        value: i16,
+        timeout: Duration,
+    ) -> Result<()> {
         self.node.sdo_write_i16(index, subindex, value, timeout)
     }
-    pub fn sdo_write_u32(&self, index: u16, subindex: u8, value: u32, timeout: Duration) -> Result<()> {
+    pub fn sdo_write_u32(
+        &self,
+        index: u16,
+        subindex: u8,
+        value: u32,
+        timeout: Duration,
+    ) -> Result<()> {
         self.node.sdo_write_u32(index, subindex, value, timeout)
     }
-    pub fn sdo_write_i32(&self, index: u16, subindex: u8, value: i32, timeout: Duration) -> Result<()> {
+    pub fn sdo_write_i32(
+        &self,
+        index: u16,
+        subindex: u8,
+        value: i32,
+        timeout: Duration,
+    ) -> Result<()> {
         self.node.sdo_write_i32(index, subindex, value, timeout)
     }
-    pub fn sdo_write_f32(&self, index: u16, subindex: u8, value: f32, timeout: Duration) -> Result<()> {
+    pub fn sdo_write_f32(
+        &self,
+        index: u16,
+        subindex: u8,
+        value: f32,
+        timeout: Duration,
+    ) -> Result<()> {
         self.node.sdo_write_f32(index, subindex, value, timeout)
     }
 
     // --- feedback processing ------------------------------------------------
 
     fn patch_state(&self, patch: impl FnOnce(&mut HuayiStatus)) {
-        let Ok(mut guard) = self.state.lock() else { return };
+        let Ok(mut guard) = self.state.lock() else {
+            return;
+        };
         // Patch frames (TPDO1/TPDO3/EMCY) only carry partial fields —
         // fabricating a blank state here would report a valid-looking
         // pos=0/vel=0 before any TPDO2 anchor or query_status arrived.
@@ -742,7 +803,9 @@ impl HuayiMotor {
     }
 
     fn anchor_state(&self, pos_rad: f32, vel_rad_s: f32) {
-        let Ok(mut guard) = self.state.lock() else { return };
+        let Ok(mut guard) = self.state.lock() else {
+            return;
+        };
         let mut s = guard.take().unwrap_or_else(blank_state);
         s.pos_rad = pos_rad;
         s.vel_rad_s = vel_rad_s;
@@ -922,7 +985,8 @@ mod tests {
     /// Queue replies for a full `ensure_mode_enabled` round trip:
     /// 6060h write ack, 6061h echo, 6041h = Operation Enabled (0x0237).
     fn queue_mode_enabled(m: &HuayiMotor, node: u16, mode: i8) {
-        m.process_feedback_frame(ack(node, 0x6060, 0x00)).expect("feed");
+        m.process_feedback_frame(ack(node, 0x6060, 0x00))
+            .expect("feed");
         m.process_feedback_frame(sdo_rsp(node, 0x43, 0x6061, 0x00, [mode as u8, 0, 0, 0]))
             .expect("feed");
         m.process_feedback_frame(sdo_rsp(node, 0x43, 0x6041, 0x00, u16p(0x0237)))
@@ -953,7 +1017,8 @@ mod tests {
         let bus = Arc::new(MockBus::new());
         let m = motor(&bus);
         for _ in 0..3 {
-            m.process_feedback_frame(ack(1, 0x6040, 0x00)).expect("feed");
+            m.process_feedback_frame(ack(1, 0x6040, 0x00))
+                .expect("feed");
         }
         m.enable_drive(TIMEOUT).expect("enable");
 
@@ -979,13 +1044,17 @@ mod tests {
     fn disable_uses_disable_voltage() {
         let bus = Arc::new(MockBus::new());
         let m = motor(&bus);
-        m.process_feedback_frame(ack(1, 0x6040, 0x00)).expect("feed");
+        m.process_feedback_frame(ack(1, 0x6040, 0x00))
+            .expect("feed");
         m.disable_drive(TIMEOUT).expect("disable");
 
         let sent = sent_frames(&bus);
         assert_eq!(sent.len(), 1);
         // 0x0000 (Disable Voltage) — NOT RobStride's private 0x0001
-        assert_eq!(u16::from_le_bytes([sent[0].data[4], sent[0].data[5]]), 0x0000);
+        assert_eq!(
+            u16::from_le_bytes([sent[0].data[4], sent[0].data[5]]),
+            0x0000
+        );
     }
 
     #[test]
@@ -993,7 +1062,8 @@ mod tests {
         let bus = Arc::new(MockBus::new());
         let m = motor(&bus);
         // write ack, but 6061h echoes a different mode
-        m.process_feedback_frame(ack(1, 0x6060, 0x00)).expect("feed");
+        m.process_feedback_frame(ack(1, 0x6060, 0x00))
+            .expect("feed");
         m.process_feedback_frame(sdo_rsp(1, 0x43, 0x6061, 0x00, [3, 0, 0, 0]))
             .expect("feed");
         let err = m
@@ -1013,14 +1083,17 @@ mod tests {
         m.ensure_mode_enabled(RunMode::Mit, TIMEOUT).expect("first");
         // second call: no SDO traffic at all
         let before = sent_frames(&bus).len();
-        m.ensure_mode_enabled(RunMode::Mit, TIMEOUT).expect("second");
+        m.ensure_mode_enabled(RunMode::Mit, TIMEOUT)
+            .expect("second");
         assert_eq!(sent_frames(&bus).len(), before);
 
         // disable clears the cache: next ensure re-handshakes
-        m.process_feedback_frame(ack(1, 0x6040, 0x00)).expect("feed");
+        m.process_feedback_frame(ack(1, 0x6040, 0x00))
+            .expect("feed");
         m.disable_drive(TIMEOUT).expect("disable");
         queue_mode_enabled(&m, 1, 5);
-        m.ensure_mode_enabled(RunMode::Mit, TIMEOUT).expect("re-enable");
+        m.ensure_mode_enabled(RunMode::Mit, TIMEOUT)
+            .expect("re-enable");
         let sent = sent_frames(&bus);
         // a fresh 6060h=5 write landed after the disable (0x0000) frame
         let disable_at = sent
@@ -1041,9 +1114,12 @@ mod tests {
         let m = motor(&bus);
         queue_mode_enabled(&m, 1, 1);
         // first command: 6081h, 607Ah, then CW set edge only (0x003F)
-        m.process_feedback_frame(ack(1, 0x6081, 0x00)).expect("feed");
-        m.process_feedback_frame(ack(1, 0x607A, 0x00)).expect("feed");
-        m.process_feedback_frame(ack(1, 0x6040, 0x00)).expect("feed");
+        m.process_feedback_frame(ack(1, 0x6081, 0x00))
+            .expect("feed");
+        m.process_feedback_frame(ack(1, 0x607A, 0x00))
+            .expect("feed");
+        m.process_feedback_frame(ack(1, 0x6040, 0x00))
+            .expect("feed");
         m.send_pos_vel(std::f32::consts::PI, 10.0, TIMEOUT)
             .expect("first");
 
@@ -1052,19 +1128,35 @@ mod tests {
         assert_eq!(sent.len(), 6);
         assert_eq!(sent[3].data[1..4], [0x81, 0x60, 0x00]);
         // profile velocity 10 rad/s = 10/2π Rev/s
-        let v = f32::from_le_bytes([sent[3].data[4], sent[3].data[5], sent[3].data[6], sent[3].data[7]]);
+        let v = f32::from_le_bytes([
+            sent[3].data[4],
+            sent[3].data[5],
+            sent[3].data[6],
+            sent[3].data[7],
+        ]);
         assert!((v - 10.0 / std::f32::consts::TAU).abs() < 1e-4);
         // target position π rad = 0.5 Rev
-        let p = f32::from_le_bytes([sent[4].data[4], sent[4].data[5], sent[4].data[6], sent[4].data[7]]);
+        let p = f32::from_le_bytes([
+            sent[4].data[4],
+            sent[4].data[5],
+            sent[4].data[6],
+            sent[4].data[7],
+        ]);
         assert!((p - 0.5).abs() < 1e-5);
         // first handshake: only the set edge (bit4 0→1), immediate + absolute
-        assert_eq!(u16::from_le_bytes([sent[5].data[4], sent[5].data[5]]), 0x003F);
+        assert_eq!(
+            u16::from_le_bytes([sent[5].data[4], sent[5].data[5]]),
+            0x003F
+        );
 
         // second command: mode cached; CW toggles 1→0→1
-        m.process_feedback_frame(ack(1, 0x6081, 0x00)).expect("feed");
-        m.process_feedback_frame(ack(1, 0x607A, 0x00)).expect("feed");
+        m.process_feedback_frame(ack(1, 0x6081, 0x00))
+            .expect("feed");
+        m.process_feedback_frame(ack(1, 0x607A, 0x00))
+            .expect("feed");
         for _ in 0..2 {
-            m.process_feedback_frame(ack(1, 0x6040, 0x00)).expect("feed");
+            m.process_feedback_frame(ack(1, 0x6040, 0x00))
+                .expect("feed");
         }
         m.send_pos_vel(0.0, 10.0, TIMEOUT).expect("second");
 
@@ -1084,7 +1176,8 @@ mod tests {
         let bus = Arc::new(MockBus::new());
         let m = motor(&bus);
         queue_mode_enabled(&m, 1, 3);
-        m.process_feedback_frame(ack(1, 0x60FF, 0x00)).expect("feed");
+        m.process_feedback_frame(ack(1, 0x60FF, 0x00))
+            .expect("feed");
         m.send_vel(std::f32::consts::TAU, TIMEOUT).expect("vel");
 
         let sent = sent_frames(&bus);
@@ -1092,7 +1185,12 @@ mod tests {
             .iter()
             .find(|f| f.data[1..4] == [0xFF, 0x60, 0x00])
             .expect("60FF write");
-        let v = f32::from_le_bytes([target.data[4], target.data[5], target.data[6], target.data[7]]);
+        let v = f32::from_le_bytes([
+            target.data[4],
+            target.data[5],
+            target.data[6],
+            target.data[7],
+        ]);
         assert!((v - 1.0).abs() < 1e-5); // 2π rad/s = 1 Rev/s
         assert_eq!(target.data[0], 0x23); // Float32 download
     }
@@ -1105,7 +1203,8 @@ mod tests {
         // 6076h peak = 10 Nm
         m.process_feedback_frame(sdo_rsp(1, 0x43, MOTOR_PEAK_TORQUE, 0x00, f32p(10.0)))
             .expect("feed");
-        m.process_feedback_frame(ack(1, 0x6071, 0x00)).expect("feed");
+        m.process_feedback_frame(ack(1, 0x6071, 0x00))
+            .expect("feed");
         m.send_torque(5.0, TIMEOUT).expect("torque");
 
         let sent = sent_frames(&bus);
@@ -1126,7 +1225,8 @@ mod tests {
         m.process_feedback_frame(sdo_rsp(1, 0x43, od::MIT_PARAMS, 0x07, f32p(0.01)))
             .expect("feed");
         for sub in [0x01u8, 0x02, 0x03, 0x04, 0x05] {
-            m.process_feedback_frame(ack(1, od::MIT_PARAMS, sub)).expect("feed");
+            m.process_feedback_frame(ack(1, od::MIT_PARAMS, sub))
+                .expect("feed");
         }
         m.send_mit(0.0, 0.0, 0.0, 0.0, 1.5, TIMEOUT).expect("mit");
 
@@ -1153,7 +1253,9 @@ mod tests {
         let bus2 = Arc::new(MockBus::new());
         let m2 = motor(&bus2);
         queue_mode_enabled(&m2, 1, 5);
-        let err = m2.send_mit(0.0, 0.0, 1.0, 1.0, 0.0, TIMEOUT).expect_err("no scale");
+        let err = m2
+            .send_mit(0.0, 0.0, 1.0, 1.0, 0.0, TIMEOUT)
+            .expect_err("no scale");
         assert!(matches!(err, MotorError::Timeout(_)));
     }
 
@@ -1194,15 +1296,8 @@ mod tests {
         // max out every field: pos 0.5 Rev = π rad; vel -10 Rev/s;
         // kp 100 Nm/Rev = 100/2π Nm/rad; kd 20 Nm·s/Rev = 20/2π; Tff -10 Nm
         let t2 = std::f32::consts::TAU;
-        m.send_mit_compressed(
-            0.5 * t2,
-            -10.0 * t2,
-            100.0 / t2,
-            20.0 / t2,
-            -10.0,
-            TIMEOUT,
-        )
-        .expect("compressed");
+        m.send_mit_compressed(0.5 * t2, -10.0 * t2, 100.0 / t2, 20.0 / t2, -10.0, TIMEOUT)
+            .expect("compressed");
 
         let sent = sent_frames(&bus);
         let frame = sent.last().expect("rpdo frame");
@@ -1212,10 +1307,7 @@ mod tests {
         // word  = 0xFFFF_000F_FFFF_F000
         //         (Kp bits 35:24 and Kd bits 23:12 are both 0xFFF)
         // low32 = 0xFFFF_F000, high32 = 0xFFFF_000F
-        assert_eq!(
-            frame.data,
-            [0x00, 0xF0, 0xFF, 0xFF, 0x0F, 0x00, 0xFF, 0xFF]
-        );
+        assert_eq!(frame.data, [0x00, 0xF0, 0xFF, 0xFF, 0x0F, 0x00, 0xFF, 0xFF]);
 
         // ranges are cached: a second command adds only the RPDO frame
         // (mode cached, rpdo cached, ranges cached)
@@ -1243,8 +1335,10 @@ mod tests {
         // in Switch On Disabled (bit6 set, e.g. 0x0040): value write + code
         m.process_feedback_frame(sdo_rsp(1, 0x43, 0x6041, 0x00, u16p(0x0040)))
             .expect("feed");
-        m.process_feedback_frame(ack(1, od::POSITION_PRESET, 0x01)).expect("feed");
-        m.process_feedback_frame(ack(1, od::POSITION_PRESET, 0x02)).expect("feed");
+        m.process_feedback_frame(ack(1, od::POSITION_PRESET, 0x01))
+            .expect("feed");
+        m.process_feedback_frame(ack(1, od::POSITION_PRESET, 0x02))
+            .expect("feed");
         m.set_zero_position(TIMEOUT).expect("zero");
 
         let sent = sent_frames(&bus);
@@ -1252,7 +1346,10 @@ mod tests {
             .iter()
             .find(|f| f.data[1..4] == [0x01, 0x30, 0x01])
             .expect("3001h_1");
-        assert_eq!(f32::from_le_bytes([value.data[4], value.data[5], value.data[6], value.data[7]]), 0.0);
+        assert_eq!(
+            f32::from_le_bytes([value.data[4], value.data[5], value.data[6], value.data[7]]),
+            0.0
+        );
         let code = sent
             .iter()
             .find(|f| f.data[1..4] == [0x01, 0x30, 0x02])
@@ -1280,7 +1377,8 @@ mod tests {
         let mut buf = [0u8; 8];
         buf[0..4].copy_from_slice(&1.5f32.to_le_bytes());
         buf[4..8].copy_from_slice(&(-0.25f32).to_le_bytes());
-        m.process_feedback_frame(tpdo_frame(0x281, &buf)).expect("feed");
+        m.process_feedback_frame(tpdo_frame(0x281, &buf))
+            .expect("feed");
         let s = m.latest_state().expect("state");
         assert_eq!(s.seq, 1);
         assert!((s.pos_rad - 1.5 * t2).abs() < 1e-3);
@@ -1307,7 +1405,8 @@ mod tests {
         assert_eq!(s.torque_nm, 0.0);
 
         // second anchor advances the sequence
-        m.process_feedback_frame(tpdo_frame(0x281, &buf)).expect("feed");
+        m.process_feedback_frame(tpdo_frame(0x281, &buf))
+            .expect("feed");
         assert_eq!(m.latest_state().expect("state").seq, 2);
 
         // after warming the peak, patches convert to Nm
@@ -1337,7 +1436,8 @@ mod tests {
         // patch lands on the anchored state without advancing the seq
         let mut buf = [0u8; 8];
         buf[0..4].copy_from_slice(&1.0f32.to_le_bytes());
-        m.process_feedback_frame(tpdo_frame(0x281, &buf)).expect("feed");
+        m.process_feedback_frame(tpdo_frame(0x281, &buf))
+            .expect("feed");
         m.process_feedback_frame(tpdo_frame(0x081, &[0x10, 0x10, 0x23, 0x00]))
             .expect("feed");
         let s = m.latest_state().expect("state");
@@ -1353,9 +1453,12 @@ mod tests {
         queue_mode_enabled(&m, 1, 1);
         m.ensure_mode_enabled(RunMode::ProfilePosition, TIMEOUT)
             .expect("mode");
-        m.process_feedback_frame(ack(1, 0x6081, 0x00)).expect("feed");
-        m.process_feedback_frame(ack(1, 0x607A, 0x00)).expect("feed");
-        m.process_feedback_frame(ack(1, 0x6040, 0x00)).expect("feed");
+        m.process_feedback_frame(ack(1, 0x6081, 0x00))
+            .expect("feed");
+        m.process_feedback_frame(ack(1, 0x607A, 0x00))
+            .expect("feed");
+        m.process_feedback_frame(ack(1, 0x6040, 0x00))
+            .expect("feed");
         m.send_pos_vel(0.5, 1.0, TIMEOUT).expect("pp");
         m.tpdos_active.store(true, Ordering::Release);
         assert_eq!(*m.pp.lock().expect("pp"), PpHandshake::High);
@@ -1375,9 +1478,12 @@ mod tests {
         // round trip and uses only the set edge — the drive controlword is
         // back at its power-up value (bit 4 low), so no 1→0→1 toggle
         queue_mode_enabled(&m, 1, 1);
-        m.process_feedback_frame(ack(1, 0x6081, 0x00)).expect("feed");
-        m.process_feedback_frame(ack(1, 0x607A, 0x00)).expect("feed");
-        m.process_feedback_frame(ack(1, 0x6040, 0x00)).expect("feed");
+        m.process_feedback_frame(ack(1, 0x6081, 0x00))
+            .expect("feed");
+        m.process_feedback_frame(ack(1, 0x607A, 0x00))
+            .expect("feed");
+        m.process_feedback_frame(ack(1, 0x6040, 0x00))
+            .expect("feed");
         m.send_pos_vel(0.5, 1.0, TIMEOUT).expect("pp again");
 
         let sent = sent_frames(&bus);
@@ -1413,7 +1519,8 @@ mod tests {
         assert!(m.tpdos_active.load(Ordering::Acquire));
 
         // broadcast reset communication: only the TPDO flag drops
-        m.nmt(NmtCommand::ResetCommunication, 0).expect("nmt broadcast");
+        m.nmt(NmtCommand::ResetCommunication, 0)
+            .expect("nmt broadcast");
         assert!(m.mode_ready.lock().expect("mode").is_some());
         assert_eq!(*m.pp.lock().expect("pp"), PpHandshake::High);
         assert!(!m.tpdos_active.load(Ordering::Acquire));
@@ -1442,8 +1549,10 @@ mod tests {
         // actual position 0.25 Rev, target write ack, controlword ack
         m.process_feedback_frame(sdo_rsp(1, 0x43, POSITION_ACTUAL_VALUE, 0x00, f32p(0.25)))
             .expect("feed");
-        m.process_feedback_frame(ack(1, TARGET_POSITION, 0x00)).expect("feed");
-        m.process_feedback_frame(ack(1, 0x6040, 0x00)).expect("feed");
+        m.process_feedback_frame(ack(1, TARGET_POSITION, 0x00))
+            .expect("feed");
+        m.process_feedback_frame(ack(1, 0x6040, 0x00))
+            .expect("feed");
         m.controlled_stop(TIMEOUT).expect("stop");
 
         let sent = sent_frames(&bus);
@@ -1452,7 +1561,12 @@ mod tests {
             .iter()
             .find(|f| f.data[1..4] == [0x7A, 0x60, 0x00])
             .expect("607A write");
-        let p = f32::from_le_bytes([target.data[4], target.data[5], target.data[6], target.data[7]]);
+        let p = f32::from_le_bytes([
+            target.data[4],
+            target.data[5],
+            target.data[6],
+            target.data[7],
+        ]);
         assert!((p - 0.25).abs() < 1e-5);
         // first stop: single set edge (pp starts Low)
         let words: Vec<u16> = sent
@@ -1466,9 +1580,11 @@ mod tests {
         // set edge the drive would keep moving toward the old target
         m.process_feedback_frame(sdo_rsp(1, 0x43, POSITION_ACTUAL_VALUE, 0x00, f32p(0.25)))
             .expect("feed");
-        m.process_feedback_frame(ack(1, TARGET_POSITION, 0x00)).expect("feed");
+        m.process_feedback_frame(ack(1, TARGET_POSITION, 0x00))
+            .expect("feed");
         for _ in 0..2 {
-            m.process_feedback_frame(ack(1, 0x6040, 0x00)).expect("feed");
+            m.process_feedback_frame(ack(1, 0x6040, 0x00))
+                .expect("feed");
         }
         m.controlled_stop(TIMEOUT).expect("stop again");
 
@@ -1485,7 +1601,8 @@ mod tests {
     fn store_signature() {
         let bus = Arc::new(MockBus::new());
         let m = motor(&bus);
-        m.process_feedback_frame(ack(1, od::STORE_PARAMS, 0x01)).expect("feed");
+        m.process_feedback_frame(ack(1, od::STORE_PARAMS, 0x01))
+            .expect("feed");
         m.store_parameters(TIMEOUT).expect("store");
 
         let sent = sent_frames(&bus);
@@ -1493,7 +1610,12 @@ mod tests {
         assert_eq!(sent[0].data[1..4], [0x10, 0x10, 0x01]);
         assert_eq!(sent[0].data[0], 0x23);
         assert_eq!(
-            u32::from_le_bytes([sent[0].data[4], sent[0].data[5], sent[0].data[6], sent[0].data[7]]),
+            u32::from_le_bytes([
+                sent[0].data[4],
+                sent[0].data[5],
+                sent[0].data[6],
+                sent[0].data[7]
+            ]),
             0x6576_6173 // "save"
         );
     }
@@ -1503,9 +1625,12 @@ mod tests {
         let bus = Arc::new(MockBus::new());
         let m = motor(&bus);
         // one full SDO round trip in read order
-        m.process_feedback_frame(sdo_rsp(1, 0x43, 0x6061, 0x00, [5, 0, 0, 0])).expect("feed");
-        m.process_feedback_frame(sdo_rsp(1, 0x43, 0x6041, 0x00, u16p(0x0237))).expect("feed");
-        m.process_feedback_frame(sdo_rsp(1, 0x43, ERROR_CODE, 0x00, u16p(0))).expect("feed");
+        m.process_feedback_frame(sdo_rsp(1, 0x43, 0x6061, 0x00, [5, 0, 0, 0]))
+            .expect("feed");
+        m.process_feedback_frame(sdo_rsp(1, 0x43, 0x6041, 0x00, u16p(0x0237)))
+            .expect("feed");
+        m.process_feedback_frame(sdo_rsp(1, 0x43, ERROR_CODE, 0x00, u16p(0)))
+            .expect("feed");
         m.process_feedback_frame(sdo_rsp(1, 0x43, POSITION_ACTUAL_VALUE, 0x00, f32p(0.25)))
             .expect("feed");
         m.process_feedback_frame(sdo_rsp(
@@ -1524,9 +1649,12 @@ mod tests {
             i16p(-250),
         ))
         .expect("feed");
-        m.process_feedback_frame(sdo_rsp(1, 0x43, MOTOR_PEAK_TORQUE, 0x00, f32p(8.0))).expect("feed");
-        m.process_feedback_frame(sdo_rsp(1, 0x43, od::TEMPERATURES, 0x01, i16p(300))).expect("feed");
-        m.process_feedback_frame(sdo_rsp(1, 0x43, od::TEMPERATURES, 0x02, i16p(250))).expect("feed");
+        m.process_feedback_frame(sdo_rsp(1, 0x43, MOTOR_PEAK_TORQUE, 0x00, f32p(8.0)))
+            .expect("feed");
+        m.process_feedback_frame(sdo_rsp(1, 0x43, od::TEMPERATURES, 0x01, i16p(300)))
+            .expect("feed");
+        m.process_feedback_frame(sdo_rsp(1, 0x43, od::TEMPERATURES, 0x02, i16p(250)))
+            .expect("feed");
 
         let s = m.query_status(TIMEOUT).expect("status");
         assert_eq!(s.mode_display, 5);

@@ -17,16 +17,12 @@ const TPDO_BASES: [u32; 4] = [0x180, 0x280, 0x380, 0x480];
 
 /// SDO server response for `node_id` (`0x581..0x5FF`, 8 data bytes).
 pub fn is_sdo_rsp(frame: &CanFrame, node_id: u16) -> bool {
-    !frame.is_extended
-        && frame.dlc >= 8
-        && frame.arbitration_id == 0x580 + u32::from(node_id)
+    !frame.is_extended && frame.dlc >= 8 && frame.arbitration_id == 0x580 + u32::from(node_id)
 }
 
 /// Heartbeat for `node_id` (`0x701..0x77F`, at least 1 data byte).
 pub fn is_heartbeat(frame: &CanFrame, node_id: u16) -> bool {
-    !frame.is_extended
-        && frame.dlc >= 1
-        && frame.arbitration_id == 0x700 + u32::from(node_id)
+    !frame.is_extended && frame.dlc >= 1 && frame.arbitration_id == 0x700 + u32::from(node_id)
 }
 
 /// EMCY for `node_id` (`0x081..0x0FF`).

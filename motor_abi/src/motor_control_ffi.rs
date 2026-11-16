@@ -230,10 +230,9 @@ pub extern "C" fn motor_handle_send_vel(motor: *mut MotorHandle, target_velocity
                 m.send_cmd_vel(target_velocity).map_err(|e| e.to_string())
             }
             // PV (mode 3): 60FFh target velocity, Float32 Rev/s.
-            MotorHandleInner::Huayi(m) => {
-                m.send_vel(target_velocity, Duration::from_millis(300))
-                    .map_err(|e| e.to_string())
-            }
+            MotorHandleInner::Huayi(m) => m
+                .send_vel(target_velocity, Duration::from_millis(300))
+                .map_err(|e| e.to_string()),
         }
     })
 }

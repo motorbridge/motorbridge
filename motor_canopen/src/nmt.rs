@@ -39,7 +39,11 @@ pub fn nmt_payload(command: NmtCommand, node_id: u8) -> [u8; 2] {
 }
 
 /// Send an NMT command on COB-ID `0x000`.
-pub fn send_nmt(bus: &Arc<dyn CanBus>, command: NmtCommand, node_id: u8) -> motor_core::error::Result<()> {
+pub fn send_nmt(
+    bus: &Arc<dyn CanBus>,
+    command: NmtCommand,
+    node_id: u8,
+) -> motor_core::error::Result<()> {
     send_std_frame(bus.as_ref(), NMT_ID, &nmt_payload(command, node_id))
 }
 
@@ -62,10 +66,7 @@ mod tests {
 
     #[test]
     fn payload_encodes_command_and_node() {
-        assert_eq!(
-            nmt_payload(NmtCommand::StartRemoteNode, 0x01),
-            [0x01, 0x01]
-        );
+        assert_eq!(nmt_payload(NmtCommand::StartRemoteNode, 0x01), [0x01, 0x01]);
         assert_eq!(
             nmt_payload(NmtCommand::ResetCommunication, 0x7F),
             [0x82, 0x7F]
