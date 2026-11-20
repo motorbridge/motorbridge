@@ -7,6 +7,23 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-20
+
+### Fixed
+
+- RobStride: a type-17 reply with non-zero read status no longer leaves the
+  pending `get_parameter` waiting out its deadline. Read failures are recorded
+  per parameter, wake the waiter immediately, and surface as a distinct
+  Protocol error ("parameter 0x.. read rejected by motor (status 0x..)")
+  instead of a timeout that upstream misclassified as motor-offline and used
+  to abort parameter imports. A param-level rejection also short-circuits the
+  remaining host-id candidates, so each rejected read costs one request and
+  one polling-worker log line.
+- Python CLI: `--mode read-param`/`write-param` type inference now mirrors the
+  Rust `registers.rs` typing for section-4 non-float params (0x7026 u16,
+  0x702A/0x702C/0x702D u8) instead of falling back to f32.
+
+
 ## [0.6.0] - 2026-11-11
 
 ### Added

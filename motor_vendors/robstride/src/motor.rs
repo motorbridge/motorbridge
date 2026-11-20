@@ -158,6 +158,10 @@ pub struct RobstrideMotor {
     param_values: Mutex<HashMap<u16, ParameterValue>>,
     // Signalled whenever a READ_PARAMETER reply is stored in `param_values`.
     param_ready: Condvar,
+    // Read-failure statuses reported by the motor (type-17 reply bits 23..16
+    // non-zero). A pending get_parameter fails fast with these instead of
+    // waiting out its deadline and looking like a silent bus.
+    param_rejections: Mutex<HashMap<u16, u8>>,
     ping_reply: Mutex<Option<PingReply>>,
     last_mit_gains: Mutex<Option<(f32, f32)>>,
 }
@@ -187,6 +191,7 @@ impl RobstrideMotor {
             response_seq: AtomicU64::new(0),
             param_values: Mutex::new(HashMap::new()),
             param_ready: Condvar::new(),
+            param_rejections: Mutex::new(HashMap::new()),
             ping_reply: Mutex::new(None),
             last_mit_gains: Mutex::new(None),
         })
@@ -688,11 +693,35 @@ impl RobstrideMotor {
             if let Ok(value) = self.get_parameter_with_host_id(param_id, host, per_try) {
                 return Ok(value);
             }
+            // A param-level rejection (the motor answered "read failed") is
+            // definitive for every host id: skip the remaining candidates
+            // instead of re-asking and re-logging the same rejection.
+            if let Some(status) = self.rejected_param_status(param_id) {
+                return Err(Self::param_rejected_error(param_id, status));
+            }
+        }
+        // The motor answered "read failed" -- surface that reason instead of a
+        // timeout so callers can tell a rejected read from a silent bus.
+        if let Some(status) = self.rejected_param_status(param_id) {
+            return Err(Self::param_rejected_error(param_id, status));
         }
         Err(MotorError::Timeout(format!(
             "parameter 0x{param_id:04X} not received within {:?}",
             timeout
         )))
+    }
+
+    fn rejected_param_status(&self, param_id: u16) -> Option<u8> {
+        self.param_rejections
+            .lock()
+            .ok()
+            .and_then(|rejections| rejections.get(&param_id).copied())
+    }
+
+    fn param_rejected_error(param_id: u16, status: u8) -> MotorError {
+        MotorError::Protocol(format!(
+            "parameter 0x{param_id:04X} read rejected by motor (status 0x{status:02X})"
+        ))
     }
 
     pub fn get_parameter_with_host_id(
@@ -703,6 +732,10 @@ impl RobstrideMotor {
     ) -> Result<ParameterValue> {
         Self::validate_host_id(host_id, "feedback_id")?;
         self.param_values
+            .lock()
+            .map_err(|_| MotorError::Io("param state lock poisoned".to_string()))?
+            .remove(&param_id);
+        self.param_rejections
             .lock()
             .map_err(|_| MotorError::Io("param state lock poisoned".to_string()))?
             .remove(&param_id);
@@ -719,6 +752,9 @@ impl RobstrideMotor {
         loop {
             if let Some(value) = values.get(&param_id).copied() {
                 return Ok(value);
+            }
+            if let Some(status) = self.rejected_param_status(param_id) {
+                return Err(Self::param_rejected_error(param_id, status));
             }
             let now = Instant::now();
             if now >= deadline {
@@ -784,6 +820,13 @@ impl RobstrideMotor {
                 let param_id = u16::from_le_bytes([frame.data[0], frame.data[1]]);
                 let read_status = (extra_data >> 8) as u8;
                 if read_status != 0 {
+                    // Record the motor's explicit "read failed" answer and wake
+                    // any waiter so it fails fast with this reason instead of
+                    // timing out like a silent bus.
+                    if let Ok(mut rejections) = self.param_rejections.lock() {
+                        rejections.insert(param_id, read_status);
+                    }
+                    self.param_ready.notify_all();
                     return Err(MotorError::Protocol(format!(
                         "parameter 0x{param_id:04X} read failed with status 0x{read_status:02X}"
                     )));
@@ -1018,6 +1061,67 @@ mod tests {
             .expect("successful zero reply");
         assert!(matches!(motor.param_values.lock().unwrap().get(&0x7019),
                          Some(ParameterValue::F32(v)) if *v == 0.0));
+    }
+
+    #[test]
+    fn rejected_read_fails_get_parameter_immediately_with_distinct_error() {
+        // A motor that answers "read failed" (type-17 status != 0) must fail
+        // the pending read right away with a non-timeout error, so callers can
+        // tell a rejected parameter from an offline motor instead of waiting
+        // out the deadline. The rejection also short-circuits the remaining
+        // host-id candidates: one request, one log line, one round trip.
+        let bus_impl = Arc::new(MockBus::new());
+        let bus: Arc<dyn CanBus> = bus_impl.clone();
+        let motor = Arc::new(RobstrideMotor::new(2, 0xFD, "rs-00", bus).expect("create motor"));
+        let responder = {
+            let motor = Arc::clone(&motor);
+            let bus = Arc::clone(&bus_impl);
+            std::thread::spawn(move || {
+                let mut answered = 0;
+                let deadline = Instant::now() + Duration::from_secs(5);
+                while answered < 1 && Instant::now() < deadline {
+                    let pending = bus.sent.lock().expect("sent frames").len();
+                    if pending > answered {
+                        let result = motor.process_feedback_frame(CanFrame {
+                            arbitration_id: build_ext_id(
+                                CommunicationType::READ_PARAMETER,
+                                (1u16 << 8) | 2,
+                                0xFD,
+                            ),
+                            data: encode_parameter_read(0x702C),
+                            dlc: 8,
+                            is_extended: true,
+                            is_rx: true,
+                        });
+                        // Rejected replies return Err by design; the rejection
+                        // is recorded before the error propagates.
+                        assert!(result.is_err());
+                        answered += 1;
+                    } else {
+                        std::thread::yield_now();
+                    }
+                }
+            })
+        };
+        let start = Instant::now();
+        let error = motor
+            .get_parameter(0x702C, Duration::from_millis(500))
+            .expect_err("rejected read must fail");
+        let elapsed = start.elapsed();
+        responder.join().expect("responder thread");
+        assert!(matches!(error, MotorError::Protocol(_)));
+        assert_eq!(
+            error.to_string(),
+            "parameter 0x702C read rejected by motor (status 0x01)"
+        );
+        // Only the first host candidate is asked: the rejection is definitive
+        // for every host id, so no fallback frames are sent.
+        let sent = bus_impl.sent.lock().expect("sent frames").len();
+        assert_eq!(sent, 1, "expected a single read request, sent {sent}");
+        assert!(
+            elapsed < Duration::from_millis(400),
+            "single round trip should fail fast, took {elapsed:?}"
+        );
     }
 
     #[test]

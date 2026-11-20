@@ -558,8 +558,16 @@ pub fn run_hightorque(
         if feedback_each_loop
             && matches!(
                 mode.as_str(),
-                "pos" | "vel" | "tqe" | "mit" | "volt" | "cur" | "pos-vel-tqe" | "pos-vel-acc"
-                    | "stop" | "brake"
+                "pos"
+                    | "vel"
+                    | "tqe"
+                    | "mit"
+                    | "volt"
+                    | "cur"
+                    | "pos-vel-tqe"
+                    | "pos-vel-acc"
+                    | "stop"
+                    | "brake"
             )
         {
             match motor.request_fresh_state(Duration::from_millis(feedback_timeout_ms)) {
@@ -603,9 +611,7 @@ pub fn run_hightorque(
                 }
                 Err(_) => {
                     if cmd_desc.is_empty() {
-                        println!(
-                            "#{i} [warn] no fresh state within {feedback_timeout_ms}ms"
-                        );
+                        println!("#{i} [warn] no fresh state within {feedback_timeout_ms}ms");
                     } else {
                         println!(
                             "#{i} [warn] no fresh state within {feedback_timeout_ms}ms {cmd_desc}"
