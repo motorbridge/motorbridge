@@ -122,15 +122,41 @@ impl SessionCtx {
                 // the 2003h scale factor, torque via the cached 6076h peak.
                 // Mode handshake (6060h + 6061h verify) is inside the vendor
                 // send methods and cached after the first call.
+                // MIT replays take the compressed RPDO4 one-frame path
+                // (§5.2; remap + range reads cached in the motor handle) —
+                // the ticker re-sends at loop rate, so the slow five-write
+                // SDO path here would flood the bus. Out-of-range gains or
+                // remap failures fall back to the SDO path (the initial op
+                // already warned if the compressed path is unavailable).
                 Some(ActiveCommand::Mit {
                     pos,
                     vel,
                     kp,
                     kd,
                     tau,
-                }) => motor
-                    .send_mit(*pos, *vel, *kp, *kd, *tau, Duration::from_millis(300))
-                    .map_err(|e| e.to_string()),
+                }) => {
+                    let args = (*pos, *vel, *kp, *kd, *tau);
+                    motor
+                        .send_mit_compressed(
+                            args.0,
+                            args.1,
+                            args.2,
+                            args.3,
+                            args.4,
+                            Duration::from_millis(300),
+                        )
+                        .or_else(|_| {
+                            motor.send_mit(
+                                args.0,
+                                args.1,
+                                args.2,
+                                args.3,
+                                args.4,
+                                Duration::from_millis(300),
+                            )
+                        })
+                        .map_err(|e| e.to_string())
+                }
                 Some(ActiveCommand::PosVel { pos, vlim }) => motor
                     .send_pos_vel(*pos, *vlim, Duration::from_millis(300))
                     .map_err(|e| e.to_string()),

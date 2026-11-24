@@ -209,7 +209,7 @@ Supported modes:
 - `scan` (node scan): `--start-id` (default 1) / `--end-id` (default 127)
 - `status` (full query: 6041h/6061h/603Fh + 6064h/606Ch/6077h)
 - `enable` / `disable` / `stop` (controlled stop) / `quick-stop` (CW bit2) / `clear-error`
-- `mit` / `mit-compressed` (RPDO4 compressed fast path) / `pos-vel` / `vel` / `torque` (`--tau <Nm>`)
+- `mit` / `mit-compressed` (RPDO4 compressed fast path; first call auto-remaps RPDO4, reads the 2004h ranges and SDO-seeds the control word before the enable edge — the power-on 0x0 word would lunge the motor; after any compressed command the `mit` slow path auto-restores the 2003h source) / `pos-vel` / `vel` / `torque` (`--tau <Nm>`)
 - `zero` / `set-zero` / `preset` (3001h position preset: `zero` is an alias of `set-zero` and auto-disables first; `preset` takes `--preset-rev <±0.5>`)
 - `save` / `restore` (1010h store / 1011h restore)
 - `set-node-id`: `--set-motor-id <1..=127>` (2001h; applies after store + power cycle)
@@ -219,6 +219,8 @@ Supported modes:
 - `read-obj` / `write-obj`: `--index 0x6041 --sub 0x00 --ty u8|i8|u16|i16|u32|i32|f32 [--value ...]` (`--index` accepts hex/dec)
 
 Control modes (`mit` / `mit-compressed` / `pos-vel` / `vel` / `torque`) activate the TPDO stream automatically while looping (10 ms event timer) and print one cached-state line per iteration (`#i node=1 pos=+0.123 vel=+0.456 ... status=0x0237(MIT 5) ...`) — same loop-output shape as dm/rs. CANopen decouples commands from feedback, so state comes from the background stream, not from a per-command reply.
+
+Mode switches between control modes need no manual `disable`: while Operation Enabled a `6060h` write is SDO-acked but ignored by the drive, so the vendor layer runs disable → `6060h` latch → re-enable → `6061h` verify inside `ensure_mode`/the send paths. Only zeroing/preset (`3001h`) still requires the disable-first rule.
 
 Examples:
 

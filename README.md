@@ -213,7 +213,9 @@ files there when new hardware photos become available.
   - transport: classic CAN only (`socketcan`/`mcu-serial`); shares the CANopen semantic stack
     with `robstride_cia402` through the `motor_canopen` framework
   - note: zeroing requires disable first (same rule as Damiao); 6060h mode numbering follows
-    CiA402 (`5` = MIT), unlike the RobStride private protocol where `5` is CSP
+    CiA402 (`5` = MIT), unlike the RobStride private protocol where `5` is CSP; a 6060h write
+    while Operation Enabled is ignored by the drive, so mode switches (and the first
+    `mit-compressed` SDO seeding of the 2004h word) run inside the vendor layer automatically
 
 ## RobStride Protocol Paths
 

@@ -70,7 +70,7 @@ WS API 主链路已实现。
 | hexfellow | 原生 MIT | 原生 POS_VEL | 不支持 | 不支持 | `mit` 支持 `kp/kd/tau`，无独立 `vel` | CAN-FD 链路 |
 | myactuator | 不支持 | Position 设定流程 | 原生速度设定 | 不支持 | `pos_vel` 通过 position setpoint 实现；基线里 `vel` 可用 | 强项是 current/position/version/mode-query |
 | hightorque | 原生 MIT（v2.0.0 位打包帧） | 原生 POS_VEL（`0x07 0x35` 协同） | 原生速度帧 | 不支持 | 全部命令经 `motor_vendor_hightorque`（唯一实现）；回帧为物理量并带型号力矩系数补偿 | 另有 `pos_vel_acc`（梯形 `07 2d`）与 `torque`（`05 13`，物理量 Nm）模式，以及 `pos_classic`/`dq_voltage`/`dq_current`/`brake`/`run_mode`/`write_register`/`periodic_report`/`read_register` 专属 op；`enable` 为语义空操作（方案 B，2026-10-08，不发帧直接成功） |
-| huayi | 6060h=5 MIT（`2003h` 慢速路径；RPDO4 压缩快速通道仅 ABI/CLI） | 6060h=1 PP（`6081h` + `607Ah` + CW bit4） | 6060h=3 PV（`60FFh`） | 不支持 | `motor_id` 即 CANopen 节点号（1..=127）；`feedback_id` 缺省 0（沿用节点号） | 经典 CAN 上的 CANopen/CiA402；`torque` op 支持（6060h=4 + `6071h`）；`ensure_mode`/`request_feedback`/`set_active_report`（TPDO 流）统一；置零须先 `disable`（3001h 防护）；模式编号遵循 CiA402（`5`=MIT，非 RobStride 私有协议的 CSP） |
+| huayi | 6060h=5 MIT（RPDO4 压缩快速通道，每命令一帧 8 字节；重映射失败或增益超量程时自动回退 `2003h` 慢速 SDO 路径） | 6060h=1 PP（`6081h` + `607Ah` + CW bit4） | 6060h=3 PV（`60FFh`） | 不支持 | `motor_id` 即 CANopen 节点号（1..=127）；`feedback_id` 缺省 0（沿用节点号） | 经典 CAN 上的 CANopen/CiA402；`torque` op 支持（6060h=4 + `6071h`）；`ensure_mode`/`request_feedback`/`set_active_report`（TPDO 流）统一；运行中（Operation Enabled）写 6060h 会被应答但忽略，模式切换由 vendor 层内部完成 disable → 锁存 → 重新使能 → 6061h 校验（首次 `mit` 还会在使能沿之前 SDO 种子压缩字——上电 0x0 值会使电机猛冲）；置零须先 `disable`（3001h 防护）；模式编号遵循 CiA402（`5`=MIT，非 RobStride 私有协议的 CSP） |
 
 ### 统一核心操作支持矩阵
 

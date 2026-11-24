@@ -179,11 +179,26 @@ pub fn deactivate_default_tpdos(node: &CanopenNode, timeout: Duration) -> Result
     Ok(())
 }
 
-/// Remap RPDO4 to the compressed MIT control word and enable the 2004h
-/// parameter source. After this, an 8-byte classic frame to
-/// `0x500 + node_id` (low 32 bits first) is a complete MIT command — the
-/// real-time channel (manual §5.2).
-pub fn configure_mit_rpdo(node: &CanopenNode, timeout: Duration) -> Result<()> {
+/// Remap RPDO4 to the compressed MIT control word, seed the 64-bit control
+/// word over SDO and enable the 2004h parameter source. After this, an
+/// 8-byte classic frame to `0x500 + node_id` (low 32 bits first) is a
+/// complete MIT command — the real-time channel (manual §5.2).
+///
+/// The seed matters: `2004h_2/_3` power up as `0x0`, which decodes to
+/// Pdes = -0.5 Rev, Vdes = -10 Rev/s and **Tff = -10 Nm** — a full-scale
+/// lunge if the drive enters MIT mode (or the 2004h_1 source switches on)
+/// before the first RPDO frame arrives. Hardware-verified (2026-11): the
+/// lunge sags a current-limited bench supply into the 0x3220
+/// bus-undervoltage fault and browns the drive out into a reset. Seeding
+/// the word while 2004h_1 is still 0 (the word is inert as a parameter
+/// source) makes both the source switch and the subsequent enable edge
+/// transient-free, from any drive state.
+pub fn configure_mit_rpdo_seeded(
+    node: &CanopenNode,
+    seed_low: u32,
+    seed_high: u32,
+    timeout: Duration,
+) -> Result<()> {
     RpdoConfig {
         number: 4,
         cob_id: rpdo_id(4, node.node_id()),
@@ -192,8 +207,17 @@ pub fn configure_mit_rpdo(node: &CanopenNode, timeout: Duration) -> Result<()> {
         entries: RPDO4_MIT_MAP.to_vec(),
     }
     .apply(node, timeout)?;
+    // seed the control word BEFORE switching the parameter source on
+    node.sdo_write_u32(od::MIT_COMPRESSED, 0x02, seed_low, timeout)?;
+    node.sdo_write_u32(od::MIT_COMPRESSED, 0x03, seed_high, timeout)?;
     // 2004h_1: 1 = parameters come from the compressed 2004h channel
     node.sdo_write_u8(od::MIT_COMPRESSED, 0x01, 1, timeout)
+}
+
+/// Restore the 2003h slow-path parameter source (2004h_1 = 0). After a
+/// compressed command the drive ignores writes to 2003h until this runs.
+pub fn restore_slow_mit_source(node: &CanopenNode, timeout: Duration) -> Result<()> {
+    node.sdo_write_u8(od::MIT_COMPRESSED, 0x01, 0, timeout)
 }
 
 // ---------------------------------------------------------------------------
@@ -384,10 +408,10 @@ mod tests {
     }
 
     #[test]
-    fn configure_mit_rpdo_remaps_and_enables() {
+    fn configure_mit_rpdo_remaps_seeds_and_enables() {
         let bus = Arc::new(MockBus::new());
         let node = CanopenNode::new(1, bus.clone()).expect("node");
-        // RPDO4 apply: 7 writes + 2004h_1 enable ack
+        // RPDO4 apply: 7 writes, seed writes x2, 2004h_1 enable ack
         let comm = rpdo_comm_index(4);
         let map = motor_canopen::pdo::rpdo_map_index(4);
         node.process(&sdo_rx(1, 0x60, comm, 0x01));
@@ -397,11 +421,14 @@ mod tests {
         node.process(&sdo_rx(1, 0x60, map, 0x00));
         node.process(&sdo_rx(1, 0x60, comm, 0x02));
         node.process(&sdo_rx(1, 0x60, comm, 0x01));
+        node.process(&sdo_rx(1, 0x60, od::MIT_COMPRESSED, 0x02));
+        node.process(&sdo_rx(1, 0x60, od::MIT_COMPRESSED, 0x03));
         node.process(&sdo_rx(1, 0x60, od::MIT_COMPRESSED, 0x01));
-        configure_mit_rpdo(&node, Duration::from_millis(50)).expect("configure");
+        configure_mit_rpdo_seeded(&node, 0x0507_0800, 0x8080_04FA, Duration::from_millis(50))
+            .expect("configure");
 
         let sent = bus.sent.lock().expect("sent").clone();
-        assert_eq!(sent.len(), 8);
+        assert_eq!(sent.len(), 10);
         // RPDO4 activate word: 0x501, no bit30 (RPDO does not require it)
         let word = u32::from_le_bytes([
             sent[6].data[4],
@@ -410,10 +437,33 @@ mod tests {
             sent[6].data[7],
         ]);
         assert_eq!(word, 0x0000_0501);
+        // seed: 2004h_2 low half, then 2004h_3 high half — BEFORE the
+        // source switch
+        assert_eq!(sent[7].data[1..4], [0x04, 0x20, 0x02]);
+        assert_eq!(sent[7].data[0], 0x23);
+        assert_eq!(
+            u32::from_le_bytes([
+                sent[7].data[4],
+                sent[7].data[5],
+                sent[7].data[6],
+                sent[7].data[7]
+            ]),
+            0x0507_0800
+        );
+        assert_eq!(sent[8].data[1..4], [0x04, 0x20, 0x03]);
+        assert_eq!(
+            u32::from_le_bytes([
+                sent[8].data[4],
+                sent[8].data[5],
+                sent[8].data[6],
+                sent[8].data[7]
+            ]),
+            0x8080_04FA
+        );
         // last write: 2004h_1 = 1 (compressed parameter source)
-        assert_eq!(sent[7].data[1..4], [0x04, 0x20, 0x01]);
-        assert_eq!(sent[7].data[0], 0x2F);
-        assert_eq!(sent[7].data[4], 1);
+        assert_eq!(sent[9].data[1..4], [0x04, 0x20, 0x01]);
+        assert_eq!(sent[9].data[0], 0x2F);
+        assert_eq!(sent[9].data[4], 1);
     }
 
     #[test]

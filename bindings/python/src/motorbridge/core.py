@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import ctypes
-from ctypes import c_float, c_int8, c_uint8, c_uint16, c_uint32
+from ctypes import c_float, c_int8, c_int32, c_uint8, c_uint16, c_uint32
 
 from .abi import CState, CStateMetadata, get_abi
 from .dm_device_runtime import ensure_dm_device_runtime

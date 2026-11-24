@@ -29,9 +29,9 @@ damiao/robstride/hightorque/huayi 复跑——这就是跨厂商语义对齐的�
 - ``send_pos_vel``(PP 模式: 6081h+607Ah+CW bit4 握手,小幅正弦)
 - ``send_vel``(PV 模式: 60FFh Float32 Rev/s)
 - ``huayi_send_torque``(力矩模式: 6071h ‰ 峰值)
-- ``send_mit``(慢速 2003h SDO 路径, Kp/Kd 经尺度因子)
 - ``huayi_send_mit_compressed``(§5.2 实时通道: RPDO4 一帧 8 字节, 单位链
-  Nm/rad→Nm/Rev→12 位线性映射)
+  Nm/rad→Nm/Rev→12 位线性映射; 主测路径, 与 gateway mit op 默认一致)
+- ``send_mit``(慢速 2003h SDO 路径, Kp/Kd 经尺度因子; 对照/诊断保留)
 - ``huayi_configure_periodic_report``(TPDO 流: 10ms 开/0 停)
 - ``huayi_get_error_history``(1003h 遍历)
 
@@ -231,31 +231,38 @@ def _run_all(motor, write_config: bool) -> None:
                   lambda t: motor.send_vel(0.4 * math.sin(freq * t)))
         _stop_and_disable(motor)
 
-        # 7. 力矩模式(huayi_send_torque: 6071h ‰ 6076h 峰值): 小幅正弦
-        #    力矩(峰值 0.3 Nm)零起振。
+        # 7. 力矩模式(huayi_send_torque: 6071h ‰ 6076h 峰值): 正弦力矩。
+        #    幅值对齐这颗驱动器的量级: 峰值 84Nm、静摩擦 ~0.5-1Nm——
+        #    0.3Nm 推不动(只是"挠痒"), 2.0Nm 能看到明显运动。
         _switch_mode(motor, Mode.MIT)  # 任意模式先使能; 力矩命令自带切模式
-        print("[7.TORQUE] 小幅正弦力矩 0→±0.3 Nm")
+        print("[7.TORQUE] 正弦力矩 0→±2.0 Nm(静摩擦阈值 ~0.5-1Nm)")
         _run_hold(motor, "7.TORQUE", HOLD_SECS,
-                  lambda t: motor.huayi_send_torque(0.3 * math.sin(freq * t)))
+                  lambda t: motor.huayi_send_torque(2.0 * math.sin(freq * t)))
         _stop_and_disable(motor)
 
-        # 8. MIT 慢速路径(统一 send_mit: 2003h 五次 SDO 写; Kp/Kd 经
-        #    尺度因子换算为无量纲 u16)。小增益保守。
+        # 8. MIT 压缩实时通道(huayi_send_mit_compressed: RPDO4 一帧 8 字节到
+        #    0x500+node; 首次调用自动重映射+读 2004h 范围+SDO 种子首条命令
+        #    (避免使能沿的 0x0 字瞬态), 之后每命令一帧)。Kp/Kd 单位链:
+        #    Nm/rad→Nm/Rev→12 位线性映射。与 gateway mit op 的默认路径一致。
+        #    增益对齐驱动器量级: kp=20/kd=5、幅值 0.25 rad(硬件验证可动;
+        #    kp=5 时弹簧力低于静摩擦, 电机不动)。
         _switch_mode(motor, Mode.MIT)
-        print("[8.MIT-slow] 2003h SDO 路径(kp=5 kd=1 保守)")
-        _run_hold(motor, "8.MIT-slow", HOLD_SECS,
-                  lambda t: motor.send_mit(
-                      start_pos + 0.1 * math.sin(1.0 * t), 0.0, 5.0, 1.0, 0.0))
-        _stop_and_disable(motor)
-
-        # 9. MIT 压缩实时通道(huayi_send_mit_compressed: RPDO4 一帧 8 字节
-        #    到 0x500+node; 首次调用自动重映射+读范围, 之后每命令一帧)。
-        #    Kp/Kd 单位链: Nm/rad→Nm/Rev→12 位线性映射。
-        _switch_mode(motor, Mode.MIT)
-        print("[9.MIT-compressed] RPDO4 实时通道(每命令一帧)")
-        _run_hold(motor, "9.MIT-compressed", HOLD_SECS,
+        print("[8.MIT-compressed] RPDO4 实时通道(每命令一帧, kp=20 kd=5)")
+        _run_hold(motor, "8.MIT-compressed", HOLD_SECS,
                   lambda t: motor.huayi_send_mit_compressed(
-                      start_pos + 0.1 * math.sin(1.0 * t), 0.0, 5.0, 1.0, 0.0))
+                      start_pos + 0.25 * math.sin(1.0 * t),
+                      0.25 * math.cos(1.0 * t), 20.0, 5.0, 0.0))
+        _stop_and_disable(motor)
+
+        # 9. MIT 慢速路径(统一 send_mit: 2003h 五次 SDO 写; Kp/Kd 经尺度
+        #    因子换算为无量纲 u16, Float32 全精度、无 12 位量程限制)。
+        #    作为压缩通道的对照/诊断路径保留(会先恢复 2004h_1=0 源)。
+        _switch_mode(motor, Mode.MIT)
+        print("[9.MIT-slow] 2003h SDO 路径(kp=20 kd=5, 对照)")
+        _run_hold(motor, "9.MIT-slow", HOLD_SECS,
+                  lambda t: motor.send_mit(
+                      start_pos + 0.25 * math.sin(1.0 * t),
+                      0.25 * math.cos(1.0 * t), 20.0, 5.0, 0.0))
         _stop_and_disable(motor)
 
     # ---- 无运动诊断段 ----
@@ -299,12 +306,9 @@ def _run_all(motor, write_config: bool) -> None:
 
 
 def _switch_mode(motor, mode: Mode) -> None:
-    """切换模式前的统一前置: disable(0x0000)→短停顿→enable(CiA402 完整
-    序列: NMT start + Shutdown→SwitchOn→Enable)→ensure_mode(6060h 写 +
-    6061h 回读校验)。"""
-    motor.disable()
-    time.sleep(0.06)
-    motor.enable()
+    """切模式统一入口: 只调 ensure_mode。厂商层内部完成硬件验证的正确
+    时序(运行中切模式时 6060h 写会被忽略): disable → 6060h 写(锁存)→
+    NMT start + CiA402 使能(06/07/0F)→ 6061h 回读校验。"""
     motor.ensure_mode(mode, 1000)
     print(f"[switch] -> {mode.name}")
 

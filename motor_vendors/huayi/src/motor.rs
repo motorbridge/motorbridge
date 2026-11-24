@@ -231,10 +231,17 @@ impl HuayiMotor {
                 self.clear_mode_ready();
                 self.reset_pp_handshake();
                 self.tpdos_active.store(false, Ordering::Release);
+                // the drive also loses the RPDO4 remap and the 2004h_1
+                // source switch
+                self.mit_rpdo_ready.store(false, Ordering::Release);
             }
-            NmtCommand::ResetCommunication
-            | NmtCommand::EnterPreOperational
-            | NmtCommand::StopNode => {
+            NmtCommand::ResetCommunication => {
+                self.tpdos_active.store(false, Ordering::Release);
+                // the PDO (re)configuration profile resets — the RPDO4
+                // mapping is gone even though 2004h_1 survives
+                self.mit_rpdo_ready.store(false, Ordering::Release);
+            }
+            NmtCommand::EnterPreOperational | NmtCommand::StopNode => {
                 self.tpdos_active.store(false, Ordering::Release);
             }
             NmtCommand::StartRemoteNode => {}
@@ -242,10 +249,18 @@ impl HuayiMotor {
         Ok(())
     }
 
-    /// Write `6060h` and verify: `6061h` echoes the mode and the drive is
-    /// in Operation Enabled (running the enable handshake if not).
+    /// Ensure the drive ends up in Operation Enabled running `mode`.
     /// Results are cached — later commands in the same mode skip the
-    /// round trip (§3.3–§3.5).
+    /// handshake (§3.3–§3.5).
+    ///
+    /// Mode-write semantics, verified on hardware (2026-11): a `6060h`
+    /// write while **not** enabled is latched and applied by the enable
+    /// handshake (the manual §3.3–§3.5 order); a write while enabled with
+    /// a different mode active (6061h ≠ 0) is SDO-acked but silently
+    /// ignored. So the sequence is: leave Operation Enabled if needed,
+    /// latch the mode, re-enable, then verify. 6061h resets to 0 a moment
+    /// after the disable edge and settles on the latched mode on/after the
+    /// enable edge — both reads allow a short retry.
     pub fn ensure_mode_enabled(&self, mode: RunMode, timeout: Duration) -> Result<()> {
         let raw = mode as i8;
         {
@@ -257,35 +272,51 @@ impl HuayiMotor {
                 return Ok(());
             }
         }
+        // Fast path: already enabled in the requested mode.
+        let state = cia402::read_state(&self.node, timeout)?;
+        if state == Cia402State::OperationEnabled
+            && cia402::read_mode_display(&self.node, timeout)? == raw
+        {
+            self.latch_mode_ready(raw);
+            return Ok(());
+        }
+        if state == Cia402State::OperationEnabled {
+            // mode writes are ignored while enabled with a mode active —
+            // drop to Switch On Disabled first
+            cia402::disable_drive(&self.node, timeout)?;
+            std::thread::sleep(Duration::from_millis(20));
+        }
         cia402::write_mode(&self.node, raw, timeout)?;
-        self.verify_mode_enabled(mode, timeout)?;
-        let mut cached = self
-            .mode_ready
-            .lock()
-            .map_err(|_| MotorError::Io("mode cache lock poisoned".to_string()))?;
-        *cached = Some(raw);
+        // enable applies the latched mode (NMT start + 0x06/0x07/0x0F)
+        self.enable_drive(timeout)?;
+        if cia402::read_state(&self.node, timeout)? != Cia402State::OperationEnabled {
+            return Err(MotorError::Protocol(
+                "Huayi drive did not reach Operation Enabled".to_string(),
+            ));
+        }
+        let mut last = i8::MIN;
+        let mut matched = false;
+        for _ in 0..3 {
+            last = cia402::read_mode_display(&self.node, timeout)?;
+            if last == raw {
+                matched = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if !matched {
+            return Err(MotorError::Protocol(format!(
+                "Huayi mode display {last} does not match requested mode {raw}"
+            )));
+        }
+        self.latch_mode_ready(raw);
         Ok(())
     }
 
-    fn verify_mode_enabled(&self, mode: RunMode, timeout: Duration) -> Result<()> {
-        let display = cia402::read_mode_display(&self.node, timeout)?;
-        if display != mode as i8 {
-            return Err(MotorError::Protocol(format!(
-                "Huayi mode display {display} does not match requested mode {}",
-                mode as i8
-            )));
+    fn latch_mode_ready(&self, raw: i8) {
+        if let Ok(mut cached) = self.mode_ready.lock() {
+            *cached = Some(raw);
         }
-        if cia402::read_state(&self.node, timeout)? != Cia402State::OperationEnabled {
-            self.node.start_node()?;
-            std::thread::sleep(Duration::from_millis(20));
-            cia402::enable_sequence(&self.node, timeout)?;
-            if cia402::read_state(&self.node, timeout)? != Cia402State::OperationEnabled {
-                return Err(MotorError::Protocol(
-                    "Huayi drive did not reach Operation Enabled".to_string(),
-                ));
-            }
-        }
-        Ok(())
     }
 
     fn clear_mode_ready(&self) {
@@ -361,6 +392,10 @@ impl HuayiMotor {
     /// MIT slow path over SDO (§3.5): `2003h_1/2/3` take Rev / Rev/s / Nm
     /// Float32; Kp/Kd are dimensionless u16 converted with the 2003h_7
     /// scale factor (`k_SI · 2π / scale`).
+    ///
+    /// If a previous compressed command switched the parameter source to
+    /// 2004h (2004h_1 = 1), the drive ignores these 2003h writes — restore
+    /// the slow source first.
     pub fn send_mit(
         &self,
         pos_rad: f32,
@@ -370,6 +405,9 @@ impl HuayiMotor {
         tau_nm: f32,
         timeout: Duration,
     ) -> Result<()> {
+        if self.mit_rpdo_ready.swap(false, Ordering::AcqRel) {
+            hpdo::restore_slow_mit_source(&self.node, timeout)?;
+        }
         self.ensure_mode_enabled(RunMode::Mit, timeout)?;
         let scale = self.mit_scale(timeout)?;
         self.node
@@ -403,6 +441,15 @@ impl HuayiMotor {
     /// Pdes(16b) / Vdes(12b) / Kp(12b) / Kd(12b) / Tff(12b) against the
     /// runtime-read 2004h ranges. Kp/Kd unit chain: unified Nm/rad
     /// →(×2π)→ Nm/Rev →(linear map)→ 12-bit field.
+    ///
+    /// First call seeds the control word via SDO and switches the 2004h_1
+    /// parameter source BEFORE the MIT-mode enable handshake: the word
+    /// powers up as 0x0 (= Pdes -0.5 Rev / Vdes -10 Rev/s / **Tff -10 Nm**),
+    /// and enabling with it in effect lunges the motor hard enough to sag
+    /// a current-limited supply into the 0x3220 bus-undervoltage fault and
+    /// reset the drive (hardware-verified 2026-11). Seeding while 2004h_1
+    /// is still 0 keeps both the source switch and the enable edge
+    /// transient-free.
     pub fn send_mit_compressed(
         &self,
         pos_rad: f32,
@@ -412,11 +459,6 @@ impl HuayiMotor {
         tau_nm: f32,
         timeout: Duration,
     ) -> Result<()> {
-        self.ensure_mode_enabled(RunMode::Mit, timeout)?;
-        if !self.mit_rpdo_ready.load(Ordering::Acquire) {
-            hpdo::configure_mit_rpdo(&self.node, timeout)?;
-            self.mit_rpdo_ready.store(true, Ordering::Release);
-        }
         let ranges = self.mit_ranges(timeout)?;
         let word = units::pack_mit_word(
             units::rad_to_rev(pos_rad),
@@ -427,6 +469,11 @@ impl HuayiMotor {
             &ranges,
         )?;
         let (low, high) = units::split_mit_word(word);
+        if !self.mit_rpdo_ready.load(Ordering::Acquire) {
+            hpdo::configure_mit_rpdo_seeded(&self.node, low, high, timeout)?;
+            self.mit_rpdo_ready.store(true, Ordering::Release);
+        }
+        self.ensure_mode_enabled(RunMode::Mit, timeout)?;
         let mut payload = [0u8; 8];
         payload[0..4].copy_from_slice(&low.to_le_bytes());
         payload[4..8].copy_from_slice(&high.to_le_bytes());
@@ -982,14 +1029,22 @@ mod tests {
         v.to_le_bytes()
     }
 
-    /// Queue replies for a full `ensure_mode_enabled` round trip:
-    /// 6060h write ack, 6061h echo, 6041h = Operation Enabled (0x0237).
+    /// Queue replies for a full `ensure_mode_enabled` round trip from a
+    /// fresh (Switch On Disabled) drive. Order (hardware-verified):
+    /// state read → 6060h write ack (latched) → NMT start + CW
+    /// 0x06/0x07/0x0F acks → state read (Operation Enabled) → 6061h echo.
     fn queue_mode_enabled(m: &HuayiMotor, node: u16, mode: i8) {
+        m.process_feedback_frame(sdo_rsp(node, 0x43, 0x6041, 0x00, u16p(0x0250)))
+            .expect("feed");
         m.process_feedback_frame(ack(node, 0x6060, 0x00))
             .expect("feed");
-        m.process_feedback_frame(sdo_rsp(node, 0x43, 0x6061, 0x00, [mode as u8, 0, 0, 0]))
-            .expect("feed");
+        for _ in 0..3 {
+            m.process_feedback_frame(ack(node, 0x6040, 0x00))
+                .expect("feed");
+        }
         m.process_feedback_frame(sdo_rsp(node, 0x43, 0x6041, 0x00, u16p(0x0237)))
+            .expect("feed");
+        m.process_feedback_frame(sdo_rsp(node, 0x43, 0x6061, 0x00, [mode as u8, 0, 0, 0]))
             .expect("feed");
     }
 
@@ -1061,11 +1116,28 @@ mod tests {
     fn ensure_mode_verifies() {
         let bus = Arc::new(MockBus::new());
         let m = motor(&bus);
-        // write ack, but 6061h echoes a different mode
-        m.process_feedback_frame(ack(1, 0x6060, 0x00))
+        // fast path: state read → Operation Enabled, 6061h echoes mode 3
+        m.process_feedback_frame(sdo_rsp(1, 0x43, 0x6041, 0x00, u16p(0x0237)))
             .expect("feed");
         m.process_feedback_frame(sdo_rsp(1, 0x43, 0x6061, 0x00, [3, 0, 0, 0]))
             .expect("feed");
+        // disable ack (drive was enabled with a mode active), mode write ack,
+        // enable sequence acks, state read back at Operation Enabled
+        m.process_feedback_frame(ack(1, 0x6040, 0x00))
+            .expect("feed");
+        m.process_feedback_frame(ack(1, 0x6060, 0x00))
+            .expect("feed");
+        for _ in 0..3 {
+            m.process_feedback_frame(ack(1, 0x6040, 0x00))
+                .expect("feed");
+        }
+        m.process_feedback_frame(sdo_rsp(1, 0x43, 0x6041, 0x00, u16p(0x0237)))
+            .expect("feed");
+        // retry loop reads 6061h up to three times; all echo 3, never 5
+        for _ in 0..3 {
+            m.process_feedback_frame(sdo_rsp(1, 0x43, 0x6061, 0x00, [3, 0, 0, 0]))
+                .expect("feed");
+        }
         let err = m
             .ensure_mode_enabled(RunMode::Mit, TIMEOUT)
             .expect_err("must fail");
@@ -1073,6 +1145,39 @@ mod tests {
 
         // mode cache must not latch on failure
         assert!(m.mode_ready.lock().expect("cache").is_none());
+    }
+
+    #[test]
+    fn ensure_mode_latches_mode_before_enable() {
+        // The real-drive contract (hardware-verified 2026-11): a 6060h write
+        // while a mode is actively running (Operation Enabled, 6061h ≠ 0) is
+        // acked but IGNORED; the write latches only while not enabled and is
+        // applied by the enable handshake. The mode write must therefore
+        // land BEFORE the CW enable sequence, from any starting state.
+        let bus = Arc::new(MockBus::new());
+        let m = motor(&bus);
+        queue_mode_enabled(&m, 1, 5);
+        m.ensure_mode_enabled(RunMode::Mit, TIMEOUT).expect("mode");
+
+        let sent = sent_frames(&bus);
+        // frame order: state read, 6060h write, NMT start, CW x3, state read, mode read
+        assert_eq!(sent.len(), 8);
+        assert_eq!(sent[0].data[1..4], [0x41, 0x60, 0x00]);
+        assert_eq!(sent[1].data[1..4], [0x60, 0x60, 0x00]);
+        assert_eq!(sent[1].data[4], 5);
+        assert_eq!(sent[2].arbitration_id, 0x000);
+        let mode_write_at = sent
+            .iter()
+            .position(|f| f.data[1..4] == [0x60, 0x60, 0x00])
+            .expect("mode write");
+        let first_cw_at = sent
+            .iter()
+            .position(|f| f.data[1..4] == [0x40, 0x60, 0x00])
+            .expect("cw write");
+        assert!(
+            mode_write_at < first_cw_at,
+            "mode write must precede the CW enable sequence"
+        );
     }
 
     #[test]
@@ -1124,28 +1229,29 @@ mod tests {
             .expect("first");
 
         let sent = sent_frames(&bus);
-        // frames: 6060 write, 6061 read, 6041 read, 6081 write, 607A write, 6040 write
-        assert_eq!(sent.len(), 6);
-        assert_eq!(sent[3].data[1..4], [0x81, 0x60, 0x00]);
+        // frames: state read, 6060 write, NMT start, CW x3, state read,
+        // 6061 read, 6081 write, 607A write, 6040 write
+        assert_eq!(sent.len(), 11);
+        assert_eq!(sent[8].data[1..4], [0x81, 0x60, 0x00]);
         // profile velocity 10 rad/s = 10/2π Rev/s
         let v = f32::from_le_bytes([
-            sent[3].data[4],
-            sent[3].data[5],
-            sent[3].data[6],
-            sent[3].data[7],
+            sent[8].data[4],
+            sent[8].data[5],
+            sent[8].data[6],
+            sent[8].data[7],
         ]);
         assert!((v - 10.0 / std::f32::consts::TAU).abs() < 1e-4);
         // target position π rad = 0.5 Rev
         let p = f32::from_le_bytes([
-            sent[4].data[4],
-            sent[4].data[5],
-            sent[4].data[6],
-            sent[4].data[7],
+            sent[9].data[4],
+            sent[9].data[5],
+            sent[9].data[6],
+            sent[9].data[7],
         ]);
         assert!((p - 0.5).abs() < 1e-5);
         // first handshake: only the set edge (bit4 0→1), immediate + absolute
         assert_eq!(
-            u16::from_le_bytes([sent[5].data[4], sent[5].data[5]]),
+            u16::from_le_bytes([sent[10].data[4], sent[10].data[5]]),
             0x003F
         );
 
@@ -1161,9 +1267,9 @@ mod tests {
         m.send_pos_vel(0.0, 10.0, TIMEOUT).expect("second");
 
         let sent = sent_frames(&bus);
-        // 6081, 607A, 0x002F, 0x003F
-        assert_eq!(sent.len(), 10);
-        let words: Vec<u16> = sent[6..]
+        // 6081, 607A, 0x002F, 0x003F (mode cached: no handshake round trip)
+        assert_eq!(sent.len(), 15);
+        let words: Vec<u16> = sent[11..]
             .iter()
             .filter(|f| f.data[1..4] == [0x40, 0x60, 0x00])
             .map(|f| u16::from_le_bytes([f.data[4], f.data[5]]))
@@ -1263,23 +1369,9 @@ mod tests {
     fn mit_compressed_bitpacking() {
         let bus = Arc::new(MockBus::new());
         let m = motor(&bus);
-        queue_mode_enabled(&m, 1, 5);
-        // RPDO4 remap + 2004h_1 enable acks
-        let comm = motor_canopen::pdo::rpdo_comm_index(4);
-        let map = motor_canopen::pdo::rpdo_map_index(4);
-        for (index, sub) in [
-            (comm, 0x01),
-            (map, 0x00),
-            (map, 0x01),
-            (map, 0x02),
-            (map, 0x00),
-            (comm, 0x02),
-            (comm, 0x01),
-            (od::MIT_COMPRESSED, 0x01),
-        ] {
-            m.process_feedback_frame(ack(1, index, sub)).expect("feed");
-        }
-        // 2004h_4.._D range reads: manual defaults
+        // order (hardware-verified safe sequence): 2004h_4.._D range reads,
+        // RPDO4 remap + seed + source switch, THEN the mode handshake
+        // (seed must be in place before the enable edge), then the frame.
         let defaults = [
             -0.5f32, 0.5, -10.0, 10.0, 0.0, 100.0, 0.0, 20.0, -10.0, 10.0,
         ];
@@ -1293,6 +1385,23 @@ mod tests {
             ))
             .expect("feed");
         }
+        let comm = motor_canopen::pdo::rpdo_comm_index(4);
+        let map = motor_canopen::pdo::rpdo_map_index(4);
+        for (index, sub) in [
+            (comm, 0x01),
+            (map, 0x00),
+            (map, 0x01),
+            (map, 0x02),
+            (map, 0x00),
+            (comm, 0x02),
+            (comm, 0x01),
+            (od::MIT_COMPRESSED, 0x02),
+            (od::MIT_COMPRESSED, 0x03),
+            (od::MIT_COMPRESSED, 0x01),
+        ] {
+            m.process_feedback_frame(ack(1, index, sub)).expect("feed");
+        }
+        queue_mode_enabled(&m, 1, 5);
         // max out every field: pos 0.5 Rev = π rad; vel -10 Rev/s;
         // kp 100 Nm/Rev = 100/2π Nm/rad; kd 20 Nm·s/Rev = 20/2π; Tff -10 Nm
         let t2 = std::f32::consts::TAU;
@@ -1308,6 +1417,18 @@ mod tests {
         //         (Kp bits 35:24 and Kd bits 23:12 are both 0xFFF)
         // low32 = 0xFFFF_F000, high32 = 0xFFFF_000F
         assert_eq!(frame.data, [0x00, 0xF0, 0xFF, 0xFF, 0x0F, 0x00, 0xFF, 0xFF]);
+        // seed (SDO 2004h_2/_3) matches the frame payload — the word in the
+        // dictionary when the drive enables is the first command itself
+        let seed_low = sent
+            .iter()
+            .find(|f| f.data[1..4] == [0x04, 0x20, 0x02])
+            .expect("seed low");
+        assert_eq!(seed_low.data[4..8], [0x00, 0xF0, 0xFF, 0xFF]);
+        let seed_high = sent
+            .iter()
+            .find(|f| f.data[1..4] == [0x04, 0x20, 0x03])
+            .expect("seed high");
+        assert_eq!(seed_high.data[4..8], [0x0F, 0x00, 0xFF, 0xFF]);
 
         // ranges are cached: a second command adds only the RPDO frame
         // (mode cached, rpdo cached, ranges cached)
@@ -1315,6 +1436,142 @@ mod tests {
         m.send_mit_compressed(0.0, 0.0, 0.0, 0.0, 0.0, TIMEOUT)
             .expect("second");
         assert_eq!(sent_frames(&bus).len(), before + 1);
+    }
+
+    #[test]
+    fn mit_compressed_seeds_word_before_enable() {
+        // The safety property (hardware-verified 2026-11): the 2004h word
+        // powers up as 0x0 = Pdes -0.5 Rev / Vdes -10 Rev/s / Tff -10 Nm.
+        // The seed writes and the 2004h_1 source switch must BOTH precede
+        // the first CW enable write (0x0006), or the enable edge lunges the
+        // motor (0x3220 bus-undervoltage fault + drive reset).
+        let bus = Arc::new(MockBus::new());
+        let m = motor(&bus);
+        for (i, v) in [
+            -0.5f32, 0.5, -10.0, 10.0, 0.0, 100.0, 0.0, 20.0, -10.0, 10.0,
+        ]
+        .iter()
+        .enumerate()
+        {
+            m.process_feedback_frame(sdo_rsp(
+                1,
+                0x43,
+                od::MIT_COMPRESSED,
+                units::MIT_RANGE_SUBS[i],
+                f32p(*v),
+            ))
+            .expect("feed");
+        }
+        let comm = motor_canopen::pdo::rpdo_comm_index(4);
+        let map = motor_canopen::pdo::rpdo_map_index(4);
+        for (index, sub) in [
+            (comm, 0x01),
+            (map, 0x00),
+            (map, 0x01),
+            (map, 0x02),
+            (map, 0x00),
+            (comm, 0x02),
+            (comm, 0x01),
+            (od::MIT_COMPRESSED, 0x02),
+            (od::MIT_COMPRESSED, 0x03),
+            (od::MIT_COMPRESSED, 0x01),
+        ] {
+            m.process_feedback_frame(ack(1, index, sub)).expect("feed");
+        }
+        queue_mode_enabled(&m, 1, 5);
+        m.send_mit_compressed(0.0, 0.0, 5.0, 1.0, 0.0, TIMEOUT)
+            .expect("compressed");
+
+        let sent = sent_frames(&bus);
+        let source_at = sent
+            .iter()
+            .position(|f| f.data[1..4] == [0x04, 0x20, 0x01] && f.data[4] == 1)
+            .expect("source switch");
+        let first_cw_at = sent
+            .iter()
+            .position(|f| f.data[1..4] == [0x40, 0x60, 0x00])
+            .expect("cw write");
+        assert!(
+            source_at < first_cw_at,
+            "2004h_1 source switch must precede the CW enable sequence"
+        );
+        // the seed landed too (2004h_2 before the source switch)
+        let seed_at = sent
+            .iter()
+            .position(|f| f.data[1..4] == [0x04, 0x20, 0x02])
+            .expect("seed write");
+        assert!(seed_at < source_at);
+    }
+
+    #[test]
+    fn send_mit_restores_slow_source_after_compressed() {
+        // after any compressed command the drive sources MIT parameters
+        // from 2004h (2004h_1 = 1) and IGNORES 2003h writes — the slow path
+        // must switch the source back
+        let bus = Arc::new(MockBus::new());
+        let m = motor(&bus);
+        for (i, v) in [
+            -0.5f32, 0.5, -10.0, 10.0, 0.0, 100.0, 0.0, 20.0, -10.0, 10.0,
+        ]
+        .iter()
+        .enumerate()
+        {
+            m.process_feedback_frame(sdo_rsp(
+                1,
+                0x43,
+                od::MIT_COMPRESSED,
+                units::MIT_RANGE_SUBS[i],
+                f32p(*v),
+            ))
+            .expect("feed");
+        }
+        let comm = motor_canopen::pdo::rpdo_comm_index(4);
+        let map = motor_canopen::pdo::rpdo_map_index(4);
+        for (index, sub) in [
+            (comm, 0x01),
+            (map, 0x00),
+            (map, 0x01),
+            (map, 0x02),
+            (map, 0x00),
+            (comm, 0x02),
+            (comm, 0x01),
+            (od::MIT_COMPRESSED, 0x02),
+            (od::MIT_COMPRESSED, 0x03),
+            (od::MIT_COMPRESSED, 0x01),
+        ] {
+            m.process_feedback_frame(ack(1, index, sub)).expect("feed");
+        }
+        queue_mode_enabled(&m, 1, 5);
+        m.send_mit_compressed(0.0, 0.0, 0.0, 0.0, 0.0, TIMEOUT)
+            .expect("compressed");
+
+        // slow path: mode already cached; source restore + 2003h writes
+        m.process_feedback_frame(ack(1, od::MIT_COMPRESSED, 0x01))
+            .expect("feed");
+        m.process_feedback_frame(sdo_rsp(1, 0x43, od::MIT_PARAMS, 0x07, f32p(0.01)))
+            .expect("feed");
+        for sub in [0x01u8, 0x02, 0x03, 0x04, 0x05] {
+            m.process_feedback_frame(ack(1, od::MIT_PARAMS, sub))
+                .expect("feed");
+        }
+        m.send_mit(0.0, 0.0, 0.0, 0.0, 0.0, TIMEOUT).expect("slow");
+
+        let sent = sent_frames(&bus);
+        let restore = sent
+            .iter()
+            .find(|f| f.data[1..4] == [0x04, 0x20, 0x01] && f.data[4] == 0)
+            .expect("2004h_1 restore to 0");
+        assert_eq!(restore.data[0], 0x2F);
+        // the restore precedes the 2003h parameter writes
+        let first_param = sent
+            .iter()
+            .position(|f| f.data[1..4] == [0x03, 0x20, 0x01])
+            .expect("2003h_1 write");
+        let restore_at = sent
+            .iter()
+            .position(|f| f.data[1..4] == [0x04, 0x20, 0x01] && f.data[4] == 0)
+            .expect("restore");
+        assert!(restore_at < first_param);
     }
 
     #[test]
@@ -1491,7 +1748,16 @@ mod tests {
             .iter()
             .rposition(|f| f.arbitration_id == 0 && f.data[0] == 0x81)
             .expect("nmt frame");
-        let words: Vec<u16> = sent[nmt_at + 1..]
+        // the re-handshake's CW enable sequence (06/07/0F) runs first; the
+        // PP handshake after it uses only the set edge
+        let enable_end = sent[nmt_at + 1..]
+            .iter()
+            .position(|f| {
+                f.data[1..4] == [0x40, 0x60, 0x00]
+                    && u16::from_le_bytes([f.data[4], f.data[5]]) == 0x000F
+            })
+            .expect("enable CW");
+        let words: Vec<u16> = sent[nmt_at + 1 + enable_end + 1..]
             .iter()
             .filter(|f| f.data[1..4] == [0x40, 0x60, 0x00])
             .map(|f| u16::from_le_bytes([f.data[4], f.data[5]]))
@@ -1536,7 +1802,12 @@ mod tests {
             .filter(|f| f.arbitration_id == 0)
             .map(|f| (f.data[0], f.data[1]))
             .collect();
-        assert_eq!(cmds, vec![(0x81, 0x02), (0x82, 0x00), (0x01, 0x01)]);
+        // (0x01, 0x01) NMT start comes from the ensure_mode handshake; the
+        // rest are this test's own NMT commands
+        assert_eq!(
+            cmds,
+            vec![(0x01, 0x01), (0x81, 0x02), (0x82, 0x00), (0x01, 0x01)]
+        );
     }
 
     #[test]
@@ -1568,8 +1839,16 @@ mod tests {
             target.data[7],
         ]);
         assert!((p - 0.25).abs() < 1e-5);
-        // first stop: single set edge (pp starts Low)
-        let words: Vec<u16> = sent
+        // first stop: single set edge (pp starts Low). The CW filter must
+        // start after the enable sequence's own 0x06/0x07/0x0F writes.
+        let enable_end = sent
+            .iter()
+            .position(|f| {
+                f.data[1..4] == [0x40, 0x60, 0x00]
+                    && u16::from_le_bytes([f.data[4], f.data[5]]) == 0x000F
+            })
+            .expect("enable CW");
+        let words: Vec<u16> = sent[enable_end + 1..]
             .iter()
             .filter(|f| f.data[1..4] == [0x40, 0x60, 0x00])
             .map(|f| u16::from_le_bytes([f.data[4], f.data[5]]))
@@ -1589,7 +1868,7 @@ mod tests {
         m.controlled_stop(TIMEOUT).expect("stop again");
 
         let sent = sent_frames(&bus);
-        let words: Vec<u16> = sent
+        let words: Vec<u16> = sent[enable_end + 1..]
             .iter()
             .filter(|f| f.data[1..4] == [0x40, 0x60, 0x00])
             .map(|f| u16::from_le_bytes([f.data[4], f.data[5]]))

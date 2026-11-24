@@ -144,7 +144,8 @@ DM_Device_SDK 是用于控制 CAN/CAN FD 设备的软件开发工具包。motorb
   - 传输: 仅经典 CAN（`socketcan`/`mcu-serial`）；与 `robstride_cia402` 通过
     `motor_canopen` 公用框架共享 CANopen 语义栈
   - 说明: 置零须先 disable（同 Damiao 规则）；6060h 模式编号遵循 CiA402（`5`=MIT），
-    与 RobStride 私有协议的 `5`=CSP 不同
+    与 RobStride 私有协议的 `5`=CSP 不同；运行中（Operation Enabled）写 6060h 会被忽略，
+    模式切换（及首次 `mit-compressed` 对 2004h 控制字的 SDO 种子）由 vendor 层内部自动完成
 
 ## 更新说明（2026-04）：Damiao / RobStride 能力收敛
 

@@ -2,7 +2,7 @@
 //! mirroring the slimmed-down robstride_cia402 controller.
 
 use crate::motor::HuayiMotor;
-use motor_canopen::scan::scan_ids as shared_scan_ids;
+use motor_canopen::scan::scan_ids_with_progress as shared_scan_ids_with_progress;
 use motor_core::bus::{open_can_bus, CanBus};
 use motor_core::error::{MotorError, Result};
 use motor_core::vendor_controller::VendorController;
@@ -96,11 +96,15 @@ impl HuayiController {
     /// Scanning a controller with registered motors returns an error; scan
     /// before `add_motor` (the CLI/gateway open a fresh controller for
     /// scanning) or use a separate controller on the same bus.
-    pub fn scan_ids(
+    /// Progress-reporting variant of [`Self::scan_ids`]: `on_hit` fires as
+    /// soon as each node is confirmed, so callers (CLI) can print hits live
+    /// while the sweep continues.
+    pub fn scan_ids_with_progress(
         &self,
         start_id: u16,
         end_id: u16,
         timeout: Duration,
+        mut on_hit: impl FnMut(&HuayiScanHit),
     ) -> Result<Vec<HuayiScanHit>> {
         if self.motor_count()? > 0 {
             return Err(MotorError::InvalidArgument(
@@ -109,7 +113,14 @@ impl HuayiController {
                     .to_string(),
             ));
         }
-        let hits = shared_scan_ids(&self.bus(), start_id, end_id, timeout)?;
+        let hits = shared_scan_ids_with_progress(&self.bus(), start_id, end_id, timeout, |h| {
+            on_hit(&HuayiScanHit {
+                node_id: h.node_id,
+                statusword: h.statusword,
+                mode_display: h.mode_display,
+                error_code: h.error_code,
+            })
+        })?;
         Ok(hits
             .into_iter()
             .map(|h| HuayiScanHit {
@@ -119,6 +130,15 @@ impl HuayiController {
                 error_code: h.error_code,
             })
             .collect())
+    }
+
+    pub fn scan_ids(
+        &self,
+        start_id: u16,
+        end_id: u16,
+        timeout: Duration,
+    ) -> Result<Vec<HuayiScanHit>> {
+        self.scan_ids_with_progress(start_id, end_id, timeout, |_| {})
     }
 }
 

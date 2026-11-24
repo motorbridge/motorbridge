@@ -87,6 +87,20 @@ pub fn scan_ids(
     end_id: u16,
     timeout: Duration,
 ) -> Result<Vec<ScanHit>> {
+    scan_ids_with_progress(bus, start_id, end_id, timeout, |_| {})
+}
+
+/// Progress-reporting variant of [`scan_ids`]: `on_hit` is invoked for each
+/// hit as soon as it is confirmed (before the sweep continues to the next
+/// node), so CLIs can print hits live instead of after the full range
+/// completes.
+pub fn scan_ids_with_progress(
+    bus: &Arc<dyn CanBus>,
+    start_id: u16,
+    end_id: u16,
+    timeout: Duration,
+    mut on_hit: impl FnMut(&ScanHit),
+) -> Result<Vec<ScanHit>> {
     if start_id == 0 || end_id == 0 || start_id > 127 || end_id > 127 || start_id > end_id {
         return Err(MotorError::InvalidArgument(
             "invalid scan range, expected 1..127 and start<=end".to_string(),
@@ -105,12 +119,14 @@ pub fn scan_ids(
             .ok()
             .map(|v| v as u16);
         if statusword.is_some() || mode_display.is_some() || error_code.is_some() {
-            hits.push(ScanHit {
+            let hit = ScanHit {
                 node_id: node,
                 statusword,
                 mode_display,
                 error_code,
-            });
+            };
+            on_hit(&hit);
+            hits.push(hit);
         }
     }
     Ok(hits)

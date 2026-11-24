@@ -667,6 +667,7 @@ Damiao 周期推送：
 | RobStride | 是 | 自动切 MIT mode 并 enable |
 | Hexfellow | 是 | 转成 rev / rev/s |
 | HighTorque | 是 | v2.0.0 位打包 MIT 帧（`0x18000 \| id`，固件 v4.6.0+），`kp/kd` 打包进帧；超量程饱和 |
+| Huayi | 是 | RPDO4 压缩快速通道（一帧 8 字节到 `0x500+node`；首次调用自动重映射并 SDO 种子命令字，失败自动回退 `2003h` 慢速 SDO 路径） |
 | MyActuator | 否 | 返回 unsupported |
 
 参数：
@@ -947,6 +948,15 @@ Hexfellow mode：
 | `"mit"` / `1` | MIT |
 | `"pos_vel"` / `"pos-vel"` / `2` | POS_VEL |
 
+Huayi mode：
+
+| 输入 | 含义 |
+| --- | --- |
+| `"mit"` 或 `5` | MIT |
+| `"pos_vel"` / `"pos-vel"` / `"pp"` 或 `1` | PP（位置模式） |
+| `"vel"` / `"pv"` 或 `3` | PV（速度模式） |
+| `"torque"` / `"tq"` 或 `4` | TQ（力矩模式） |
+
 请求：
 
 ```json
@@ -963,6 +973,10 @@ Hexfellow mode：
 会写入并回读 `RID 10`（`CTRL_MODE`）确认模式。若仅回读确认超时，WS 会返回
 `ok:true`，并在 `data.warning` / `data.warnings` 中说明“确认超时但命令已继续”；
 若读到明确不匹配的模式值，仍返回 `ok:false`。
+Huayi 的 `ensure_mode` 按 6061h 回读校验：运行中（Operation Enabled）写
+6060h 会被应答但忽略，vendor 层内部执行 disable → 6060h 锁存 → 重新使能
+（NMT start + CW 06/07/0F）→ 6061h 回读重试；模式不匹配返回 `ok:false`，
+`force_pos` 无对应 6060h 模式直接拒绝。
 
 ### 10.4 `request_feedback`
 

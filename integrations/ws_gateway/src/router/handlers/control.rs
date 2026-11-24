@@ -113,9 +113,11 @@ fn handle_mit(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
             return Err("mit is not supported for myactuator".to_string());
         }
         Some(MotorHandle::Huayi(m)) => {
-            // Slow 2003h SDO path (five writes; kp/kd via the scale factor).
-            // The RPDO4 one-frame fast path is a vendor-private ABI op not
-            // mirrored here (see motor_handle_huayi_send_mit_compressed).
+            // Compressed MIT fast path (§5.2): one 8-byte frame per command
+            // to 0x500+node (RPDO4 remapped to 2004h_2/_3; the remap and the
+            // 2004h field-range reads happen once, cached in the motor
+            // handle). The 2003h five-write SDO path stays as the automatic
+            // fallback for out-of-range gains or remap failures.
             if let ActiveCommand::Mit {
                 pos,
                 vel,
@@ -124,8 +126,15 @@ fn handle_mit(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> {
                 tau,
             } = cmd
             {
-                m.send_mit(pos, vel, kp, kd, tau, Duration::from_millis(300))
-                    .map_err(|e| e.to_string())?;
+                if let Err(e) =
+                    m.send_mit_compressed(pos, vel, kp, kd, tau, Duration::from_millis(300))
+                {
+                    warnings.push(format!(
+                        "huayi mit compressed path failed ({e}); falling back to 2003h SDO path"
+                    ));
+                    m.send_mit(pos, vel, kp, kd, tau, Duration::from_millis(300))
+                        .map_err(|e| e.to_string())?;
+                }
             }
         }
         None => return Err("motor not connected".to_string()),

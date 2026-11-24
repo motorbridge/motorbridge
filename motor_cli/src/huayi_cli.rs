@@ -1,6 +1,6 @@
 use crate::args::{get_f32, get_str, get_u16_hex_or_dec, get_u64};
 use motor_core::bus::{open_transport, CanBus, Transport, TransportParams};
-use motor_vendor_huayi::HuayiController;
+use motor_vendor_huayi::{HuayiController, HuayiScanHit};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -82,10 +82,9 @@ pub fn run_huayi(
         println!(
             "[scan:huayi] channel={channel} model={model} id_range=[0x{start_id:X},0x{end_id:X}] timeout_ms={timeout_ms}"
         );
-        let hits = controller.scan_ids(start_id, end_id, timeout)?;
-        for hit in &hits {
+        let print_hit = |hit: &HuayiScanHit| {
             // failed probes print "-" (aligned with the dm/rs numeric style,
-            // no Option debug leaking)
+            // no Option debug leaking); printed live per hit like the dm scan
             println!(
                 "[hit] vendor=huayi node={} statusword={} mode_display={} error_code={}",
                 hit.node_id,
@@ -99,7 +98,8 @@ pub fn run_huayi(
                     .map(|v| format!("0x{v:04X}"))
                     .unwrap_or_else(|| "-".into()),
             );
-        }
+        };
+        let hits = controller.scan_ids_with_progress(start_id, end_id, timeout, print_hit)?;
         println!("[scan] done vendor=huayi hits={}", hits.len());
         controller.close_bus()?;
         return Ok(());

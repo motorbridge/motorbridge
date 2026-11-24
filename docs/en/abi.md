@@ -96,6 +96,7 @@ Behavior rule:
 - Huayi set-zero mirrors the Damiao rule: the 3001h position preset requires Switch On Disabled — call `motor_handle_disable` before `motor_handle_set_zero_position`; persist with `motor_handle_store_parameters` (1010h "save").
 - Huayi `motor_handle_get_state` mapping: `status_code` = `6061h` mode display, `fault_code` = `603Fh`/EMCY low byte (full u16 via `motor_handle_huayi_get_error_code`); state comes from the TPDO stream (TPDO2 anchors the seq, TPDO1/TPDO3 patch in place).
 - Huayi `motor_handle_request_feedback`: a no-op when the TPDO stream is active (the background receiver thread keeps the cache fresh); otherwise it auto-activates the three default TPDOs (10ms event timer). `motor_handle_set_can_timeout_ms` is rejected for Huayi — the manual provides no watchdog object equivalent to `6099h`.
+- Huayi mode-switch semantics (hardware-verified): a `6060h` write while Operation Enabled with a mode active (`6061h` ≠ 0) is SDO-acked but silently ignored; writes land only while not enabled and are applied by the enable handshake. `motor_handle_ensure_mode` therefore runs disable → `6060h` latch → re-enable (NMT start + CW 06/07/0F) → `6061h` verify internally — callers never need to disable first for a mode switch (zeroing still does).
 
 ## Vendor-Specific Extensions
 
@@ -122,7 +123,7 @@ Huayi extensions (typed SDO access + private fast paths; the generic u8-rid regi
 - `motor_handle_huayi_sdo_read_u16/i16/i32/f32(index, sub, timeout_ms, out)`
 - `motor_handle_huayi_sdo_write_u16/i16/i32/f32(index, sub, value)`
 - `motor_handle_huayi_send_torque(torque_nm)` — torque mode (`6060h=4`, `6071h` in per-mille of peak)
-- `motor_handle_huayi_send_mit_compressed(pos, vel, kp, kd, tau)` — compressed-MIT realtime channel (RPDO4, one 8-byte frame per command to `0x500+node`; the slow path is unified `motor_handle_send_mit` via `2003h`)
+- `motor_handle_huayi_send_mit_compressed(pos, vel, kp, kd, tau)` — compressed-MIT realtime channel (RPDO4, one 8-byte frame per command to `0x500+node`; the slow path is unified `motor_handle_send_mit` via `2003h`). The first call automatically remaps RPDO4, reads the `2004h` field ranges and SDO-seeds the 64-bit control word **before** switching the `2004h_1` parameter source and enabling — the word powers up as `0x0` (= Tff −10 Nm), so enabling without the seed lunges the motor hard enough to trip the `0x3220` bus-undervoltage fault on a current-limited supply. After any compressed command the drive ignores `2003h` writes, so a subsequent `motor_handle_send_mit` restores the slow source (`2004h_1 = 0`) automatically.
 - `motor_handle_huayi_position_preset(position_rev)` — 3001h position preset (disable first; ±0.5 Rev of the output shaft)
 - `motor_handle_huayi_configure_periodic_report(period_ms)` — TPDO stream on/off (0 stops; plays the role of RobStride `set_active_report`)
 - `motor_handle_huayi_get_error_code(out)` — cached error code (u16, no bus traffic; EMCY codes are visible even before a TPDO2 anchor)

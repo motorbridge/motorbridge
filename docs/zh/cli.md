@@ -209,7 +209,7 @@ cargo run -p motor_cli --release -- \
 - `scan`（节点扫描）：`--start-id`（默认 1）/ `--end-id`（默认 127）
 - `status`（6041h/6061h/603Fh + 6064h/606Ch/6077h 全量查询）
 - `enable` / `disable` / `stop`（受控停止）/ `quick-stop`（CW bit2 快停）/ `clear-error`
-- `mit` / `mit-compressed`（RPDO4 压缩快速通道）/ `pos-vel` / `vel` / `torque`（`--tau <Nm>`）
+- `mit` / `mit-compressed`（RPDO4 压缩快速通道；首次调用自动重映射 RPDO4、读 `2004h` 量程并在使能沿之前 SDO 种子控制字——上电 0x0 压缩字会使电机猛冲；任何压缩命令后 `mit` 慢速路径自动恢复 `2003h` 源）/ `pos-vel` / `vel` / `torque`（`--tau <Nm>`）
 - `zero` / `set-zero` / `preset`（3001h 位置预设：`zero` 等同 `set-zero`，自动先 disable；`preset` 用 `--preset-rev <±0.5>` 指定预设值）
 - `save` / `restore`（1010h store / 1011h restore）
 - `set-node-id`：`--set-motor-id <1..=127>`（2001h；store + 断电重启生效）
@@ -219,6 +219,8 @@ cargo run -p motor_cli --release -- \
 - `read-obj` / `write-obj`：`--index 0x6041 --sub 0x00 --ty u8|i8|u16|i16|u32|i32|f32 [--value ...]`（`--index` 支持 hex/dec）
 
 控制模式（`mit` / `mit-compressed` / `pos-vel` / `vel` / `torque`）循环时自动激活 TPDO 状态流（10 ms 事件计时器）并在每次迭代打印一行缓存状态（`#i node=1 pos=+0.123 vel=+0.456 ... status=0x0237(MIT 5) ...`），与 dm/rs 的循环输出同构——CANopen 命令与反馈是解耦通道，状态来自后台流而非命令应答。
+
+控制模式之间切换无需手动 `disable`：运行中（Operation Enabled）写 `6060h` 会被 SDO 应答但忽略，vendor 层在 `ensure_mode`/发送路径内部执行 disable → `6060h` 锁存 → 重新使能 → `6061h` 校验。只有置零/预设（`3001h`）仍要求先 disable。
 
 示例：
 

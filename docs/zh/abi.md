@@ -87,6 +87,7 @@ ABI 对外保持一套统一控制接口。
 - Huayi 置零规则与 Damiao 同构：3001h 位置预设要求 Switch On Disabled，须先 `motor_handle_disable` 再 `motor_handle_set_zero_position`；`motor_handle_store_parameters`（1010h "save"）落盘。
 - Huayi `motor_handle_get_state` 映射：`status_code` = `6061h` 模式显示，`fault_code` = `603Fh`/EMCY 低字节（完整 u16 走 `motor_handle_huayi_get_error_code`）；状态来自 TPDO 流（TPDO2 锚定 seq，TPDO1/TPDO3 就地补丁）。
 - Huayi `motor_handle_request_feedback` 语义：TPDO 流已激活时为 no-op（后台接收线程持续入缓存）；未激活时自动激活三组默认 TPDO（10ms 事件计时器）。`motor_handle_set_can_timeout_ms` 对 Huayi 拒绝——手册未提供 `6099h` 等价看门狗对象。
+- Huayi 模式切换语义（硬件验证）：运行中（Operation Enabled 且 `6061h` ≠ 0）写 `6060h` 会被 SDO 应答但静默忽略；仅在未使能时写入才被锁存、由使能握手应用。`motor_handle_ensure_mode` 内部执行 disable → `6060h` 锁存 → 重新使能（NMT start + CW 06/07/0F）→ `6061h` 校验——调用方切模式无需先 disable（置零仍需要）。
 
 ## 厂商扩展接口
 
@@ -113,7 +114,7 @@ Huayi 扩展接口（类型化 SDO + 私有快速通道；u8 rid 的通用寄存
 - `motor_handle_huayi_sdo_read_u16/i16/i32/f32(index, sub, timeout_ms, out)`
 - `motor_handle_huayi_sdo_write_u16/i16/i32/f32(index, sub, value)`
 - `motor_handle_huayi_send_torque(torque_nm)`——力矩模式（`6060h=4`，`6071h` 峰值千分比）
-- `motor_handle_huayi_send_mit_compressed(pos, vel, kp, kd, tau)`——压缩 MIT 实时通道（RPDO4，每命令一帧 8 字节到 `0x500+node`；慢速路径是统一 `motor_handle_send_mit` 走 `2003h`）
+- `motor_handle_huayi_send_mit_compressed(pos, vel, kp, kd, tau)`——压缩 MIT 实时通道（RPDO4，每命令一帧 8 字节到 `0x500+node`；慢速路径是统一 `motor_handle_send_mit` 走 `2003h`）。首次调用自动重映射 RPDO4、读 `2004h` 量程并在切换 `2004h_1` 参数源、使能**之前**经 SDO 种子 64 位控制字——该字上电为 `0x0`（= Tff −10 Nm），不种子就在使能沿猛冲电机（限流电源上足以触发 `0x3220` 母线欠压故障）。任何压缩命令之后驱动会忽略 `2003h` 写，因此随后的 `motor_handle_send_mit` 会自动恢复慢速源（`2004h_1 = 0`）。
 - `motor_handle_huayi_position_preset(position_rev)`——3001h 位置预设（须先 disable，±0.5 Rev 输出轴）
 - `motor_handle_huayi_configure_periodic_report(period_ms)`——TPDO 流开/停（0 停止；扮演 RobStride `set_active_report` 的角色）
 - `motor_handle_huayi_get_error_code(out)`——缓存错误码（u16，无总线流量；EMCY 码在 TPDO2 锚点到达前即可见）

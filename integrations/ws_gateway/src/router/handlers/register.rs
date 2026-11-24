@@ -149,9 +149,9 @@ fn handle_ensure_mode(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> 
             return Err("ensure_mode is not supported for hightorque".to_string())
         }
         Some(MotorHandle::Huayi(m)) => {
-            // Unified mode names map to 6060h numbering (5=MIT, 1=PP, 3=PV);
-            // force_pos has no counterpart and errors out. The write is
-            // verified against 6061h and cached by the vendor.
+            // Unified mode names map to 6060h numbering (5=MIT, 1=PP, 3=PV,
+            // 4=TQ); force_pos has no counterpart and errors out. The write
+            // is verified against 6061h and cached by the vendor.
             let mode = v
                 .get("mode")
                 .and_then(Value::as_str)
@@ -161,12 +161,17 @@ fn handle_ensure_mode(v: &Value, ctx: &mut SessionCtx) -> Result<Value, String> 
                 "mit" | "5" => motor_vendor_huayi::RunMode::Mit,
                 "pos_vel" | "pos-vel" | "pp" | "1" => motor_vendor_huayi::RunMode::ProfilePosition,
                 "vel" | "pv" | "3" => motor_vendor_huayi::RunMode::ProfileVelocity,
-                "force_pos" | "force-pos" | "4" => {
+                "torque" | "tq" | "4" => motor_vendor_huayi::RunMode::Torque,
+                "force_pos" | "force-pos" => {
                     return Err(
                         "force_pos is not supported for huayi (no 6060h counterpart)".to_string(),
                     )
                 }
-                other => return Err(format!("huayi mode must be mit|pos_vel|vel, got {other}")),
+                other => {
+                    return Err(format!(
+                        "huayi mode must be mit|pos_vel|vel|torque, got {other}"
+                    ))
+                }
             };
             m.ensure_mode_enabled(run_mode, Duration::from_millis(timeout_ms))
                 .map_err(|e| e.to_string())?;
