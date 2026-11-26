@@ -28,8 +28,18 @@ pub trait CanBus: Send + Sync {
     fn shutdown(&self) -> Result<()>;
 }
 
+/// `MOTOR_SOCKETCANFD_BRS=1|true|on` sends CAN FD frames with bit-rate switch;
+/// default off. Shared by every CAN FD backend.
+#[cfg(any(target_os = "linux", feature = "pcan-usb-fd"))]
+pub(crate) fn canfd_brs_from_env() -> bool {
+    std::env::var("MOTOR_SOCKETCANFD_BRS")
+        .ok()
+        .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "on" | "ON"))
+        .unwrap_or(false)
+}
+
 /// Prefix that selects the native libusb driver for PEAK uCAN adapters
-/// (PCAN-USB FD / Pro FD / X6), e.g. `peakusb:can1@1000000`, or
+/// (see `pcan_usb_fd`), e.g. `peakusb:can1@1000000`, or
 /// `peakusb:can0@1000000/5000000` for CAN FD.
 pub const PEAKUSB_PREFIX: &str = "peakusb:";
 

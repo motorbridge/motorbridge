@@ -1,26 +1,30 @@
-//! Native userspace backend for PEAK "uCAN" USB adapters (PCAN-USB FD,
-//! PCAN-USB Pro FD, PCAN-USB X6 and compatible clones) on top of libusb.
+//! Native userspace backend for the PEAK "uCAN" USB adapters handled by the
+//! Linux `peak_usb` driver (PCAN-USB FD, PCAN-USB Pro FD, PCAN-Chip USB,
+//! PCAN-USB X6), on top of libusb.
 //!
-//! Unlike the PCBUSB runtime on macOS, every channel of a multi-channel
-//! adapter is reachable: all channels share one USB handle and one RX
-//! endpoint, and `can0`/`can1` map to the first/second port of the same
-//! device.
+//! Unlike the PCBUSB runtime on macOS, both channels of a PCAN-USB Pro FD are
+//! reachable: they share one USB handle and one RX endpoint, and `can0`/`can1`
+//! map to the first/second port of the same device.
+//!
+//! Only the first matching adapter is used, with at most two channels: a
+//! second adapter is not reachable, and a PCAN-USB X6 (six channels, which
+//! Linux handles in groups of two) only exposes two. `peakusb:<serial>:canN`
+//! is reserved for selecting an adapter by serial number.
 //!
 //! The protocol follows the Linux kernel driver
 //! `drivers/net/can/usb/peak_usb/pcan_usb_fd.c` (used as documentation only;
 //! this is an independent implementation).
 //!
 //! Selected with the `peakusb:` channel prefix (see `bus::open_can_bus`).
-//! Channel strings after the prefix: `can0`, `can1@500000`, `0`, `1@1000000`,
-//! and for CAN FD `can0@1000000/5000000` (nominal/data bitrate). Default nominal bitrate is
+//! Channel strings after the prefix: `can0`, `can1@500000`, and for CAN FD
+//! `can0@1000000/5000000` (nominal/data bitrate). Default nominal bitrate is
 //! 1 Mbit/s; [`PcanUsbFdBus::open_fd`] defaults the data bitrate to 5 Mbit/s.
 //! The `CanBus` trait carries 8-byte frames, so CAN FD frames are limited to
 //! 8 data bytes (enough for e.g. Damiao motors in CAN FD mode).
 //!
-//! Bit timing uses a 75 % nominal sample point (the Linux default at 1 Mbit/s).
-//! This matters for CAN FD: with 80 %, a receiver switches to the data bitrate
-//! ~50 ns later than a 75 % transmitter, which lost most 5 Mbit/s replies from
-//! an 8-motor Damiao bus.
+//! Bit timing uses the Linux defaults, as `peak_usb` would program them. At
+//! 1 Mbit/s nominal and 5 Mbit/s data, an 80 % nominal sample point instead of
+//! 75 % lost ~96 % of replies from an 8-motor Damiao bus in a prototype.
 
 use crate::bus::{CanBus, CanFrame};
 use crate::error::{MotorError, Result};
@@ -37,10 +41,12 @@ const SUPPORTED_PRODUCTS: &[(u16, u8)] = &[
     (0x0012, 1), // PCAN-USB FD
     (0x0011, 2), // PCAN-USB Pro FD
     (0x0013, 1), // PCAN-Chip USB
-    (0x0014, 2), // PCAN-USB X6 (per USB interface)
+    (0x0014, 2), // PCAN-USB X6: two of its six channels
 ];
 const MAX_CHANNELS: usize = 2;
 const CLOCK_HZ: u32 = 80_000_000;
+const CAN_EFF_MASK: u32 = 0x1FFF_FFFF;
+const CAN_SFF_MASK: u32 = 0x0000_07FF;
 
 // vendor control requests (pcan_usb_pro.h)
 const REQ_TYPE_VENDOR_OTHER: u8 = 0x43;
@@ -79,10 +85,6 @@ const RX_POLL: Duration = Duration::from_millis(100);
 const RX_QUEUE_LIMIT: usize = 4096;
 const RECONNECT_BACKOFF_MS: [u64; 3] = [20, 100, 300];
 const DEFAULT_DATA_BITRATE: u32 = 5_000_000;
-const SAMPLE_POINT: f64 = 0.75;
-/// Set to 0/false/off to send CAN FD frames without bit-rate switch
-/// (same variable as the Linux SocketCAN FD backend; default here: on).
-const BRS_ENV: &str = "MOTOR_SOCKETCANFD_BRS";
 
 /// CAN bit timing in time quanta of the 80 MHz adapter clock.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,33 +96,45 @@ pub struct BitTiming {
 }
 
 impl BitTiming {
-    /// Nominal (arbitration) bit timing: smallest exact prescaler, 75 % sample point.
+    /// Nominal (arbitration) bit timing.
     pub fn for_bitrate(bitrate: u32) -> Result<Self> {
         Self::search(bitrate, 256, 128)
     }
 
-    /// CAN FD data-phase bit timing (narrower register fields), 75 % sample point.
+    /// CAN FD data-phase bit timing (narrower register fields).
     pub fn for_data_bitrate(bitrate: u32) -> Result<Self> {
         Self::search(bitrate, 32, 16)
     }
 
+    /// Smallest exact prescaler, with the sample point and SJW defaults of
+    /// Linux `can_calc_bittiming`.
     fn search(bitrate: u32, max_tseg1: u32, max_tseg2: u32) -> Result<Self> {
         if bitrate == 0 {
             return Err(MotorError::InvalidArgument("bitrate must be > 0".into()));
         }
-        for brp in 1u32..=1024 {
+        let sample_point = match bitrate {
+            800_001.. => 750,
+            500_001.. => 800,
+            _ => 875,
+        };
+        // Bounding brp keeps brp * bitrate <= CLOCK_HZ, so it cannot overflow.
+        for brp in 1u32..=(CLOCK_HZ / bitrate).min(1024) {
             if !CLOCK_HZ.is_multiple_of(brp * bitrate) {
                 continue;
             }
             let ntq = CLOCK_HZ / (brp * bitrate);
-            let tseg1 = ((ntq as f64) * SAMPLE_POINT).round() as u32 - 1;
-            let tseg2 = ntq - 1 - tseg1;
-            if (1..=max_tseg1).contains(&tseg1) && (1..=max_tseg2).contains(&tseg2) {
+            if !(3..=1 + max_tseg1 + max_tseg2).contains(&ntq) {
+                continue;
+            }
+            let tseg2 = ntq - sample_point * ntq / 1000;
+            let tseg1 = ntq - 1 - tseg2;
+            if tseg1 <= max_tseg1 && tseg2 <= max_tseg2 {
+                let phase_seg1 = tseg1 - tseg1 / 2;
                 return Ok(Self {
                     brp: brp as u16,
                     tseg1: tseg1 as u16,
                     tseg2: tseg2 as u16,
-                    sjw: tseg2.min(16) as u16,
+                    sjw: (tseg2 / 2).min(phase_seg1).max(1) as u16,
                 });
             }
         }
@@ -199,13 +213,21 @@ pub fn encode_tx(channel: u8, frame: &CanFrame, fd: bool, brs: bool) -> Result<V
             frame.dlc
         )));
     }
+    if !frame.is_extended && frame.arbitration_id > CAN_SFF_MASK {
+        return Err(MotorError::InvalidArgument(format!(
+            "invalid arbitration_id {:X}, expected 11-bit std id",
+            frame.arbitration_id
+        )));
+    }
+    if frame.is_extended && frame.arbitration_id > CAN_EFF_MASK {
+        return Err(MotorError::InvalidArgument(format!(
+            "invalid arbitration_id {:X}, expected 29-bit ext id",
+            frame.arbitration_id
+        )));
+    }
     let len = usize::from(frame.dlc);
     let size = (20 + len + 3) & !3;
-    let (mut flags, id) = if frame.is_extended {
-        (FLAG_EXT_ID, frame.arbitration_id & 0x1fff_ffff)
-    } else {
-        (0, frame.arbitration_id & 0x7ff)
-    };
+    let mut flags = if frame.is_extended { FLAG_EXT_ID } else { 0 };
     if fd {
         flags |= FLAG_EXT_DATA_LEN; // DLC 0..8 encodes the same length in CAN FD
         if brs {
@@ -219,7 +241,7 @@ pub fn encode_tx(channel: u8, frame: &CanFrame, fd: bool, brs: bool) -> Result<V
     out.push((channel & 0xf) | (frame.dlc << 4));
     out.push(0); // client
     out.extend_from_slice(&flags.to_le_bytes());
-    out.extend_from_slice(&id.to_le_bytes());
+    out.extend_from_slice(&frame.arbitration_id.to_le_bytes());
     out.extend_from_slice(&frame.data[..len]);
     out.resize(size + 4, 0);
     Ok(out)
@@ -282,7 +304,7 @@ pub fn decode_rx(buf: &[u8]) -> Vec<RxEvent> {
     events
 }
 
-/// Parse `can1@500000`, `1`, `can0`, `can0@1000000/5000000` into
+/// Parse `can1@500000`, `can0`, `can0@1000000/5000000` into
 /// (channel index, nominal bitrate, optional CAN FD data bitrate).
 pub fn parse_channel(spec: &str) -> Result<(u8, u32, Option<u32>)> {
     let parse = |s: &str| {
@@ -297,13 +319,23 @@ pub fn parse_channel(spec: &str) -> Result<(u8, u32, Option<u32>)> {
         },
         None => (spec, 1_000_000, None),
     };
-    let lower = name.trim().to_ascii_lowercase();
-    let idx = lower.strip_prefix("can").unwrap_or(&lower);
-    let channel = idx.parse::<u8>().map_err(|_| {
-        MotorError::InvalidArgument(format!(
-            "unsupported channel '{spec}', use can0/can1 (optionally @bitrate)"
-        ))
-    })?;
+    // `<serial>:canN` is reserved for selecting an adapter by serial number.
+    if name.contains(':') {
+        return Err(MotorError::Unsupported(format!(
+            "selecting an adapter by serial number ('{spec}') is not supported yet; \
+             use canN to address the first adapter found"
+        )));
+    }
+    let channel = name
+        .trim()
+        .to_ascii_lowercase()
+        .strip_prefix("can")
+        .and_then(|idx| idx.parse::<u8>().ok())
+        .ok_or_else(|| {
+            MotorError::InvalidArgument(format!(
+                "unsupported channel '{spec}', use can0/can1 (optionally @bitrate)"
+            ))
+        })?;
     if usize::from(channel) >= MAX_CHANNELS {
         return Err(MotorError::InvalidArgument(format!(
             "channel index {channel} out of range (0..{MAX_CHANNELS})"
@@ -631,17 +663,6 @@ pub struct PcanUsbFdBus {
     active: AtomicBool,
 }
 
-fn brs_from_env() -> bool {
-    std::env::var(BRS_ENV)
-        .map(|v| {
-            !matches!(
-                v.trim().to_ascii_lowercase().as_str(),
-                "0" | "false" | "off" | "no"
-            )
-        })
-        .unwrap_or(true)
-}
-
 impl PcanUsbFdBus {
     /// Classic CAN, or CAN FD if the spec carries a data bitrate (`can0@1000000/5000000`).
     pub fn open(spec: &str) -> Result<Self> {
@@ -649,8 +670,8 @@ impl PcanUsbFdBus {
         Self::open_with(spec, data.is_some())
     }
 
-    /// CAN FD (data bitrate from the spec, default 5 Mbit/s). FD frames are sent
-    /// with bit-rate switch unless `MOTOR_SOCKETCANFD_BRS=0`.
+    /// CAN FD (data bitrate from the spec, default 5 Mbit/s). As with SocketCAN FD,
+    /// frames use bit-rate switch only with `MOTOR_SOCKETCANFD_BRS=1`.
     pub fn open_fd(spec: &str) -> Result<Self> {
         Self::open_with(spec, true)
     }
@@ -676,7 +697,7 @@ impl PcanUsbFdBus {
             bt,
             dbt,
             fd,
-            brs: fd && brs_from_env(),
+            brs: fd && crate::bus::canfd_brs_from_env(),
             active: AtomicBool::new(true),
         })
     }
@@ -783,9 +804,11 @@ mod tests {
                 brp: 1,
                 tseg1: 59,
                 tseg2: 20,
-                sjw: 16
+                sjw: 10
             }
-        ); // 75 % sample point
+        ); // 75 % sample point, as Linux at 1 Mbit/s
+        let bt = BitTiming::for_bitrate(500_000).unwrap();
+        assert_eq!((bt.brp, bt.tseg1, bt.tseg2), (1, 139, 20)); // 87.5 %
         let dbt = BitTiming::for_data_bitrate(5_000_000).unwrap();
         assert_eq!(
             dbt,
@@ -793,7 +816,7 @@ mod tests {
                 brp: 1,
                 tseg1: 11,
                 tseg2: 4,
-                sjw: 4
+                sjw: 2
             }
         );
         for br in [500_000, 250_000, 125_000, 800_000, 50_000] {
@@ -801,16 +824,20 @@ mod tests {
             let ntq = 1 + u32::from(bt.tseg1) + u32::from(bt.tseg2);
             assert_eq!(CLOCK_HZ / (u32::from(bt.brp) * ntq), br);
         }
+        for br in [7_000_000, 80_000_001, u32::MAX] {
+            assert!(BitTiming::for_bitrate(br).is_err());
+            assert!(BitTiming::for_data_bitrate(br).is_err());
+        }
     }
 
     #[test]
     fn timing_slow_record_layout() {
         let bt = BitTiming::for_bitrate(1_000_000).unwrap();
         // opcode 0x004 on channel 1 -> 0x1004 LE; ewl, sjw-1, tseg2-1, tseg1-1, brp-1 LE
-        assert_eq!(cmd_timing_slow(1, bt), [0x04, 0x10, 96, 15, 19, 58, 0, 0]);
+        assert_eq!(cmd_timing_slow(1, bt), [0x04, 0x10, 96, 9, 19, 58, 0, 0]);
         let dbt = BitTiming::for_data_bitrate(5_000_000).unwrap();
         // opcode 0x005 on channel 0; unused, sjw-1, tseg2-1, tseg1-1, brp-1 LE
-        assert_eq!(cmd_timing_fast(0, dbt), [0x05, 0x00, 0, 3, 3, 10, 0, 0]);
+        assert_eq!(cmd_timing_fast(0, dbt), [0x05, 0x00, 0, 1, 3, 10, 0, 0]);
     }
 
     #[test]
@@ -835,6 +862,30 @@ mod tests {
         assert_eq!(&pkt[16..20], &0x7ffu32.to_le_bytes());
         assert_eq!(&pkt[20..23], &[0x07, 0x00, 0xcc]);
         assert_eq!(&pkt[28..], &[0, 0, 0, 0]);
+
+        let ext = CanFrame {
+            arbitration_id: 0x1fff_ffff,
+            is_extended: true,
+            ..frame
+        };
+        let pkt = encode_tx(0, &ext, false, false).unwrap();
+        assert_eq!(&pkt[14..16], &FLAG_EXT_ID.to_le_bytes());
+        assert_eq!(&pkt[16..20], &0x1fff_ffffu32.to_le_bytes());
+        for bad in [
+            CanFrame {
+                arbitration_id: 0x800,
+                ..frame
+            },
+            CanFrame {
+                arbitration_id: 0x2000_0000,
+                ..ext
+            },
+        ] {
+            assert!(matches!(
+                encode_tx(0, &bad, false, false),
+                Err(MotorError::InvalidArgument(_))
+            ));
+        }
     }
 
     fn rx_record(channel: u8, id: u32, data: &[u8], flags: u16) -> Vec<u8> {
@@ -883,14 +934,18 @@ mod tests {
     fn parse_channel_forms() {
         assert_eq!(parse_channel("can0").unwrap(), (0, 1_000_000, None));
         assert_eq!(parse_channel("can1@500000").unwrap(), (1, 500_000, None));
-        assert_eq!(parse_channel("1").unwrap(), (1, 1_000_000, None));
         assert_eq!(
             parse_channel("can1@1000000/5000000").unwrap(),
             (1, 1_000_000, Some(5_000_000))
         );
         assert!(parse_channel("can0@1000000/x").is_err());
         assert!(parse_channel("can2").is_err());
+        assert!(parse_channel("1").is_err());
         assert!(parse_channel("canX").is_err());
         assert!(parse_channel("can0@fast").is_err());
+        assert!(matches!(
+            parse_channel("ABC123:can0@1000000"),
+            Err(MotorError::Unsupported(_))
+        ));
     }
 }

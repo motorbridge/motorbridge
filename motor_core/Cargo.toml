@@ -10,7 +10,7 @@ workspace = true
 
 [features]
 test-support = []
-# Native libusb backend for PEAK uCAN adapters (PCAN-USB FD / Pro FD / X6), all channels.
+# Native libusb backend for PEAK uCAN adapters (e.g. both channels of a PCAN-USB Pro FD).
 pcan-usb-fd = ["dep:rusb"]
 
 [lib]
