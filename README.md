@@ -690,6 +690,34 @@ Replace `motor-id` and `feedback-id` with your scan hits.
 - `hits=0` on scan:
   - Check wiring, power, termination resistor, and CAN bitrate.
 
+### 11. Optional: native backend (both channels, CAN FD, no PCBUSB)
+
+With PCBUSB, the second channel of a PCAN-USB Pro FD does not open (`can1` fails with `PCAN_ERROR_ILLHW`).
+The optional `pcan-usb-fd` feature talks to PEAK uCAN adapters directly over libusb. It is selected per channel with the `peakusb:` prefix; channels without it keep using PCBUSB.
+`peakusb:can0` and `peakusb:can1` reach both ports of a PCAN-USB Pro FD, in classic CAN or CAN FD (frames up to 8 bytes).
+Only the first adapter found is used: a second adapter is not reachable, and a PCAN-USB X6 only exposes two of its six channels.
+`peakusb:<serial>:can0` is reserved for selecting an adapter by serial number, and currently returns a "not supported yet" error.
+
+```bash
+# build with the native backend
+cargo build --release -p motor_cli -p motor_abi --features motor_core/pcan-usb-fd
+
+# classic CAN
+./target/release/motor_cli \
+  --vendor damiao --channel peakusb:can1@1000000 --mode scan --start-id 1 --end-id 16
+
+# CAN FD: give a data bitrate (nominal/data)
+./target/release/motor_cli \
+  --vendor damiao --channel peakusb:can1@1000000/5000000 --mode scan --start-id 1 --end-id 8
+
+# Python SDK (Python >= 3.10): editable install picks up target/release/libmotor_abi.dylib
+pip install -e bindings/python
+```
+
+In Python: `Controller("peakusb:can1")` for classic CAN, `Controller("peakusb:can1@1000000/5000000")` for CAN FD.
+The `socketcanfd` transport also accepts `peakusb:` channels (default 1 Mbit/s nominal, 5 Mbit/s data).
+As with SocketCAN FD, CAN FD frames only switch to the data bitrate with `MOTOR_SOCKETCANFD_BRS=1`; otherwise the whole frame is sent at the nominal bitrate.
+
 
 ## Linux CANable candleLight / gs_usb Quick Guide
 

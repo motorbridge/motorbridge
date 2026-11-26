@@ -108,11 +108,7 @@ pub struct SocketCanFdBus {
 
 impl SocketCanFdBus {
     pub fn open(interface: &str) -> Result<Self> {
-        let enable_brs = std::env::var("MOTOR_SOCKETCANFD_BRS")
-            .ok()
-            .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "on" | "ON"))
-            .unwrap_or(false);
-        Self::open_with_brs(interface, enable_brs)
+        Self::open_with_brs(interface, crate::bus::canfd_brs_from_env())
     }
 
     pub fn open_with_brs(interface: &str, enable_brs: bool) -> Result<Self> {

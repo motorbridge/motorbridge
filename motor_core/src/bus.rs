@@ -28,7 +28,44 @@ pub trait CanBus: Send + Sync {
     fn shutdown(&self) -> Result<()>;
 }
 
+/// `MOTOR_SOCKETCANFD_BRS=1|true|on` sends CAN FD frames with bit-rate switch;
+/// default off. Shared by every CAN FD backend.
+#[cfg(any(target_os = "linux", feature = "pcan-usb-fd"))]
+pub(crate) fn canfd_brs_from_env() -> bool {
+    std::env::var("MOTOR_SOCKETCANFD_BRS")
+        .ok()
+        .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "on" | "ON"))
+        .unwrap_or(false)
+}
+
+/// Prefix that selects the native libusb driver for PEAK uCAN adapters
+/// (see `pcan_usb_fd`), e.g. `peakusb:can1@1000000`, or
+/// `peakusb:can0@1000000/5000000` for CAN FD.
+pub const PEAKUSB_PREFIX: &str = "peakusb:";
+
+fn open_peakusb(spec: &str, fd: bool) -> Result<Arc<dyn CanBus>> {
+    #[cfg(feature = "pcan-usb-fd")]
+    {
+        let bus: Arc<dyn CanBus> = Arc::new(if fd {
+            crate::pcan_usb_fd::PcanUsbFdBus::open_fd(spec)?
+        } else {
+            crate::pcan_usb_fd::PcanUsbFdBus::open(spec)?
+        });
+        Ok(bus)
+    }
+    #[cfg(not(feature = "pcan-usb-fd"))]
+    {
+        let _ = (spec, fd);
+        Err(crate::error::MotorError::Unsupported(
+            "peakusb: channels need motor_core built with the `pcan-usb-fd` feature".to_string(),
+        ))
+    }
+}
+
 pub fn open_can_bus(channel: &str) -> Result<Arc<dyn CanBus>> {
+    if let Some(spec) = channel.strip_prefix(PEAKUSB_PREFIX) {
+        return open_peakusb(spec, false);
+    }
     #[cfg(target_os = "linux")]
     {
         let bus: Arc<dyn CanBus> = Arc::new(SocketCanBus::open(channel)?);
@@ -57,6 +94,9 @@ pub fn open_socketcan(channel: &str) -> Result<Arc<dyn CanBus>> {
 }
 
 pub fn open_socketcanfd(channel: &str) -> Result<Arc<dyn CanBus>> {
+    if let Some(spec) = channel.strip_prefix(PEAKUSB_PREFIX) {
+        return open_peakusb(spec, true);
+    }
     #[cfg(target_os = "linux")]
     {
         let bus: Arc<dyn CanBus> = Arc::new(SocketCanFdBus::open(channel)?);
@@ -145,5 +185,21 @@ pub fn open_transport(t: Transport, p: &TransportParams<'_>) -> Result<Arc<dyn C
             p.serial_port,
             p.serial_baud,
         )?)),
+    }
+}
+
+#[cfg(all(test, not(feature = "pcan-usb-fd")))]
+mod tests {
+    use super::*;
+    use crate::error::MotorError;
+
+    #[test]
+    fn peakusb_prefix_without_feature_is_unsupported() {
+        for result in [
+            open_can_bus("peakusb:can0@1000000"),
+            open_socketcanfd("peakusb:can1"),
+        ] {
+            assert!(matches!(result, Err(MotorError::Unsupported(_))));
+        }
     }
 }
