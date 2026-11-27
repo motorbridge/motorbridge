@@ -48,7 +48,7 @@
 
 ## 范围
 
-- 当前目标包版本：`0.6.0`。
+- 当前目标包版本：`0.6.1`。
 - wheel 会随包携带当前平台对应的 `motor_abi` 和 `ws_gateway`，但不再内置
   DaMiao DM_Device SDK runtime。真正使用 `Controller.from_dm_device(...)`、
   Python CLI `--transport dm-device` 或

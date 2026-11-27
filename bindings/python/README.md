@@ -49,7 +49,7 @@ Notes:
 ## Scope
 Packaging note:
 
-- Current package target version: `0.6.0`.
+- Current package target version: `0.6.1`.
 - Published wheel includes `motor_abi` shared library and `ws_gateway` binary for that platform.
 - Published wheels do not bundle the DaMiao DM_Device SDK runtime. When
   `Controller.from_dm_device(...)`, Python CLI `--transport dm-device`, or

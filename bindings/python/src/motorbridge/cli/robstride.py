@@ -11,14 +11,18 @@ from .common import _open_controller, _parse_id, _vendor_defaults
 def _infer_robstride_param_type(param_id: int, explicit_type: str = "") -> str:
     if explicit_type:
         return explicit_type
-    # Match the Rust CLI's most common RobStride parameter typing.
-    if param_id == 0x7005:
-        return "i8"
-    if param_id == 0x7029:
-        return "u8"
-    if param_id == 0x7028:
-        return "u32"
-    return "f32"
+    # Match the Rust registers.rs RobStride parameter typing (section-4
+    # non-float params; everything else in the table is Float32).
+    non_f32_types = {
+        0x7005: "i8",   # run_mode
+        0x7026: "u16",  # EPScan_time
+        0x7028: "u32",  # canTimeout
+        0x7029: "u8",   # zero_sta
+        0x702A: "u8",   # damper
+        0x702C: "u8",   # alveolous_open
+        0x702D: "u8",   # iq_test
+    }
+    return non_f32_types.get(param_id, "f32")
 
 def _read_robstride_param(motor: Any, param_id: int, param_type: str, timeout_ms: int) -> int | float:
     if param_type == "i8":
